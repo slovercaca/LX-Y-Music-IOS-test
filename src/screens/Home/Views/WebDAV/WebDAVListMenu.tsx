@@ -12,6 +12,9 @@ export interface WebDAVListMenuProps {
   onPlayLater: (selectInfo: SelectInfo) => void
   onDownload: (selectInfo: SelectInfo) => void
   onFetchPicFromOnline: (selectInfo: SelectInfo) => void
+  onSpecifyPicFile: (selectInfo: SelectInfo) => void
+  onSpecifyLrcFile: (selectInfo: SelectInfo) => void
+  onClearCustomMedia: (selectInfo: SelectInfo) => void
   onEditMetadata: (selectInfo: SelectInfo) => void
   onRemove: (selectInfo: SelectInfo) => void
   onLoadMetadata: (selectInfo: SelectInfo) => void
@@ -52,6 +55,12 @@ export default forwardRef<WebDAVListMenuType, WebDAVListMenuProps>((props, ref) 
       menu.push({ action: 'playLater', label: t('play_later') })
       menu.push({ action: 'download', label: '下载' })
       menu.push({ action: 'fetchPicFromOnline', label: '在线封面' })
+      menu.push({ action: 'specifyPicFile', label: '指定封面文件' })
+      menu.push({ action: 'specifyLrcFile', label: '指定歌词文件' })
+      // 已手动指定时，允许清除恢复自动获取
+      if (selectInfo.musicInfo.meta.customPicPath || selectInfo.musicInfo.meta.customLrcPath) {
+        menu.push({ action: 'clearCustomMedia', label: '清除手动指定' })
+      }
       menu.push({ action: 'loadMetadata', label: '加载标签' })
       menu.push({ action: 'editMetadata', label: t('edit_metadata') })
       menu.push({ action: 'remove', label: t('delete') })
@@ -70,6 +79,9 @@ export default forwardRef<WebDAVListMenuType, WebDAVListMenuProps>((props, ref) 
       case 'playLater': props.onPlayLater(info); break
       case 'download': props.onDownload(info); break
       case 'fetchPicFromOnline': props.onFetchPicFromOnline(info); break
+      case 'specifyPicFile': props.onSpecifyPicFile(info); break
+      case 'specifyLrcFile': props.onSpecifyLrcFile(info); break
+      case 'clearCustomMedia': props.onClearCustomMedia(info); break
       case 'loadMetadata': props.onLoadMetadata(info); break
       case 'editMetadata': props.onEditMetadata(info); break
       case 'remove': props.onRemove(info); break

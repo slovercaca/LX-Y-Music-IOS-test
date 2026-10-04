@@ -33,6 +33,9 @@ declare namespace LX {
         // 网盘内封面/歌词文件远程路径（扫描时按同目录同名/通用封面匹配得到）
         picPath?: string
         lrcPath?: string
+        // 手动指定的本地封面/歌词文件路径（2026-10-04：每首歌单独配置，优先级最高）
+        customPicPath?: string
+        customLrcPath?: string
       }
     }
   }

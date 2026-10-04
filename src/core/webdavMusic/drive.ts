@@ -324,6 +324,9 @@ export interface WebDAVMusicMetaUpdate {
   name?: string
   singer?: string
   albumName?: string
+  /** 手动指定的本地封面/歌词文件路径（2026-10-04：每首歌单独配置） */
+  customPicPath?: string
+  customLrcPath?: string
 }
 
 export const updateWebDAVMusicMeta = async(musicId: string, update: WebDAVMusicMetaUpdate): Promise<void> => {
@@ -345,6 +348,15 @@ export const updateWebDAVMusicMeta = async(musicId: string, update: WebDAVMusicM
   // 否则播放链路会一直误判"已下载"而尝试读取不存在的文件。
   if (update.filePath !== undefined) {
     song.meta.filePath = update.filePath || ''
+  }
+  // 2026-10-04：手动指定的封面/歌词文件路径（允许用 undefined 清除）
+  if (update.customPicPath !== undefined) {
+    if (update.customPicPath) song.meta.customPicPath = update.customPicPath
+    else delete song.meta.customPicPath
+  }
+  if (update.customLrcPath !== undefined) {
+    if (update.customLrcPath) song.meta.customLrcPath = update.customLrcPath
+    else delete song.meta.customLrcPath
   }
 
   config.songs[songIndex] = song

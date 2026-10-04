@@ -228,6 +228,32 @@ export const getPicUrl = async({
 
   if (!isRefresh && !skipFilePic) {
     if (isWebDAVMusic) {
+      // 2026-10-04：手动指定的本地封面（每首歌单独配置，优先级最高）
+      const customPicPath = (musicInfo.meta as any).customPicPath as string | undefined
+      if (customPicPath) {
+        const customExists = await existsFile(customPicPath.replace('file://', '')).catch(() => false)
+        if (customExists) {
+          const customUrl = customPicPath.startsWith('file://') ? customPicPath : `file://${customPicPath}`
+          webDAVLog?.info('getPicUrl: using manually specified cover', { musicId: musicInfo.id })
+          return customUrl
+        }
+      }
+
+      // 2026-10-04：webdav.mediaSource === 'online' 时，云端插件优先（在线匹配封面）
+      if (settingState.setting['webdav.mediaSource'] === 'online') {
+        try {
+          const result = await getOnlineOtherSourcePicByLocal(musicInfo)
+          if (result.url) {
+            webDAVLog?.info('getPicUrl: fetched online cover (online-first mode)', { url: result.url })
+            const module = await loadWebDAVModule()
+            void module.updateWebDAVMusicMeta(musicInfo.id, { picUrl: result.url })
+            return result.url
+          }
+        } catch (err) {
+          webDAVLog?.warn('getPicUrl: online-first cover fetch failed, fallback to file', { err })
+        }
+      }
+
       // 网盘内封面文件优先（同目录同名 / 目录通用封面），下载到本地缓存
       try {
         const module = await loadWebDAVModule()
@@ -392,6 +418,38 @@ export const getLyricInfo = async({
 
   if (!isRefresh && !skipFileLyric) {
     if (isWebDAVMusic) {
+      // 2026-10-04：手动指定的本地歌词文件（每首歌单独配置，优先级最高）
+      const customLrcPath = (musicInfo.meta as any).customLrcPath as string | undefined
+      if (customLrcPath) {
+        const customLrcExists = await existsFile(customLrcPath.replace('file://', '')).catch(() => false)
+        if (customLrcExists) {
+          try {
+            const { readFile } = await import('@/utils/fs')
+            const lrcText = await readFile(customLrcPath.replace('file://', ''), 'utf8')
+            if (lrcText?.trim()) {
+              webDAVLog?.info('getLyricInfo: using manually specified lyric', { musicId: musicInfo.id })
+              return buildLyricInfo({ lyric: lrcText })
+            }
+          } catch (err) {
+            webDAVLog?.warn('getLyricInfo: failed to read custom lyric', { err })
+          }
+        }
+      }
+
+      // 2026-10-04：webdav.mediaSource === 'online' 时，云端插件优先（在线匹配歌词）
+      if (settingState.setting['webdav.mediaSource'] === 'online') {
+        try {
+          const { lyricInfo, isFromCache } = await getOnlineOtherSourceLyricByLocal(musicInfo, isRefresh)
+          if (lyricInfo?.lyric) {
+            webDAVLog?.info('getLyricInfo: fetched online lyric (online-first mode)', { musicId: musicInfo.id })
+            if (!isFromCache) void saveLyric(musicInfo, lyricInfo)
+            return buildLyricInfo(lyricInfo)
+          }
+        } catch (err) {
+          webDAVLog?.warn('getLyricInfo: online-first lyric fetch failed, fallback to file', { err })
+        }
+      }
+
       const playerLyricInfo = await getPlayerLyric(musicInfo)
       if (playerLyricInfo?.lyric && playerLyricInfo.rawlrcInfo?.lyric !== playerLyricInfo.lyric) {
         webDAVLog?.info('getLyricInfo: WebDAV music using edited lyric', { musicId: musicInfo.id })
