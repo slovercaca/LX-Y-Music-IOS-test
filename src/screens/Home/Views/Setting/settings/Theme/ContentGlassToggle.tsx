@@ -1,1 +1,49 @@
-Ly8gc2NyZWVucy9Ib21lL1ZpZXdzL1NldHRpbmcvc2V0dGluZ3MvVGhlbWUvQ29udGVudEdsYXNzVG9nZ2xlLnRzeAovLyDlhoXlrrnljLrnjrvnkoPlvIDlhbPvvIgyMDI2LTEwLTA077yJ77ya5YiX6KGo6aG544CB6aaW6aG15Y2h54mH562J5YaF5a655Yy65piv5ZCm5Lmf55So546755KD6IOM5pmv44CCCi8vIOW8gCA9IENvbnRlbnRHbGFzcyDotbAgTGlxdWlkR2xhc3PvvIjkuI4gdGFiIOagjy/lvLnnqpflkIzkuIDlpZfvvIzmtrLmgIEv56Oo56CC5Y+M5b2i5oCB77yJ77ybCi8vIOWFsyA9IOWQhOe7hOS7tuWOn+adpeeahOe6r+iJsuiDjOaZr+OAguWunuaXtueUn+aViO+8iENvbnRlbnRHbGFzcyDlhoXpg6jorqLpmIXorr7nva7lgLzvvInjgIIKLy8g5LiOIExpcXVpZEdsYXNzVG9nZ2xlIOS4jeWQjO+8muacrOW8gOWFs+WFqCBpT1Mg54mI5pys5pi+56S677yI56Oo56CC5b2i5oCB5Lmf5pyJ5oSP5LmJ77yJ77yM5LiN6ZqQ6JeP44CCCgppbXBvcnQgeyBtZW1vIH0gZnJvbSAncmVhY3QnCmltcG9ydCB7IFZpZXcgfSBmcm9tICdyZWFjdC1uYXRpdmUnCgppbXBvcnQgQ2hlY2tCb3hJdGVtIGZyb20gJy4uLy4uL2NvbXBvbmVudHMvQ2hlY2tCb3hJdGVtJwppbXBvcnQgVGV4dCBmcm9tICdAL2NvbXBvbmVudHMvY29tbW9uL1RleHQnCmltcG9ydCB7IGNyZWF0ZVN0eWxlIH0gZnJvbSAnQC91dGlscy90b29scycKaW1wb3J0IHsgdXNlSTE4biB9IGZyb20gJ0AvbGFuZycKaW1wb3J0IHsgdXBkYXRlU2V0dGluZyB9IGZyb20gJ0AvY29yZS9jb21tb24nCmltcG9ydCB7IHVzZVNldHRpbmdWYWx1ZSB9IGZyb20gJ0Avc3RvcmUvc2V0dGluZy9ob29rJwppbXBvcnQgeyB1c2VUaGVtZSB9IGZyb20gJ0Avc3RvcmUvdGhlbWUvaG9vaycKaW1wb3J0IHsgZGVzaWduVHlwb2dyYXBoeSB9IGZyb20gJ0AvdGhlbWUvRGVzaWduVG9rZW5zJwoKZXhwb3J0IGRlZmF1bHQgbWVtbygoKSA9PiB7CiAgY29uc3QgdCA9IHVzZUkxOG4oKQogIGNvbnN0IHRoZW1lID0gdXNlVGhlbWUoKQogIGNvbnN0IGdsYXNzQ29udGVudCA9IHVzZVNldHRpbmdWYWx1ZSgndGhlbWUuZ2xhc3NDb250ZW50JykKICBjb25zdCBzZXRHbGFzc0NvbnRlbnQgPSAoZW5hYmxlZDogYm9vbGVhbikgPT4gewogICAgdXBkYXRlU2V0dGluZyh7ICd0aGVtZS5nbGFzc0NvbnRlbnQnOiBlbmFibGVkIH0pCiAgfQoKICByZXR1cm4gKAogICAgPFZpZXcgc3R5bGU9e3N0eWxlcy5jb250ZW50fT4KICAgICAgPENoZWNrQm94SXRlbQogICAgICAgIGNoZWNrPXtnbGFzc0NvbnRlbnR9CiAgICAgICAgbGFiZWw9e3QoJ3NldHRpbmdfYmFzaWNfdGhlbWVfZ2xhc3NfY29udGVudCcpfQogICAgICAgIG9uQ2hhbmdlPXtzZXRHbGFzc0NvbnRlbnR9CiAgICAgIC8+CiAgICAgIDxUZXh0IHN0eWxlPXtzdHlsZXMuZGVzY30gY29sb3I9e3RoZW1lWydjLWZvbnQtbGFiZWwnXX0gc2l6ZT17ZGVzaWduVHlwb2dyYXBoeS5jYXB0aW9ufT4KICAgICAgICB7dCgnc2V0dGluZ19iYXNpY190aGVtZV9nbGFzc19jb250ZW50X2Rlc2MnKX0KICAgICAgPC9UZXh0PgogICAgPC9WaWV3PgogICkKfSkKCmNvbnN0IHN0eWxlcyA9IGNyZWF0ZVN0eWxlKHsKICBjb250ZW50OiB7CiAgICBtYXJnaW5Ub3A6IDUsCiAgICBtYXJnaW5Cb3R0b206IDE1LAogIH0sCiAgZGVzYzogewogICAgbGluZUhlaWdodDogMTYsCiAgfSwKfSkK
+// screens/Home/Views/Setting/settings/Theme/ContentGlassToggle.tsx
+// 内容区玻璃开关（2026-10-04）：列表项、首页卡片等内容区是否也用玻璃背景。
+// 开 = ContentGlass 走 LiquidGlass（与 tab 栏/弹窗同一套，液态/磨砂双形态）；
+// 关 = 各组件原来的纯色背景。实时生效（ContentGlass 内部订阅设置值）。
+// 与 LiquidGlassToggle 不同：本开关全 iOS 版本显示（磨砂形态也有意义），不隐藏。
+
+import { memo } from 'react'
+import { View } from 'react-native'
+
+import CheckBoxItem from '../../components/CheckBoxItem'
+import Text from '@/components/common/Text'
+import { createStyle } from '@/utils/tools'
+import { useI18n } from '@/lang'
+import { updateSetting } from '@/core/common'
+import { useSettingValue } from '@/store/setting/hook'
+import { useTheme } from '@/store/theme/hook'
+import { designTypography } from '@/theme/DesignTokens'
+
+export default memo(() => {
+  const t = useI18n()
+  const theme = useTheme()
+  const glassContent = useSettingValue('theme.glassContent')
+  const setGlassContent = (enabled: boolean) => {
+    updateSetting({ 'theme.glassContent': enabled })
+  }
+
+  return (
+    <View style={styles.content}>
+      <CheckBoxItem
+        check={glassContent}
+        label={t('setting_basic_theme_glass_content')}
+        onChange={setGlassContent}
+      />
+      <Text style={styles.desc} color={theme['c-font-label']} size={designTypography.caption}>
+        {t('setting_basic_theme_glass_content_desc')}
+      </Text>
+    </View>
+  )
+})
+
+const styles = createStyle({
+  content: {
+    marginTop: 5,
+    marginBottom: 15,
+  },
+  desc: {
+    lineHeight: 16,
+  },
+})

@@ -1,1 +1,52 @@
-aW1wb3J0IHsgbWVtbyB9IGZyb20gJ3JlYWN0JwppbXBvcnQgU2VjdGlvbiBmcm9tICcuLi9jb21wb25lbnRzL1NlY3Rpb24nCmltcG9ydCBUaGVtZSBmcm9tICcuL1RoZW1lL1RoZW1lJwppbXBvcnQgVGhlbWVNb2RlIGZyb20gJy4vVGhlbWUvVGhlbWVNb2RlJwppbXBvcnQgSXNEeW5hbWljQmcgZnJvbSAnLi9UaGVtZS9Jc0R5bmFtaWNCZycKaW1wb3J0IElzTGFuZHNjYXBlU3RyZXRjaCBmcm9tICcuL1RoZW1lL0lzTGFuZHNjYXBlU3RyZXRjaCcKaW1wb3J0IFNvbmdsaXN0Q29sdW1ucyBmcm9tICcuL1RoZW1lL1NvbmdsaXN0Q29sdW1ucycKaW1wb3J0IElzRm9udFNoYWRvdyBmcm9tICcuL1RoZW1lL0lzRm9udFNoYWRvdycKaW1wb3J0IEJsdXIgZnJvbSAnLi9UaGVtZS9CbHVyJwppbXBvcnQgTGlxdWlkR2xhc3NUb2dnbGUgZnJvbSAnLi9UaGVtZS9MaXF1aWRHbGFzc1RvZ2dsZScKaW1wb3J0IENvbnRlbnRHbGFzc1RvZ2dsZSBmcm9tICcuL1RoZW1lL0NvbnRlbnRHbGFzc1RvZ2dsZScKaW1wb3J0IEdsYXNzT3BhY2l0eSBmcm9tICcuL1RoZW1lL0dsYXNzT3BhY2l0eScKaW1wb3J0IEN1c3RvbUJnIGZyb20gJy4vVGhlbWUvQ3VzdG9tQmcnCmltcG9ydCBQaWNPcGFjaXR5IGZyb20gJy4vVGhlbWUvUGljT3BhY2l0eScKaW1wb3J0IFN1YkNvbnRhaW5lck9wYWNpdHkgZnJvbSAnLi9UaGVtZS9TdWJDb250YWluZXJPcGFjaXR5JwppbXBvcnQgQ2FyZE9wYWNpdHkgZnJvbSAnLi9UaGVtZS9DYXJkT3BhY2l0eScKaW1wb3J0IFRhYkJhckRpc3RhbmNlIGZyb20gJy4vVGhlbWUvVGFiQmFyRGlzdGFuY2UnCmltcG9ydCB7IHVzZVNldHRpbmdWYWx1ZSB9IGZyb20gJ0Avc3RvcmUvc2V0dGluZy9ob29rJwppbXBvcnQgeyBpc0lPUzI2XzJPckFib3ZlIH0gZnJvbSAnQC91dGlscy90b29scycKCmV4cG9ydCBkZWZhdWx0IG1lbW8oKCkgPT4gewogIGNvbnN0IGxpcXVpZEdsYXNzID0gdXNlU2V0dGluZ1ZhbHVlKCd0aGVtZS5saXF1aWRHbGFzcycpCiAgLy8g44CM546755KD5LiN6YCP5piO5bqm44CN5Y+q5a+556Oo56CC5b2i5oCB5pyJ5oSP5LmJ77yaCiAgLy8gICAtIOa2suaAgeeOu+eSg+W8gCDihpIg6ZqQ6JeP77yI5ray5oCB55qE5rWT5bqm55Sx5Li76aKY5p+T6Imy6KGo6L6+77yM5LiN5pq06Zyy5ruR5p2G77yJ77ybCiAgLy8gICAtIOWFs++8iOejqOeggu+8ieKGkiDmmL7npLrjgIIKICAvLyAqKmlPUyAyNi4yKyDluLjmmL4qKu+8iDIwMjYtMDktMzAg5a6a5qGI77yJ77yaMjYuMisg5bey6ZqQ6JeP5ray5oCB546755KD5byA5YWz44CB5pWI5p6c5by65Yi2CiAgLy8g57O757uf56Oo56CC77yITGlxdWlkR2xhc3Mg57uE5Lu25YaF5YWc5bqV77yJ77yM56Oo56CC5rWT5bqm5ruR5p2G5YWo56iL5pyJ5oSP5LmJ77yM5LiN5YaN6Lef6ZqP5q6L55WZ55qECiAgLy8g5byA5YWz5YC844CCMTR+MjYuMSDnu7TmjIHjgIzlvIDlhbPlhbPmiY3mmL7npLrjgI3jgIIKICBjb25zdCBzaG93R2xhc3NPcGFjaXR5ID0gIWxpcXVpZEdsYXNzIHx8IGlzSU9TMjZfMk9yQWJvdmUKCiAgcmV0dXJuICgKICAgIDxTZWN0aW9uIHNlY3Rpb25JZD0ic2V0dGluZ190aGVtZSI+CiAgICAgIDxUaGVtZSAvPgogICAgICA8VGhlbWVNb2RlIC8+CiAgICAgIDxJc0R5bmFtaWNCZyAvPgogICAgICA8SXNMYW5kc2NhcGVTdHJldGNoIC8+CiAgICAgIDxTb25nbGlzdENvbHVtbnMgLz4KICAgICAgPEN1c3RvbUJnIC8+CiAgICAgIDxQaWNPcGFjaXR5IC8+CiAgICAgIDxCbHVyIC8+CiAgICAgIHsvKiDmtrLmgIHnjrvnkoPlvIDlhbPvvIjku4UgaU9TIDE0fjI2LjHvvIwyNi4yKyDmlbTooYzpmpDol4/vvInvvJrlvIAgPSB2ZW5kb3JlZCBNZXRhbCDmtrLmgIHnjrvnkoPvvIzlhbMgPSDns7vnu5/no6jnoIIgKi99CiAgICAgIDxMaXF1aWRHbGFzc1RvZ2dsZSAvPgogICAgICB7c2hvd0dsYXNzT3BhY2l0eSAmJiA8R2xhc3NPcGFjaXR5IC8+fQogICAgICB7Lyog5YaF5a655Yy6546755KD5byA5YWz77yI5YWo54mI5pys5pi+56S677yJ77ya5YiX6KGo6aG544CB6aaW6aG15Y2h54mH562J5YaF5a655Yy65Lmf55So546755KDICovfQogICAgICA8Q29udGVudEdsYXNzVG9nZ2xlIC8+CiAgICAgIDxTdWJDb250YWluZXJPcGFjaXR5IC8+CiAgICAgIDxDYXJkT3BhY2l0eSAvPgogICAgICA8SXNGb250U2hhZG93IC8+CiAgICAgIDxUYWJCYXJEaXN0YW5jZSAvPgogICAgPC9TZWN0aW9uPgogICkKfSkK
+import { memo } from 'react'
+import Section from '../components/Section'
+import Theme from './Theme/Theme'
+import ThemeMode from './Theme/ThemeMode'
+import IsDynamicBg from './Theme/IsDynamicBg'
+import IsLandscapeStretch from './Theme/IsLandscapeStretch'
+import SonglistColumns from './Theme/SonglistColumns'
+import IsFontShadow from './Theme/IsFontShadow'
+import Blur from './Theme/Blur'
+import LiquidGlassToggle from './Theme/LiquidGlassToggle'
+import ContentGlassToggle from './Theme/ContentGlassToggle'
+import GlassOpacity from './Theme/GlassOpacity'
+import CustomBg from './Theme/CustomBg'
+import PicOpacity from './Theme/PicOpacity'
+import SubContainerOpacity from './Theme/SubContainerOpacity'
+import CardOpacity from './Theme/CardOpacity'
+import TabBarDistance from './Theme/TabBarDistance'
+import { useSettingValue } from '@/store/setting/hook'
+import { isIOS26_2OrAbove } from '@/utils/tools'
+
+export default memo(() => {
+  const liquidGlass = useSettingValue('theme.liquidGlass')
+  // 「玻璃不透明度」只对磨砂形态有意义：
+  //   - 液态玻璃开 → 隐藏（液态的浓度由主题染色表达，不暴露滑杆）；
+  //   - 关（磨砂）→ 显示。
+  // **iOS 26.2+ 常显**（2026-09-30 定案）：26.2+ 已隐藏液态玻璃开关、效果强制
+  // 系统磨砂（LiquidGlass 组件内兜底），磨砂浓度滑杆全程有意义，不再跟随残留的
+  // 开关值。14~26.1 维持「开关关才显示」。
+  const showGlassOpacity = !liquidGlass || isIOS26_2OrAbove
+
+  return (
+    <Section sectionId="setting_theme">
+      <Theme />
+      <ThemeMode />
+      <IsDynamicBg />
+      <IsLandscapeStretch />
+      <SonglistColumns />
+      <CustomBg />
+      <PicOpacity />
+      <Blur />
+      {/* 液态玻璃开关（仅 iOS 14~26.1，26.2+ 整行隐藏）：开 = vendored Metal 液态玻璃，关 = 系统磨砂 */}
+      <LiquidGlassToggle />
+      {showGlassOpacity && <GlassOpacity />}
+      {/* 内容区玻璃开关（全版本显示）：列表项、首页卡片等内容区也用玻璃 */}
+      <ContentGlassToggle />
+      <SubContainerOpacity />
+      <CardOpacity />
+      <IsFontShadow />
+      <TabBarDistance />
+    </Section>
+  )
+})
