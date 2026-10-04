@@ -42,6 +42,7 @@
 
 - [@Q-1515/lx-music-mobile](https://github.com/Q-1515/lx-music-mobile/tree/ios-adaptation)（ios-adaptation 分支）
 - [@WalnutBai/lx-lxwalnut-music-mobile](https://github.com/WalnutBai/lx-lxwalnut-music-mobile/tree/main-debug)（main-debug 分支）
+- [@1970905901/LX-Y-Music-IOS](https://github.com/1970905901/LX-Y-Music-IOS) (ios-adaptation分支)
 
 ## 下载与构建
 
