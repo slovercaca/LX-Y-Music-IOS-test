@@ -5,7 +5,7 @@ import Text from '@/components/common/Text'
 import { useTheme } from '@/store/theme/hook'
 import { useHorizontalMode } from '@/utils/hooks'
 import { useI18n } from '@/lang'
-import { createStyle, toast } from '@/utils/tools'
+import { createStyle, toast, confirmDialog } from '@/utils/tools'
 import { useDownloadTasks } from '@/store/download/hook'
 import { useSettingValue } from '@/store/setting/hook'
 import { usePlayMusicInfo } from '@/store/player/hook'
@@ -317,23 +317,41 @@ export default memo(() => {
 
   const handleDeleteSelected = useCallback(() => {
     if (selectedIds.size === 0) return
-    if (tab === 'download') {
-      for (const id of selectedIds) {
-        const task = completedTasks.find(t => t.id === id)
-        if (!task) continue
-        const removeFile = task.filePath ? unlink(task.filePath).catch(() => {}) : Promise.resolve()
-        void removeFile.then(() => { downloadActions.removeTask(id) })
+    const ids = [...selectedIds]
+    // P0 修复：批量删除真实文件是不可逆的破坏性操作，必须二次确认并显示数量；
+    // 删除失败要如实报告，不能 catch 后照样 toast「已删除」。
+    void confirmDialog({
+      message: `确定删除选中的 ${ids.length} 个文件吗？此操作不可恢复。`,
+    }).then(async(confirmed) => {
+      if (!confirmed) return
+      let failed = 0
+      if (tab === 'download') {
+        for (const id of ids) {
+          const task = completedTasks.find(t => t.id === id)
+          if (!task) continue
+          try {
+            if (task.filePath) await unlink(task.filePath)
+            downloadActions.removeTask(id)
+          } catch {
+            failed++
+          }
+        }
+      } else {
+        for (const id of ids) {
+          const item = localFiles.find(f => f.id === id)
+          if (!item) continue
+          try {
+            await unlink(item.path)
+          } catch {
+            failed++
+          }
+        }
       }
-    } else {
-      for (const id of selectedIds) {
-        const item = localFiles.find(f => f.id === id)
-        if (!item) continue
-        void unlink(item.path).catch(() => {})
-      }
-    }
-    toast('已删除', 'short')
-    exitSelecting()
-    void scanLocalDir()
+      if (failed > 0) toast(`已删除 ${ids.length - failed} 个，${failed} 个删除失败`, 'short')
+      else toast('已删除', 'short')
+      exitSelecting()
+      void scanLocalDir()
+    })
   }, [selectedIds, tab, completedTasks, localFiles, exitSelecting, scanLocalDir])
 
   const isPlayingId = playMusicInfo.musicInfo?.id

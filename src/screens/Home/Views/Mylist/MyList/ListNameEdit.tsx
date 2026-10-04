@@ -53,12 +53,19 @@ export default forwardRef<ListNameEditType, {}>((props, ref) => {
   const alertRef = useRef<ConfirmAlertType>(null)
   const nameInputRef = useRef<NameInputType>(null)
   const [position, setPosition] = useState(0)
+  // P0 修复：position 的 ref 镜像。showCreate/show 里 setPosition 后若同步调
+  // handleShow，读到的 position state 还是旧值（新建/重命名分支错乱）。
+  // 命令式路径统一读 ref，render 里的标题继续用 state。
+  const positionRef = useRef(0)
   const selectedListInfo = useRef<LX.List.UserListInfo>(initSelectInfo as LX.List.UserListInfo)
   const [visible, setVisible] = useState(false)
 
   const handleShow = () => {
     alertRef.current?.setVisible(true)
-    const name = position == -1 ? '' : (selectedListInfo.current.name ?? '')
+    // P0 修复：三元分支写反了。position == -1 是重命名模式，应回显原名；
+    // 新建模式应给空输入框（之前新建会带入上次重命名的残留旧名）。
+    const pos = positionRef.current
+    const name = pos == -1 ? (selectedListInfo.current.name ?? '') : ''
     requestAnimationFrame(() => {
       nameInputRef.current?.setName(name)
       setTimeout(() => {
@@ -68,6 +75,7 @@ export default forwardRef<ListNameEditType, {}>((props, ref) => {
   }
   useImperativeHandle(ref, () => ({
     showCreate(position) {
+      positionRef.current = position
       setPosition(position)
       if (visible) handleShow()
       else {
@@ -78,6 +86,7 @@ export default forwardRef<ListNameEditType, {}>((props, ref) => {
       }
     },
     show(listInfo) {
+      positionRef.current = -1
       setPosition(-1)
       selectedListInfo.current = listInfo
       if (visible) handleShow()
@@ -94,7 +103,7 @@ export default forwardRef<ListNameEditType, {}>((props, ref) => {
     let name = nameInputRef.current?.getText() ?? ''
     if (!name.length) return
     if (name.length > 100) name = name.substring(0, 100)
-    if (position == -1) {
+    if (positionRef.current == -1) {
       void updateUserList([{ ...selectedListInfo.current, name }])
     } else {
       void (

@@ -34,8 +34,14 @@ export default forwardRef<MetadataEditType, MetadataEditProps>((props, ref) => {
   const [visible, setVisible] = useState(false)
   const [processing, setProcessing] = useState(false)
   const musicInfoRef = useRef<LX.Music.MusicInfo | null>(null)
+  // P0 修复：快速切换文件时的读取代际。readMetadata/readPic/readLyric 是异步的，
+  // 先打开的文件 A 若读取更慢，它的结果会后到并覆盖文件 B 的表单，而此时
+  // filePath.current 已经是 B——保存就会把 A 的元数据写进 B 的文件。
+  // 只有最新一次 show() 的读取结果才允许写表单。
+  const showSeq = useRef(0)
 
   const handleShow = (filePath: string, musicInfo?: LX.Music.MusicInfo) => {
+    const seq = ++showSeq.current
     musicInfoRef.current = musicInfo || null
     alertRef.current?.setVisible(true)
     console.log(`[编辑标签] 开始读取元数据: ${filePath}`)
@@ -44,6 +50,10 @@ export default forwardRef<MetadataEditType, MetadataEditProps>((props, ref) => {
       readPic(filePath).catch(() => ''),
       readLyric(filePath, false).catch(() => ''),
     ]).then(async([_metadata, pic, lyric]) => {
+      if (seq !== showSeq.current) {
+        console.log(`[编辑标签] 丢弃过期文件的读取结果: ${filePath}`)
+        return
+      }
       console.log(`[编辑标签] 读取结果: metadata=${JSON.stringify(_metadata)}, pic=${pic ? '有' : '无'}, lyric=${lyric ? '有' : '无'}`)
       if (!_metadata) {
         console.log('[编辑标签] 警告: 未能读取到元数据，使用文件名作为歌名')

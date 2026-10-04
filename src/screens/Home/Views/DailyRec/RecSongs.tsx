@@ -39,6 +39,13 @@ export default memo(({ header, isStylized, stylizedSelection }: RecSongsProps) =
   const listRef = useRef<OnlineListType>(null)
   const unmountedRef = useRef(false)
   const [isLoading, setIsLoading] = useState(true)
+  // P0 修复：isLoading 的 state 只用于 render（295 行的指示器），effect 内改读 ref。
+  // 原来 effect 依赖里含 isLoading，而链尾 finally 又 setIsLoading(false)，导致
+  // 网络失败时 effect 无限重跑、持续打接口（电量/流量黑洞）。
+  const isLoadingRef = useRef(true)
+  useEffect(() => {
+    isLoadingRef.current = isLoading
+  })
   const t = useI18n()
   const cookie = useSettingValue('common.wy_cookie')
   const playerMusicInfo = usePlayerMusicInfo()
@@ -55,7 +62,7 @@ export default memo(({ header, isStylized, stylizedSelection }: RecSongsProps) =
 
   useEffect(() => {
     if (!cookie) {
-      if (isLoading) {
+      if (isLoadingRef.current) {
         toast('请先设置网易云 Cookie')
         setIsLoading(false)
       }
@@ -214,7 +221,7 @@ export default memo(({ header, isStylized, stylizedSelection }: RecSongsProps) =
         setIsLoading(false)
       })
     }
-  }, [t, cookie, isStylized, stylizedSelection, isLoading])
+  }, [t, cookie, isStylized, stylizedSelection])
 
   useEffect(() => {
     const handleReplaceMusic = (oldMusicInfoId: string, newMusicInfo: LX.Music.MusicInfoOnline | null) => {

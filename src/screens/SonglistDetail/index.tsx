@@ -22,6 +22,7 @@ import wyApi from '@/utils/musicSdk/wy/user'
 import { addWySubscribedPlaylist, removeWySubscribedPlaylist } from '@/store/user/action'
 
 import { type DetailInfo } from '@/screens/SonglistDetail/Header.tsx'
+import { setComponentId } from '@/core/common'
 import LandscapeDetailLayout from '@/components/LandscapeDetailLayout'
 import PageContent from '@/components/PageContent'
 import SwipeBackArea from '@/components/common/SwipeBackArea'
@@ -176,6 +177,13 @@ export default ({ info, onBack, componentId, initialScrollToInfo }: { info: List
     // 平台侧有更新时由「设置 - 平台设置 - 更新同步」或页面下拉刷新强制重拉
     refreshList()
   }, [refreshList])
+
+  useEffect(() => {
+    // P0 修复：登记自己的 componentId。原来没登记，从歌单详情页 push
+    // 歌手/专辑详情等新页面时，会拿到栈顶残留的旧 id，压到错误的页面栈上。
+    // （与其他详情页保持一致：只登记，不注销）
+    if (componentId) setComponentId(COMPONENT_IDS.songlistDetail, componentId)
+  }, [componentId])
 
   useEffect(() => {
     // Normalize ID for event matching: strip all known prefixes so different ID formats match

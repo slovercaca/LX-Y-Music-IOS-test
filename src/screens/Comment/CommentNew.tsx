@@ -107,6 +107,10 @@ export default ({
         listRef.current?.setList(filterList(comments))
         setTimeout(updateStatus, 300)
       }, 300)
+    }).catch(() => {
+      // P0 修复：首屏请求失败时必须把状态机拨到 'error'，否则永远停在 'loading'
+      // 无限转圈，"出错点我重试" 的 Footer 永远出不来。
+      listRef.current?.setStatus('error')
     })
   }, [onUpdateTotal])
 

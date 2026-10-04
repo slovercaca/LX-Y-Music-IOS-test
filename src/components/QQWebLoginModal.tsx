@@ -7,6 +7,7 @@ import { useStatusbarHeight } from '@/store/common/hook'
 import { Icon } from '@/components/common/Icon'
 import Text from '@/components/common/Text'
 import { toast } from '@/utils/tools'
+import { clearDomainCookies } from '@/utils/cookie'
 import CookieManager from '@react-native-cookies/cookies'
 import { designRadius, designSpacing, designTypography } from '@/theme/DesignTokens'
 
@@ -135,8 +136,12 @@ const QQWebLoginModal = forwardRef<QQWebLoginModalType, object>((props, ref) => 
   const handleLogout = async() => {
     console.log('QQ登录: 用户点击退出登录')
     try {
-      await CookieManager.clearAll();
-      (global.app_event as any).emit('tx-cookie-set', '')
+      // P0 修复：按域清理 QQ 系 Cookie。原来 clearAll() 不带 useWebKit 参数，
+      // 只清 NSHTTPCookieStorage，而 WebView 登录态实际在 WKHTTPCookieStore
+      //（读取时传了 true）——结果既没真正退出（WebView 里还登着），又误删了
+      // 其他站点的原生 Cookie。现在只清 qq.com 域（含子域），两个 store 都扫。
+      await clearDomainCookies('qq.com')
+      ;(global.app_event as any).emit('tx-cookie-set', '')
       toast('已退出登录')
       if (webViewRef.current) {
         webViewRef.current.reload()

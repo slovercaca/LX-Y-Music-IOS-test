@@ -20,7 +20,7 @@ import {
   handleKgLikeMusic,
 } from './listAction'
 import { handleClearMusicCache } from '@/screens/Home/Views/Mylist/MusicList/listAction'
-import { createStyle, toast } from '@/utils/tools'
+import { createStyle, toast, confirmDialog } from '@/utils/tools'
 import wyApi from '@/utils/musicSdk/wy/user'
 import txUserApi from '@/utils/musicSdk/tx/user'
 import { removeSongsFromPlaylist as removeKgSongsFromPlaylist, getPlaylistSongs as getKgPlaylistSongs } from '@/utils/musicSdk/kg/utils/api'
@@ -170,10 +170,17 @@ export default forwardRef<OnlineListType, OnlineListProps>(
       }
     }
 
-    const handleRemoveMusic = useCallback((info: SelectInfo) => {
+    const handleRemoveMusic = useCallback(async(info: SelectInfo) => {
       if (!listId) return
 
       const musicInfos = info.selectedList.length ? info.selectedList : [info.musicInfo]
+
+      // P0 修复：从在线歌单移除是直接写平台远端的操作，不可逆，必须先二次确认。
+      // 原来点菜单里的「移除」就直接调平台接口，误触即丢歌。
+      const confirmed = await confirmDialog({
+        message: `确定从歌单中移除选中的 ${musicInfos.length} 首歌曲吗？此操作将同步到平台，不可撤销。`,
+      })
+      if (!confirmed) return
 
       if (listId.startsWith('wy__')) {
         const playlistId = listId.replace('wy__', '')
