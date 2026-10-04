@@ -47,6 +47,7 @@
     "@react-native-community/slider": "^4.5.7",
     "@react-native-cookies/cookies": "^6.2.1",
     "axios": "^1.12.2",
+    "buffer": "^6.0.3",
     "crypto-js": "^4.2.0",
     "he": "^1.2.0",
     "iconv-lite": "^0.7.2",
