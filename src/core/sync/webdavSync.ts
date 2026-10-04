@@ -207,7 +207,9 @@ async function applyMergedExtraData(remoteData: ListsSyncFile) {
 
 async function uploadSettings(path: string): Promise<number> {
   const timestamp = Date.now()
-  const { settings } = await getAllDataForSync()
+  // 2026-10-04：sync.webdav.syncCookies 开启时，上传设置包含平台 cookie
+  const includeCookies = settingState.setting['sync.webdav.syncCookies'] === true
+  const { settings } = await getAllDataForSync(includeCookies)
   const dataObject = {
     version: '2',
     lastModified: timestamp,
@@ -281,7 +283,9 @@ export async function manualDownloadSettingsAndApis() {
       const remoteSettingsContent = await webdav.downloadFile(remoteSettingsPath)
       if (remoteSettingsContent) {
         const remoteSettingsData = JSON.parse(remoteSettingsContent)
-        updateSetting(filterSensitiveSettingsForSync(remoteSettingsData.data))
+        // 2026-10-04：sync.webdav.syncCookies 开启时，下载设置包含平台 cookie
+        const includeCookies = settingState.setting['sync.webdav.syncCookies'] === true
+        updateSetting(filterSensitiveSettingsForSync(remoteSettingsData.data, includeCookies))
       } else {
         toast('云端未找到设置文件，跳过设置同步')
       }

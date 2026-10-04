@@ -15,15 +15,27 @@ const SENSITIVE_SETTING_KEYS: Array<keyof LX.AppSetting> = [
   'sync.webdav.password',
 ]
 
-export const filterSensitiveSettingsForSync = (settings: Partial<LX.AppSetting>) => {
+/** 平台 cookie 键（2026-10-04）：sync.webdav.syncCookies 开启时参与同步。
+ * 注：yt_cookie 可能是 SerpAPI 相关，保留同步。 */
+export const COOKIE_SETTING_KEYS: Array<keyof LX.AppSetting> = [
+  'common.wy_cookie',
+  'common.yt_cookie',
+  'common.tx_cookie',
+  'common.kg_cookie',
+]
+
+export const filterSensitiveSettingsForSync = (settings: Partial<LX.AppSetting>, includeCookies = false) => {
   const nextSettings = { ...settings }
-  for (const key of SENSITIVE_SETTING_KEYS) {
+  const keysToRemove = includeCookies
+    ? SENSITIVE_SETTING_KEYS.filter(k => !COOKIE_SETTING_KEYS.includes(k))
+    : SENSITIVE_SETTING_KEYS
+  for (const key of keysToRemove) {
     delete nextSettings[key]
   }
   return nextSettings
 }
 
-export const getAllDataForSync = async() => {
+export const getAllDataForSync = async(includeCookies = false) => {
   const defaultList = await getListMusics(listState.defaultList.id)
   const loveList = await getListMusics(listState.loveList.id)
   const tempList = await getListMusics(LIST_IDS.TEMP)
@@ -34,7 +46,7 @@ export const getAllDataForSync = async() => {
   const lists = { defaultList, loveList, userList, tempList }
   const playHistory = await getPlayHistory()
   const downloadTasks = normalizeDownloadTasksForSync(downloadState.tasks)
-  const settings = filterSensitiveSettingsForSync(settingState.setting)
+  const settings = filterSensitiveSettingsForSync(settingState.setting, includeCookies)
 
   const userApiList = await getUserApiList()
   const userApiScripts: Record<string, string> = {}
