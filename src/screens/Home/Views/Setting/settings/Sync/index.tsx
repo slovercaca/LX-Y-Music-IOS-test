@@ -37,6 +37,7 @@ export default memo(() => {
   const webdavPath = useSettingValue('sync.webdav.path')
   const isFailoverEnabled = useSettingValue('sync.webdav.failoverEnabled')
   const isFailoverNotify = useSettingValue('sync.webdav.failoverNotify')
+  const isSyncCookies = useSettingValue('sync.webdav.syncCookies')
 
   const lastSyncTimeLists = useSettingValue('sync.webdav.lastSyncTimeLists')
 
@@ -85,6 +86,10 @@ export default memo(() => {
 
   const handleFailoverNotify = (enable: boolean) => {
     updateSetting({ 'sync.webdav.failoverNotify': enable })
+  }
+
+  const handleSyncCookies = (enable: boolean) => {
+    updateSetting({ 'sync.webdav.syncCookies': enable })
   }
 
   const handleTestConnection = useCallback(async() => {
@@ -223,6 +228,12 @@ export default memo(() => {
           helpDesc="关闭后切换过程静默进行，不打扰你。"
           onChange={handleFailoverNotify}
           disabled={!isFailoverEnabled}
+        />
+        <CheckBoxItem
+          check={isSyncCookies}
+          label="同步平台 Cookie"
+          helpDesc="开启后，WebDAV 同步设置时会包含各音乐平台的登录 Cookie（网易云/QQ音乐/酷狗/YouTube），换设备后无需重新登录。Cookie 为敏感凭证，将以明文存放在你的 WebDAV 服务器上，请确保服务器可信。"
+          onChange={handleSyncCookies}
         />
 
         <View style={{ opacity: isEnableWebdav ? 1 : 0.5 }}>

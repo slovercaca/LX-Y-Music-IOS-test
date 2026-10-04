@@ -80,6 +80,7 @@ declare global {
       'common.wy_cookie': string
       'common.kg_cookie': string
       'common.tx_cookie': string
+      'common.yt_cookie': string
 
       /**
        * 推荐页平台按钮顺序（平台 id 数组，空数组表示使用默认顺序）
@@ -195,6 +196,11 @@ declare global {
       'sync.webdav.username': string
       'sync.webdav.password': string
       'webdav.downloadPath': string
+
+      /**
+       * 封面歌词来源（2026-10-04）：'file' = 从歌曲文件，'online' = 从云端插件在线匹配。
+       */
+      'webdav.mediaSource': 'file' | 'online'
       'sync.webdav.path': string
       'sync.webdav.lastSyncTimeLists': number
       /**
@@ -206,6 +212,12 @@ declare global {
        * 故障转移发生时是否 toast 提示。关闭后静默切换。
        */
       'sync.webdav.failoverNotify': boolean
+
+      /**
+       * 同步平台 cookie（2026-10-04）：开 = WebDAV 同步设置时包含各平台 cookie；
+       * 关 = 保持原有行为（cookie 不上传、不下载）。默认关（敏感凭证）。
+       */
+      'sync.webdav.syncCookies': boolean
 
       /**
        * 液态玻璃（vendored LiquidGlassKit 的 Metal 折射）开关，仅 iOS 14~26.1
@@ -220,6 +232,12 @@ declare global {
        * 开 = ContentGlass 走 LiquidGlass；关 = 各组件原来的纯色背景。
        */
       'theme.glassContent': boolean
+
+      /**
+       * 浮动工具玻璃（2026-10-04）：多选模式悬浮条、「…」菜单等浮动工具 UI。
+       * 开 = 玻璃；关 = 各组件原来的纯色背景。与内容区玻璃独立控制。
+       */
+      'theme.glassUtility': boolean
 
       /**
        * 「底边不透明度」（0~100）：全软件半透明底（排行榜按钮、设置页开关行与操作按钮、

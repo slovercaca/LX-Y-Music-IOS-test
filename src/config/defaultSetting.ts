@@ -183,10 +183,18 @@ const defaultSetting: LX.AppSetting = {
   'sync.webdav.username': '',
   'sync.webdav.password': '',
   'webdav.downloadPath': '',
+  // 封面歌词来源（2026-10-04）：'file' = 从歌曲文件（同目录同名/通用封面、内嵌标签），
+  // 'online' = 从云端插件（按歌名/歌手在线匹配）。默认 file。
+  'webdav.mediaSource': 'file',
   'sync.webdav.path': '/LX_Music/',
   'sync.webdav.lastSyncTimeLists': 0,
   'sync.webdav.failoverEnabled': false,
   'sync.webdav.failoverNotify': true,
+  // 同步平台 cookie（2026-10-04）：默认关。开 = WebDAV 同步设置时包含各平台
+  // cookie（common.wy_cookie / yt / tx / kg），换设备后无需重新登录；
+  // 关 = 保持原有行为（cookie 不上传、不下载）。
+  // 注意：cookie 是敏感凭证，开启后会以明文存放在你的 WebDAV 服务器上。
+  'sync.webdav.syncCookies': false,
 
   'theme.id': 'green',
   'theme.lightId': 'green',
@@ -213,6 +221,9 @@ const defaultSetting: LX.AppSetting = {
   // 十几个（虚拟列表只渲染可见行），磨砂模式则是系统合成、成本可忽略。
   // 若低端机卡顿，关掉本开关即可。
   'theme.glassContent': true,
+  // 浮动工具玻璃（2026-10-04）：多选模式悬浮条、「…」菜单等浮动工具 UI 的玻璃开关。
+  // 与内容区玻璃独立，默认开；关 = 恢复各组件原来的纯色背景。
+  'theme.glassUtility': true,
   'theme.isLandscapeStretch': false,
   // 歌单页封面列数（手机竖屏）：2 / 3 个一排，默认 2。
   // iPad 与大屏仍在 List.tsx 里按可用宽度自适应多列。
