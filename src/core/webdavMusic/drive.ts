@@ -3,9 +3,10 @@ import { createClient, type FileStat } from 'webdav'
 import settingState from '@/store/setting/state'
 import { webDAVLog } from './logger'
 import { btoa } from 'react-native-quick-base64'
-import { downloadFile, existsFile, mkdir, temporaryDirectoryPath, unlink, read } from '@/utils/fs'
+import { downloadFile, existsFile, mkdir, temporaryDirectoryPath, unlink, read, moveFile } from '@/utils/fs'
 import { enforceCacheLimit } from '@/utils/nativeModules/cache'
 import { stringMd5 } from 'react-native-quick-md5'
+import { getStat, uploadBinaryFile } from '@/utils/webdav'
 
 const CONFIG_KEY = '@webdav_music_config'
 const audioExts = new Set([
@@ -360,6 +361,48 @@ const isPoisonedCache = async(filePath: string): Promise<boolean> => {
   return head === '<'
 }
 
+/**
+ * 原子下载：先下载到唯一临时文件，statusCode/bytesWritten 校验通过后再改名到目标路径。
+ * 解决两个问题：
+ * 1) RNFS downloadFile 在 HTTP 错误（401/404 等）时 resolve（靠 statusCode 识别）、
+ *    网络中断时 reject，两种失败都会在目标路径留下错误页面/截断文件；毒缓存检查
+ *    （首字节 '<'）识别不出截断的音频/图片，下次 existsFile 直接命中坏文件、永久
+ *    播不出。走临时文件可保证任何失败都不会污染目标路径。
+ * 2) 预加载与播放可能并发下载同一文件（见 core/player/preload.ts），唯一临时文件名
+ *    保证互不删除对方的文件；改名时若目标已存在（另一路已先落盘）则直接复用。
+ */
+const downloadToFileAtomic = async(options: {
+  url: string
+  targetPath: string
+  statusError: (statusCode: number) => string
+  moveError: string
+}): Promise<void> => {
+  const { url, targetPath, statusError, moveError } = options
+  const tmpPath = `${targetPath}.${Date.now().toString(36)}${Math.random().toString(36).slice(2)}.tmp`
+  const cleanupTmp = () => unlink(tmpPath).catch(() => {})
+  try {
+    const result = await downloadFile(url, tmpPath, { headers: getWebDAVAuthHeaders() }).promise
+    if (result.statusCode < 200 || result.statusCode >= 300 || !result.bytesWritten) {
+      webDAVLog.error('downloadToFileAtomic: 下载失败', { statusCode: result.statusCode, url })
+      throw new Error(statusError(result.statusCode))
+    }
+    try {
+      await moveFile(tmpPath, targetPath)
+    } catch {
+      // 改名失败：大概率是并发下载的另一路已先落盘，复用它；否则如实抛错
+      await cleanupTmp()
+      if (await existsFile(targetPath)) {
+        webDAVLog.info('downloadToFileAtomic: 并发下载已由另一路完成，复用缓存', { targetPath })
+        return
+      }
+      throw new Error(moveError)
+    }
+  } catch (err) {
+    await cleanupTmp()
+    throw err
+  }
+}
+
 // 拉取网盘内封面图片：下载到本地缓存目录，返回 file:// 本地路径
 // （FastImage 固定 defaultHeaders，无法注入 Basic Auth，需先下载到本地）
 export const fetchWebDAVPic = async(musicInfo: LX.WebDAV.MusicInfo): Promise<string | null> => {
@@ -377,12 +420,14 @@ export const fetchWebDAVPic = async(musicInfo: LX.WebDAV.MusicInfo): Promise<str
       await unlink(localPath).catch(() => {})
     }
     await mkdir(coversDir)
-    // 与 downloadWebDAVMusic 同样的 statusCode 校验：401/404 的错误页面不能当封面缓存
-    const picResult = await downloadFile(url, localPath, { headers: getWebDAVAuthHeaders() }).promise
-    if (picResult.statusCode < 200 || picResult.statusCode >= 300 || !picResult.bytesWritten) {
-      await unlink(localPath).catch(() => {})
-      throw new Error(`cover download failed: ${picResult.statusCode}`)
-    }
+    // 原子下载：statusCode 校验（401/404 的错误页面不能当封面缓存），
+    // 网络中断 reject 时也不在目标路径留截断文件
+    await downloadToFileAtomic({
+      url,
+      targetPath: localPath,
+      statusError: (statusCode) => `cover download failed: ${statusCode}`,
+      moveError: 'cover download failed: move failed',
+    })
     return `file://${localPath}`
   } catch (err) {
     webDAVLog.warn('fetchWebDAVPic: failed', { err })
@@ -428,25 +473,71 @@ export const downloadWebDAVMusic = async(musicInfo: LX.WebDAV.MusicInfo): Promis
   await mkdir(cacheDir)
   const downloadUrl = getWebDAVDownloadUrl(musicInfo)
   // BUG 修复：RNFS downloadFile 的 promise 在 HTTP 报错（401/403/404 等）时不会 reject，
-  // 而是 resolve 并把错误页面写进目标文件。原来不检查 statusCode，直接把"错误页面"
-  // 当成音频返回给播放器 → 现象就是能连上服务器、能看到歌单但听不了；更糟的是毒化
-  // 缓存（下次 existsFile 直接命中坏文件，瞬间"失败"，连重试下载的机会都没有）。
-  const dlResult = await downloadFile(downloadUrl, filePath, { headers: getWebDAVAuthHeaders() }).promise
-  if (dlResult.statusCode < 200 || dlResult.statusCode >= 300 || !dlResult.bytesWritten) {
-    // 删掉错误页面，避免毒化缓存
-    await unlink(filePath).catch(() => {})
-    webDAVLog.error('downloadWebDAVMusic: 下载失败', { statusCode: dlResult.statusCode, downloadUrl })
-    const hint = dlResult.statusCode === 401 || dlResult.statusCode === 403
-      ? '，请检查用户名密码（暂仅支持 Basic 认证）'
-      : dlResult.statusCode === 404
-        ? '，服务器上找不到该文件，请重新扫描歌单'
-        : ''
-    throw new Error(`WebDAV 下载失败（${dlResult.statusCode}）${hint}`)
-  }
+  // 而是 resolve 并把错误页面写进目标文件；网络中断时则 reject 并留下截断文件。
+  // 原来不检查 statusCode，直接把"错误页面"当成音频返回给播放器 → 现象就是能连上
+  // 服务器、能看到歌单但听不了；更糟的是毒化缓存（下次 existsFile 直接命中坏文件，
+  // 瞬间"失败"，连重试下载的机会都没有，而截断文件连首字节 '<' 检查都识别不出）。
+  // 原子下载保证任何失败都不会污染目标路径。
+  await downloadToFileAtomic({
+    url: downloadUrl,
+    targetPath: filePath,
+    statusError: (statusCode) => {
+      const hint = statusCode === 401 || statusCode === 403
+        ? '，请检查用户名密码（暂仅支持 Basic 认证）'
+        : statusCode === 404
+          ? '，服务器上找不到该文件，请重新扫描歌单'
+          : ''
+      return `WebDAV 下载失败（${statusCode}）${hint}`
+    },
+    moveError: 'WebDAV 下载失败（文件落盘失败）',
+  })
 
   // 下载完成后按上限对全部应用缓存做 LRU 清理，避免缓存无限累积
   // （不仅清 WebDAV 子目录，让 getAppCacheSize 显示的总大小也收敛到上限内）
   void enforceCacheLimit((settingState.setting['player.cacheLimit'] || 0) * 1024 * 1024)
 
   return filePath
+}
+
+export interface WebDAVUploadItem {
+  /** 本地文件完整路径 */
+  localPath: string
+  /** 文件名（含扩展名），将作为服务器上的文件名 */
+  fileName: string
+  /** 文件大小（字节），用于上传前提示 */
+  size: number
+}
+
+/** 拼接远端目录与文件名，保证单斜杠分隔 */
+export const joinWebDAVRemotePath = (remoteDir: string, fileName: string): string => {
+  const dir = `/${remoteDir || ''}/`.replace(/\/{2,}/g, '/')
+  return `${dir}${fileName}`.replace(/\/{2,}/g, '/')
+}
+
+/** 检查服务器上是否已存在该路径（存在返回 true，不存在返回 false） */
+export const checkWebDAVRemoteExists = async(remotePath: string): Promise<boolean> => {
+  return (await getStat(remotePath).catch(() => null)) != null
+}
+
+/**
+ * 上传本地音频文件到 WebDAV 服务器指定目录。
+ * @param item 本地文件信息
+ * @param remoteDir 服务器目标目录，如 /Music；传空字符串表示根目录
+ * @returns 服务器上的完整路径
+ */
+export const uploadWebDAVMusicFile = async(item: WebDAVUploadItem, remoteDir: string): Promise<string> => {
+  const remotePath = joinWebDAVRemotePath(remoteDir, item.fileName)
+  const ext = item.fileName.split('.').pop()?.toLowerCase() ?? ''
+  const contentType = ext === 'mp3' ? 'audio/mpeg'
+    : ext === 'flac' ? 'audio/flac'
+    : ext === 'wav' ? 'audio/wav'
+    : ext === 'm4a' ? 'audio/mp4'
+    : ext === 'aac' ? 'audio/aac'
+    : ext === 'ogg' || ext === 'oga' ? 'audio/ogg'
+    : ext === 'opus' ? 'audio/opus'
+    : ext === 'wma' ? 'audio/x-ms-wma'
+    : ext === 'ape' ? 'audio/ape'
+    : undefined
+  await uploadBinaryFile(remotePath, item.localPath, contentType)
+  return remotePath
 }

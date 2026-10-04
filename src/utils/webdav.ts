@@ -1,5 +1,7 @@
 import settingState from '@/store/setting/state'
 import { webDAVLog } from '@/core/webdavMusic/logger'
+import { readFile, stat } from '@/utils/fs'
+import { Buffer } from 'buffer'
 
 import { createClient, type FileStat } from 'webdav'
 
@@ -79,6 +81,35 @@ export async function uploadFile(path: string, content: string): Promise<void> {
   // 3. 上传文件
   webDAVLog.info(`All directories exist. Uploading file to ${path}...`)
   await cli.putFileContents(path, content, { overwrite: true })
+}
+
+/**
+ * 上传本地二进制文件（如音频）到 WebDAV 服务器。
+ * @param remotePath 服务器上的完整目标路径，如 /Music/song.mp3
+ * @param localPath 本地文件完整路径
+ * @param contentType 可选的 Content-Type，不传则由服务端按扩展名推断
+ *
+ * 注意：通过 base64 中转读入内存再转 Buffer，大文件（>100MB）可能内存吃紧，
+ * 调用方应对超大文件先提示用户。真机上的二进制 PUT 行为待验证。
+ */
+export async function uploadBinaryFile(remotePath: string, localPath: string, contentType?: string): Promise<void> {
+  const cli = await getClient()
+  if (!cli) throw new Error('WebDAV 未配置')
+
+  const dirPath = remotePath.substring(0, remotePath.lastIndexOf('/'))
+  await ensureDirectoryExists(cli, dirPath)
+
+  const fileInfo = await stat(localPath).catch(() => null)
+  const size = fileInfo?.size ?? 0
+  webDAVLog.info(`Uploading binary file to ${remotePath}...`, { size })
+
+  const base64 = await readFile(localPath, 'base64')
+  const buffer = Buffer.from(base64, 'base64')
+  await cli.putFileContents(remotePath, buffer, {
+    overwrite: true,
+    ...(contentType ? { headers: { 'Content-Type': contentType } } : {}),
+  })
+  webDAVLog.info(`Upload completed: ${remotePath}`)
 }
 
 /**
