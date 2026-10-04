@@ -22,6 +22,8 @@ export default forwardRef(({ header, searchType, source }: SearchResultListProps
   const [loading, setLoading] = useState(false)
   const searchInfoRef = useRef({ text: '', page: 1, hasMore: true })
   const searchTypeRef = useRef(searchType)
+  // 2026-10-05 fix（P1-4）：请求代际，只接受最新代际的结果
+  const requestGenRef = useRef(0)
   const theme = useTheme()
   // iPad 横屏下歌手/专辑结果双列展示（对齐 SubscribedAlbums / FollowedArtists 的既有模式）
   const isHorizontal = useHorizontalMode()
@@ -39,6 +41,8 @@ export default forwardRef(({ header, searchType, source }: SearchResultListProps
   }, [searchType, source])
 
   const handleLoad = useCallback((text: string, page: number, isRefresh = false) => {
+    // 2026-10-05 fix（P1-3）：空关键词不发起搜索，避免挂载时 onEndReached 误触
+    if (!text || !text.trim()) return
     log.info('[SearchResultList] === handleLoad 被调用 ===', {
       text,
       page,
@@ -68,6 +72,8 @@ export default forwardRef(({ header, searchType, source }: SearchResultListProps
     }
 
     const musicSearch = source === 'tx' ? txMusicSearch : source === 'kg' ? kgMusicSearch : wyMusicSearch
+    // 2026-10-05 fix（P1-4）：记录本次请求的代际
+    const requestGen = ++requestGenRef.current
     log.info('[SearchResultList] === 开始搜索 ===', {
       searchType,
       source,
@@ -92,6 +98,8 @@ export default forwardRef(({ header, searchType, source }: SearchResultListProps
         })
         return
       }
+      // 2026-10-05 fix（P1-4）：非最新代际的结果直接丢弃
+      if (requestGen !== requestGenRef.current) return
       log.info('[SearchResultList] === 搜索成功返回 ===', {
         searchType,
         source,

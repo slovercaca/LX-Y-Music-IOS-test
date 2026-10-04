@@ -273,7 +273,8 @@ export default memo(() => {
         playingId={playerMusicInfo.id}
         onPlayList={handlePlayList}
         onRefresh={loadHistory}
-        onLoadMore={() => {}}
+        // 2026-10-05 fix（P1-9）：重试按钮传入真实重载函数，而非空函数
+        onLoadMore={loadHistory}
         checkHomePagerIdle
       />
 

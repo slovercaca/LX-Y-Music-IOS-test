@@ -17,6 +17,8 @@ export default forwardRef<MusicListType, { header?: OnlineListProps['ListHeaderC
   const listRef = useRef<OnlineListType>(null)
   const searchInfoRef = useRef<{ text: string, source: Source }>({ text: '', source: 'kw' })
   const isUnmountedRef = useRef(false)
+  // 2026-10-05 fix（P1-1）：请求序号，丢弃过期搜索结果
+  const requestIdRef = useRef(0)
   useImperativeHandle(
     ref,
     () => ({
@@ -40,10 +42,13 @@ export default forwardRef<MusicListType, { header?: OnlineListProps['ListHeaderC
           const page = 1
           searchInfoRef.current.text = text
           searchInfoRef.current.source = source
+          const requestId = ++requestIdRef.current
           return search(text, page, source)
             .then((list) => {
               // const result = setListInfo(listDetail, id, page)
               if (isUnmountedRef.current) return
+              // 过期请求直接丢弃，避免旧结果清空新结果
+              if (requestId !== requestIdRef.current) return
               requestAnimationFrame(() => {
                 listRef.current?.setList(list, false, source == 'all')
                 listRef.current?.setStatus(
@@ -54,6 +59,7 @@ export default forwardRef<MusicListType, { header?: OnlineListProps['ListHeaderC
               })
             })
             .catch(() => {
+              if (requestId !== requestIdRef.current) return
               listRef.current?.setStatus('error')
             })
         }
