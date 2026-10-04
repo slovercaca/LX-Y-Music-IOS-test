@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Alert,
   FlatList,
   Keyboard,
   RefreshControl,
@@ -33,11 +34,16 @@ import {
   saveWebDAVSelectedFolder,
   scanWebDAVSongs,
   updateWebDAVMusicMeta,
+  checkWebDAVRemoteExists,
+  joinWebDAVRemotePath,
+  uploadWebDAVMusicFile,
+  type WebDAVUploadItem,
 } from '@/core/webdavMusic/drive'
 import { designRadius, designSpacing, designTypography } from '@/theme/DesignTokens'
 import { useBottomOverlayInset } from '@/store/common/hook'
 import PageTopInset from '@/components/common/PageTopInset'
 import WebDAVListMenu, { type WebDAVListMenuType, type SelectInfo as WebDAVSelectInfo } from './WebDAVListMenu'
+import WebDAVUploadSelect, { type WebDAVUploadSelectType } from './components/WebDAVUploadSelect'
 import WebDAVProfiles from '@/components/common/WebDAVProfiles'
 import WebDAVDownloadPath from './components/WebDAVDownloadPath'
 import MetadataEditModal from '@/components/MetadataEditModal'
@@ -50,7 +56,7 @@ import {
 import { readMetadata, readPic } from '@/utils/localMediaMetadata'
 import { useSettingValue } from '@/store/setting/hook'
 import { testConnection, resetClient } from '@/utils/webdav'
-import { existsFile } from '@/utils/fs'
+import { existsFile, selectFile, unlink } from '@/utils/fs'
 import InputItem from '@/screens/Home/Views/Setting/components/InputItem'
 import { updateSetting } from '@/core/common'
 
@@ -227,6 +233,7 @@ export default memo(() => {
   const searchInputRef = useRef<TextInput>(null)
   const pendingJumpIdRef = useRef<string | null>(null)
   const webDAVListMenuRef = useRef<WebDAVListMenuType>(null)
+  const uploadSelectRef = useRef<WebDAVUploadSelectType>(null)
   const metadataEditTypeRef = useRef<any>(null)
   const selectedMusicInfoRef = useRef<LX.WebDAV.MusicInfo | null>(null)
 
@@ -570,6 +577,143 @@ export default memo(() => {
         })
     })
   }, [hasConfig, selectedFolder])
+
+  // 上传目标目录：当前选中的文件夹，无选择时为根目录
+  const uploadTargetDir = useMemo(
+    () => selectedFolder?.path || '/',
+    [selectedFolder],
+  )
+
+  /**
+   * 批量上传：将本地音频文件逐个 PUT 到服务器目标目录。
+   * - 先预检冲突（服务器已存在同名文件），有冲突时一次问清：覆盖全部 / 取消
+   * - 逐个上传，失败的记下来继续传下一个，最后如实报告
+   * - 全部完成后重新扫描当前目录，让新歌出现在列表里
+   */
+  const runWebDAVUpload = useCallback(async(items: WebDAVUploadItem[]) => {
+    if (items.length === 0) return
+    const totalSize = items.reduce((sum, it) => sum + (it.size || 0), 0)
+    // 超大文件走 base64 中转内存，100MB 以上先提醒
+    if (totalSize > 100 * 1024 * 1024) {
+      const confirmed = await confirmDialog({
+        title: '文件较大',
+        message: `本次共 ${items.length} 个文件，约 ${(totalSize / 1024 / 1024).toFixed(0)}MB。上传大文件较慢且耗内存，确定继续吗？`,
+        confirmButtonText: '继续上传',
+      })
+      if (!confirmed) return
+    }
+
+    // 先预检连通性：服务器不通/账号不对时直接报错，不走到后面逐个失败
+    setBatchLoadingText('正在连接服务器...')
+    try {
+      await testConnection()
+    } catch (err: any) {
+      setBatchLoadingText('')
+      toast(`无法连接 WebDAV 服务器：${err?.message ?? err}`, 'long')
+      return
+    }
+
+    setBatchLoadingText('正在检查服务器文件...')
+    const conflicts: string[] = []
+    for (const item of items) {
+      const remotePath = joinWebDAVRemotePath(uploadTargetDir, item.fileName)
+      if (await checkWebDAVRemoteExists(remotePath).catch(() => false)) {
+        conflicts.push(item.fileName)
+      }
+    }
+    if (conflicts.length > 0) {
+      setBatchLoadingText('')
+      const confirmed = await confirmDialog({
+        title: '文件已存在',
+        message: `服务器上已有 ${conflicts.length} 个同名文件${conflicts.length <= 3 ? `：${conflicts.join('、')}` : ''}，上传将覆盖它们。继续吗？`,
+        confirmButtonText: '覆盖并上传',
+      })
+      if (!confirmed) return
+    }
+
+    let success = 0
+    const failed: string[] = []
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      setBatchLoadingText(`正在上传 ${i + 1}/${items.length}：${item.fileName}`)
+      try {
+        await uploadWebDAVMusicFile(item, uploadTargetDir)
+        success++
+      } catch (err: any) {
+        failed.push(`${item.fileName}（${err?.message ?? err}）`)
+      }
+    }
+    setBatchLoadingText('')
+
+    if (failed.length > 0) {
+      // 失败明细直接拼进 toast（long 时长），避免再弹一个对话框打断流程
+      const failDetail = failed.slice(0, 3).join('；') + (failed.length > 3 ? `；等共 ${failed.length} 个` : '')
+      toast(`上传完成：${success} 成功，${failed.length} 失败：${failDetail}`, 'long')
+    } else {
+      toast(`上传完成：${success} 个文件`)
+    }
+
+    // 重新扫描当前目录，让刚上传的歌曲出现在列表里
+    if (success > 0) {
+      setLoading(true)
+      setScanText('正在刷新列表...')
+      try {
+        const config = await scanWebDAVSongs(selectedFolder, (count, path) => {
+          setScanText(`已找到 ${count} 首，正在扫描：${path}`)
+        })
+        setSongs(config.songs ?? [])
+        setScannedAt(config.scannedAt)
+      } catch (err: any) {
+        toast(err?.message ?? String(err), 'long')
+      } finally {
+        setScanText('')
+        setLoading(false)
+      }
+    }
+  }, [uploadTargetDir, selectedFolder])
+
+  const handleUploadFromDownloads = useCallback(() => {
+    uploadSelectRef.current?.show((items) => {
+      if (items.length > 0) void runWebDAVUpload(items)
+    })
+  }, [runWebDAVUpload])
+
+  const handleUploadFromFilePicker = useCallback(() => {
+    // 原生 UIDocumentPicker(Import 模式)：会把选中的文件复制到系统 tmp 目录再返回，
+    // res.path 即该临时副本路径（RNFS 可读）；上传完成后删掉，避免 tmp 堆积。
+    void selectFile({ extTypes: ['mp3', 'flac', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'wma', 'ape'] })
+      .then((res) => {
+        if (!res?.path) return
+        const fileName = res.name || res.path.split('/').pop() || 'unknown'
+        const tempPath = res.path
+        return runWebDAVUpload([{ localPath: tempPath, fileName, size: res.size || 0 }])
+          .finally(() => {
+            // 无论上传成功失败都删掉 picker 复制的临时文件（用户源文件不受影响）
+            void unlink(tempPath).catch(() => {})
+          })
+      })
+      .catch((err: any) => {
+        if (err?.code === 'picker_cancelled') return
+        toast(`无法打开文件选择器：${err?.message ?? err}`, 'long')
+      })
+  }, [runWebDAVUpload])
+
+  const handleUpload = useCallback(() => {
+    if (!hasConfig) {
+      toast('请先在「配置」里填写 WebDAV 地址与账号')
+      setActiveTab('config')
+      return
+    }
+    Alert.alert(
+      '上传到 WebDAV',
+      `目标目录：${uploadTargetDir}\n选择要上传的本地音频文件：`,
+      [
+        { text: '取消', style: 'cancel' },
+        { text: '从下载列表选择', onPress: handleUploadFromDownloads },
+        { text: '从文件 App 选择', onPress: handleUploadFromFilePicker },
+      ],
+    )
+  }, [hasConfig, uploadTargetDir, handleUploadFromDownloads, handleUploadFromFilePicker])
 
   const loadFolders = useCallback((folder: LX.WebDAV.DriveFolder | null) => {
     setFolderLoading(true)
@@ -1022,6 +1166,13 @@ export default memo(() => {
               >
                 <Text color={theme['c-primary-font']}>扫描并下载</Text>
               </Button>
+              <Button
+                style={{ ...styles.scanButton, backgroundColor: theme['c-button-background'], marginLeft: 8 }}
+                disabled={loading || !!batchLoadingText}
+                onPress={handleUpload}
+              >
+                <Text color={theme['c-button-font']}>上传</Text>
+              </Button>
             </View>
           </>
         }
@@ -1083,6 +1234,7 @@ export default memo(() => {
         onLoadMetadata={handleLoadMetadata}
       />
       <MetadataEditModal ref={metadataEditTypeRef} onUpdate={handleUpdateMetadata} />
+      <WebDAVUploadSelect ref={uploadSelectRef} />
     </View>
   )
 })
