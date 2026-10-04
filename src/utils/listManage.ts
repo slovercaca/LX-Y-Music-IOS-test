@@ -183,7 +183,9 @@ export const userListsUpdatePosition = (position: number, ids: string[]) => {
   const map = new Map<string, LX.List.UserListInfo>()
   for (const item of newUserLists) map.set(item.id, item)
   for (const id of ids) {
-    const listInfo = map.get(id)!
+    // 2026-10-05 fix（P0-1）：远端同步可带未知 id，非空断言会崩溃
+    const listInfo = map.get(id)
+    if (!listInfo) continue
     listInfo.locationUpdateTime = Date.now()
     updateLists.push(listInfo)
     map.delete(id)

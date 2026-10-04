@@ -1,6 +1,7 @@
 import RNFS from 'react-native-fs'
 import { NativeModules } from 'react-native'
 import pako from 'pako'
+import { filterFileName } from './common'
 
 export interface FileType {
   name: string
@@ -39,9 +40,16 @@ const audioMimeTypeMap: Record<string, string> = {
   aac: 'audio/aac',
 }
 
-const normalizePath = (path: string) => path.startsWith('file://')
-  ? decodeURIComponent(path.replace(/^file:\/\//, ''))
-  : decodeURIComponent(path)
+// 2026-10-05 fix（P1-2）：decodeURIComponent 加保护——文件名含字面 %
+// （如 100%.mp3）会抛 URIError，导致整个目录列表失败
+const normalizePath = (path: string) => {
+  const raw = path.startsWith('file://') ? path.replace(/^file:\/\//, '') : path
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    return raw
+  }
+}
 
 const getName = (path: string) => {
   const normalizedPath = normalizePath(path)
@@ -90,7 +98,17 @@ export const selectFolder = async(): Promise<{ path: string }> => {
   const result = await (FilePickerModule.selectFolder() as Promise<{ path: string }>)
   const folderPath = result?.path ?? ''
   // 仅允许选择应用沙盒内的目录（可在“文件”App 中访问）。沙盒外目录无法持久写入（需安全作用域书签），故拒绝。
-  if (!folderPath || !folderPath.startsWith(privateStorageDirectoryPath)) {
+  // 2026-10-05 fix（P1-3）：先规范化路径（解析 ..），再用 === 或 docDir + '/' 前缀检查——
+  // 纯字符串 startsWith 可被同级目录（如 <Documents>Backup）或含 .. 的路径绕过。
+  const isAbs = folderPath.startsWith('/')
+  const normalized = (isAbs ? '/' : '') + folderPath.split('/').reduce<string[]>((parts, seg) => {
+    if (seg === '' || seg === '.') return parts
+    if (seg === '..') { parts.pop(); return parts }
+    parts.push(seg)
+    return parts
+  }, []).join('/')
+  const docDir = privateStorageDirectoryPath.replace(/\/+$/, '')
+  if (!folderPath || !(normalized === docDir || normalized.startsWith(docDir + '/'))) {
     throw new Error('请选择应用目录内的文件夹（可在“文件”App 的 LX-Y Music 中访问）')
   }
   return result
@@ -119,7 +137,22 @@ export const unlink = async(path: string) => {
   return RNFS.unlink(normalizedPath)
 }
 
-export const mkdir = async(path: string) => RNFS.mkdir(normalizePath(path))
+// 2026-10-05 fix（P1-7）：递归创建目录（RNFS.mkdir 不建中间目录）
+export const mkdir = async(path: string) => {
+  const normalized = normalizePath(path)
+  const parts = normalized.split('/').filter(Boolean)
+  const isAbs = normalized.startsWith('/')
+  let current = isAbs ? '' : '.'
+  for (const part of parts) {
+    current = current ? `${current}/${part}` : (isAbs ? `/${part}` : part)
+    try {
+      const exists = await RNFS.exists(current)
+      if (!exists) await RNFS.mkdir(current)
+    } catch {
+      // 忽略单级失败，继续尝试（最终失败由调用方感知）
+    }
+  }
+}
 
 export const stat = async(path: string): Promise<FileType> => {
   const info = await RNFS.stat(normalizePath(path))
@@ -151,7 +184,10 @@ export const existsFile = async(path: string) => RNFS.exists(normalizePath(path)
 export const rename = async(path: string, name: string) => {
   const normalizedPath = normalizePath(path)
   const parent = normalizedPath.slice(0, normalizedPath.lastIndexOf('/'))
-  const target = `${parent}/${name}`
+  // 2026-10-05 fix（P1-4）：过滤新文件名，防路径穿越（如 ../ 或含 / 的 name）
+  const safeName = filterFileName(name)
+  if (!safeName) throw new Error('文件名无效')
+  const target = `${parent}/${safeName}`
   await RNFS.moveFile(normalizedPath, target)
   return target
 }

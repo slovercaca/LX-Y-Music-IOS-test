@@ -246,10 +246,15 @@ export const exitApp = () => {
 export const handleSaveFile = async(path: string, data: any) => {
   // if (!path.endsWith('.json')) path += '.json'
   // const buffer = gzip(data)
-  const tempFilePath = `${temporaryDirectoryPath}/tempFile.json`
-  await writeFile(tempFilePath, JSON.stringify(data))
-  await gzipFile(tempFilePath, path)
-  await unlink(tempFilePath)
+  // 2026-10-05 fix（P1-5）：临时文件名加随机后缀，防并发互相覆盖；
+  // try/finally 保证 unlink，避免泄漏
+  const tempFilePath = `${temporaryDirectoryPath}/tempFile_${Date.now().toString(36)}${Math.random().toString(36).slice(2)}.json`
+  try {
+    await writeFile(tempFilePath, JSON.stringify(data))
+    await gzipFile(tempFilePath, path)
+  } finally {
+    await unlink(tempFilePath).catch(() => {})
+  }
 }
 export const handleReadFile = async <T = unknown>(path: string): Promise<T> => {
   let isJSON = path.endsWith('.json')
@@ -257,10 +262,14 @@ export const handleReadFile = async <T = unknown>(path: string): Promise<T> => {
   if (isJSON) {
     data = await readFile(path)
   } else {
-    const tempFilePath = `${temporaryDirectoryPath}/tempFile.json`
-    await unGzipFile(path, tempFilePath)
-    data = await readFile(tempFilePath)
-    await unlink(tempFilePath)
+    // 2026-10-05 fix（P1-5）：同上，随机后缀 + finally 清理
+    const tempFilePath = `${temporaryDirectoryPath}/tempFile_${Date.now().toString(36)}${Math.random().toString(36).slice(2)}.json`
+    try {
+      await unGzipFile(path, tempFilePath)
+      data = await readFile(tempFilePath)
+    } finally {
+      await unlink(tempFilePath).catch(() => {})
+    }
   }
   data = JSON.parse(data)
 
@@ -567,7 +576,7 @@ export function debounceBackgroundTimer<Args extends any[]>(
 ) {
   let timer: number | null = null
   let _args: Args
-  return (...args: Args) => {
+  const debounced = (...args: Args) => {
     _args = args
     if (timer) BackgroundTimer.clearTimeout(timer)
     timer = BackgroundTimer.setTimeout(() => {
@@ -575,6 +584,14 @@ export function debounceBackgroundTimer<Args extends any[]>(
       void fn(..._args)
     }, delay)
   }
+  // 2026-10-05 fix（逻辑-P1-1）：暴露 cancel，供 pause()/stop() 取消 pending 的播放
+  debounced.cancel = () => {
+    if (timer) {
+      BackgroundTimer.clearTimeout(timer)
+      timer = null
+    }
+  }
+  return debounced
 }
 
 type Styles = StyleSheet.NamedStyles<Record<string, {}>>

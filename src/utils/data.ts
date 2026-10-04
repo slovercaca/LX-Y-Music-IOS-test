@@ -685,8 +685,11 @@ export const removeUserApi = async(ids: string[]) => {
   for (let index = userApis.length - 1; index > -1; index--) {
     if (ids.includes(userApis[index].id)) {
       _ids.push(`${userApiPrefix}${userApis[index].id}`)
+      // 2026-10-05 fix（P1-6）：index 是 userApis 的下标，不能拿去删 ids；
+      // 用 id 查 ids 的下标再删
+      const idIndex = ids.indexOf(userApis[index].id)
+      if (idIndex > -1) ids.splice(idIndex, 1)
       userApis.splice(index, 1)
-      ids.splice(index, 1)
     }
   }
   await saveData(userApiPrefix, userApis)

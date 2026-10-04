@@ -1,4 +1,6 @@
-const timeFieldExp = /^(?:\[[\d:.]+\])+/g
+// 2026-10-05 fix（P1-1）：去掉 g 标志——模块级带 g 的正则在循环中复用 exec
+// 会因 lastIndex 残留导致匹配交替跳过，翻译行被随机丢弃
+const timeFieldExp = /^(?:\[[\d:.]+\])+/
 const timeExp = /\d{1,3}(:\d{1,3}){0,2}(?:\.\d{1,3})/g
 
 const t_rxp_1 = /^0+(\d+)/
