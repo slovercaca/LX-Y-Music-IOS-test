@@ -161,6 +161,9 @@ let pendingRestoreSeek: { key: string, time: number } | null = null
 export const setMusicUrl = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem, isRefresh?: boolean, quality?: LX.Quality) => {
   // addLoadTimeout()
   if (!diffCurrentMusicInfo(musicInfo)) return
+  // E1 修复：进入新的取链流程时，先清除上一次失败遗留的 5s 兜底切歌定时器。
+  // 否则：A 失败→用户手动重试 A→旧定时器 5s 后把正在播的 A 切到 B。
+  clearDelayNextTimeout()
   if (cancelDelayRetry) cancelDelayRetry()
   global.lx.gettingUrlId = createGettingUrlId(musicInfo)
   // 非 refresh = 新歌：只有「启动恢复的那首歌」携带显式恢复时间，其余一律从 0 开始
@@ -704,6 +707,9 @@ export const play = () => {
 export const pause = async() => {
   // 任何暂停（用户按键 / 中断自身）都让待补发的播放意图失效，避免重试把播放抢回来
   clearManualPlayIntent()
+  // E1 修复：暂停时清除 URL 失败遗留的 5s 兜底切歌定时器，
+  // 否则用户暂停后 5s 照样被强制跳到下一首播放。
+  clearDelayNextTimeout()
   await setPause()
 }
 
@@ -712,6 +718,8 @@ export const pause = async() => {
  */
 export const stop = async() => {
   clearManualPlayIntent()
+  // E1 同类：用户主动停止后，不应再被失败遗留的 5s 兜底定时器强制切歌播放。
+  clearDelayNextTimeout()
   await setStop()
   setTimeout(() => {
     global.app_event.stop()

@@ -4,6 +4,7 @@ import { updateOptions, setVolume, setPlaybackRate, migratePlayerCache, destroy 
 import { getCurrentTrack, restoreTrack, updateMetaData } from './playList'
 import { isNativeFlacActive, restoreNativeFlacPlayback, snapshotNativeFlacPlayback } from './nativeFlac'
 import { soundEffectController } from './soundEffect'
+import { acquireLifecycleGuard } from './engine/lifecycleGuard'
 import settingState from '@/store/setting/state'
 import playerState from '@/store/player/state'
 
@@ -31,32 +32,39 @@ const initial = async({ volume, playRate, cacheSize, isHandleAudioFocus, isEnabl
 }) => {
   if (global.lx.playerStatus.isIniting || global.lx.playerStatus.isInitialized) return
   global.lx.playerStatus.isIniting = true
-  console.log('Cache Size', cacheSize * 1024)
-  await migratePlayerCache()
-  await TrackPlayer.setupPlayer({
-    maxCacheSize: cacheSize * 1024,
-    // —— 在线播放缓冲优化（作用于 iOS 原生 AVPlayer 预读策略）——
-    minBuffer: 5, // 起播 / seek 后至少先缓冲 5s 再播放，避免高码率开头卡顿
-    maxBuffer: 300, // 前向缓冲上限（秒）：保留充足预读余量，又避免无上限拉满整首
-    backBuffer: 30, // 保留 30s 后方缓冲，后退 seek 无需重新拉流
-    preferredForwardBufferDuration: 60, // 引导 AVPlayer 提前预读约 60s，弱网更平滑
-    waitForBuffer: true, // 缓冲不足时等待而非中断播放
-    handleAudioFocus: isHandleAudioFocus,
-    audioOffload: false,
-    autoUpdateMetadata: false,
-    // iOS 音频焦点：关闭时允许与其他 App 混音，避免被系统强制中断；
-    // 开启时使用标准 Playback 分类，其他 App 出声时系统会发起中断。
-    // 参考分支面向安卓，未声明这两项；iOS 缺少它会丢失音频会话配置。
-    iosCategory: 'playback',
-    iosCategoryOptions: isHandleAudioFocus ? [] : ['mixWithOthers'],
-  } as any)
-  global.lx.playerStatus.isInitialized = true
-  global.lx.playerStatus.isIniting = false
-  await updateOptions()
-  await setVolume(volume)
-  await setPlaybackRate(playRate)
-  await soundEffectController.applyCurrentConfig()
-  // listenEvent()
+  // E4 修复：try/finally 保证 setupPlayer 等任一步抛错时 isIniting 一定被重置。
+  // 否则 isIniting 永久为 true，此后所有 initial() 调用被静默吞掉，播放器永久不可用。
+  // （异常继续向上抛，调用方仍能感知失败；isInitialized 只在全部成功后才置 true，
+  // 下次 initial() 会完整重试，而不是停在半初始化状态。）
+  try {
+    console.log('Cache Size', cacheSize * 1024)
+    await migratePlayerCache()
+    await TrackPlayer.setupPlayer({
+      maxCacheSize: cacheSize * 1024,
+      // —— 在线播放缓冲优化（作用于 iOS 原生 AVPlayer 预读策略）——
+      minBuffer: 5, // 起播 / seek 后至少先缓冲 5s 再播放，避免高码率开头卡顿
+      maxBuffer: 300, // 前向缓冲上限（秒）：保留充足预读余量，又避免无上限拉满整首
+      backBuffer: 30, // 保留 30s 后方缓冲，后退 seek 无需重新拉流
+      preferredForwardBufferDuration: 60, // 引导 AVPlayer 提前预读约 60s，弱网更平滑
+      waitForBuffer: true, // 缓冲不足时等待而非中断播放
+      handleAudioFocus: isHandleAudioFocus,
+      audioOffload: false,
+      autoUpdateMetadata: false,
+      // iOS 音频焦点：关闭时允许与其他 App 混音，避免被系统强制中断；
+      // 开启时使用标准 Playback 分类，其他 App 出声时系统会发起中断。
+      // 参考分支面向安卓，未声明这两项；iOS 缺少它会丢失音频会话配置。
+      iosCategory: 'playback',
+      iosCategoryOptions: isHandleAudioFocus ? [] : ['mixWithOthers'],
+    } as any)
+    global.lx.playerStatus.isInitialized = true
+    await updateOptions()
+    await setVolume(volume)
+    await setPlaybackRate(playRate)
+    await soundEffectController.applyCurrentConfig()
+    // listenEvent()
+  } finally {
+    global.lx.playerStatus.isIniting = false
+  }
 }
 
 
@@ -77,7 +85,9 @@ const reloadConfig = async() => {
 
     if (Platform.OS == 'ios' && isNativeFlacActive()) {
       const snapshot = await snapshotNativeFlacPlayback()
-      global.lx.playerStatus.ignoreTrackPlayerLifecycle = true
+      // 与 resourceLoader 的换歌装载共用引用计数守卫：两者可能交错执行，
+      // 裸布尔量下先完成的 finally 会提前关闭另一方的抑制窗口。
+      const releaseLifecycleGuard = acquireLifecycleGuard()
       try {
         await destroyPlayer()
         await initial(getPlayerConfig())
@@ -89,7 +99,7 @@ const reloadConfig = async() => {
           void updateMetaData(playerState.musicInfo, isPlay, playerState.lastLyric, true)
         }
       } finally {
-        global.lx.playerStatus.ignoreTrackPlayerLifecycle = false
+        releaseLifecycleGuard()
       }
       return
     }
