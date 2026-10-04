@@ -96,57 +96,6 @@ export const showPactModal = () => {
   show(1)
 }
 
-export const showVersionModal = () => {
-  if (pendingOverlays.has(VERSION_MODAL)) return
-  pendingOverlays.add(VERSION_MODAL)
-  setTimeout(() => pendingOverlays.delete(VERSION_MODAL), 500)
-  const theme = themeState.theme
-
-  void Navigation.showOverlay({
-    component: {
-      name: VERSION_MODAL,
-      options: {
-        layout: {
-          componentBackgroundColor: 'transparent',
-        },
-        overlay: {
-          interceptTouchOutside: true,
-        },
-        statusBar: {
-          drawBehind: true,
-          visible: true,
-          style: getStatusBarStyle(theme.isDark),
-          backgroundColor: 'transparent',
-        },
-        navigationBar: {
-          // visible: false,
-          backgroundColor: theme['c-content-background'],
-        },
-        // animations: {
-
-        //   showModal: {
-        //     enter: {
-        //       enabled: true,
-        //       alpha: {
-        //         from: 0,
-        //         to: 1,
-        //         duration: 300,
-        //       },
-        //     },
-        //     exit: {
-        //       enabled: true,
-        //       alpha: {
-        //         from: 1,
-        //         to: 0,
-        //         duration: 300,
-        //       },
-        //     },
-        //   },
-        // },
-      },
-    },
-  })
-}
 
 export const showSyncModeModal = () => {
   if (pendingOverlays.has(SYNC_MODE_MODAL)) return

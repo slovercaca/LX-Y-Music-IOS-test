@@ -23,10 +23,17 @@ export default class Event {
 
   emit(eventName: string, ...args: any[]) {
     setImmediate(() => {
-      let targetListeners = this.listeners.get(eventName)
+      const targetListeners = this.listeners.get(eventName)
       if (!targetListeners) return
-      for (const listener of targetListeners) {
-        listener(...args)
+      // 2026-10-05 fix（P0-2）：快照+异常隔离——单个 listener 抛错不掐断后续；
+      // listener 中 off 自己不导致跳过下一个
+      const snapshot = targetListeners.slice()
+      for (const listener of snapshot) {
+        try {
+          listener(...args)
+        } catch (err) {
+          console.error(`Event "${eventName}" listener error:`, err)
+        }
       }
     })
   }
