@@ -19,9 +19,9 @@ import ListMusicMultiAdd, {
   type MusicMultiAddModalType as ListAddMultiType,
 } from '@/components/MusicMultiAddModal'
 import { createStyle } from '@/utils/tools'
-import { View, StyleSheet, Keyboard } from 'react-native'
+import { View, Keyboard } from 'react-native'
 import ActiveList, { type ActiveListType } from './ActiveList'
-import MultipleModeBar, { type SelectMode, type MultipleModeBarType } from './MultipleModeBar'
+import MultiSelectTopBar, { type SelectMode } from '@/components/common/MultiSelectTopBar'
 import ListSearchBar from './ListSearchBar'
 
 import MusicPositionModal, { type MusicPositionModalType } from './MusicPositionModal'
@@ -47,7 +47,6 @@ export interface MusicListProps {
 export default ({ onBack, listId }: MusicListProps) => {
   const activeListRef = useRef<ActiveListType>(null)
   const listRef = useRef<ListType>(null)
-  const multipleModeBarRef = useRef<MultipleModeBarType>(null)
   const listMusicAddRef = useRef<ListMusicAddType>(null)
   const listMusicMultiAddRef = useRef<ListAddMultiType>(null)
   const musicPositionModalRef = useRef<MusicPositionModalType>(null)
@@ -56,7 +55,11 @@ export default ({ onBack, listId }: MusicListProps) => {
   const listMenuRef = useRef<ListMenuType>(null)
   const musicToggleModalRef = useRef<MusicToggleModalType>(null)
   const similarSongsModalRef = useRef<SimilarSongsModalType>(null)
-  const isShowMultipleModeBar = useRef(false)
+  // 2026-10-04 Bug7：多选状态改由 state 驱动（原 MultipleModeBar 悬浮窗已移除，
+  // 改为顶部 MultiSelectTopBar）
+  const [isMultiSelect, setIsMultiSelect] = useState(false)
+  const [selectMode, setSelectMode] = useState<SelectMode>('single')
+  const [isSelectAll, setIsSelectAll] = useState(false)
   const selectedInfoRef = useRef<SelectInfo>()
 
   const showCover = useSettingValue('list.isShowCover')
@@ -97,19 +100,24 @@ export default ({ onBack, listId }: MusicListProps) => {
     // 避免留下「只有半截列表、又找不到搜索入口」的状态。
     if (isSearchingRef.current) handleExitSearch()
     activeListRef.current?.setVisibleBar(false)
-    isShowMultipleModeBar.current = true
-    multipleModeBarRef.current?.show()
+    setIsMultiSelect(true)
+    setSelectMode('single')
+    setIsSelectAll(false)
     listRef.current?.setIsMultiSelectMode(true)
+    listRef.current?.setSelectMode('single')
   }, [handleExitSearch])
   const hancelExitSelect = useCallback(() => {
     activeListRef.current?.setVisibleBar(true)
-    multipleModeBarRef.current?.exitSelectMode()
+    setIsMultiSelect(false)
     listRef.current?.setIsMultiSelectMode(false)
-    isShowMultipleModeBar.current = false
   }, [])
   const hancelSwitchSelectMode = useCallback((mode: SelectMode) => {
-    multipleModeBarRef.current?.setSwitchMode(mode)
+    setSelectMode(mode)
     listRef.current?.setSelectMode(mode)
+  }, [])
+  const handleTopBarSelectAll = useCallback((isAll: boolean) => {
+    setIsSelectAll(isAll)
+    listRef.current?.selectAll(isAll)
   }, [])
   const hancelScrollToTop = useCallback(() => {
     listRef.current?.scrollToTop()
@@ -184,14 +192,6 @@ export default ({ onBack, listId }: MusicListProps) => {
 
   return (
     <View style={styles.container}>
-      <View style={{ ...StyleSheet.absoluteFillObject, zIndex: 2 }} pointerEvents="box-none">
-        <MultipleModeBar
-          ref={multipleModeBarRef}
-          onSwitchMode={hancelSwitchSelectMode}
-          onSelectAll={(isAll) => listRef.current?.selectAll(isAll)}
-          onExitSelectMode={hancelExitSelect}
-        />
-      </View>
       <View style={{ flex: 1 }}>
         {/* 固定页头：页头（PageTopInset + ActiveList）不再作为列表的 ListHeaderComponent
             塞进滚动内容里。此前「冷启动后第一次点开试听列表 / 我的收藏」会整页上飘、标题被
@@ -216,13 +216,22 @@ export default ({ onBack, listId }: MusicListProps) => {
         {isSearching ? (
           <ListSearchBar onSearch={handleSearchKeyword} onExitSearch={handleExitSearch} />
         ) : null}
+        {/* 2026-10-04 Bug7：多选操作栏改到列表顶部（原悬浮窗已移除） */}
+        <MultiSelectTopBar
+          visible={isMultiSelect}
+          selectMode={selectMode}
+          isSelectAll={isSelectAll}
+          onSwitchMode={hancelSwitchSelectMode}
+          onSelectAll={handleTopBarSelectAll}
+          onExitSelectMode={hancelExitSelect}
+        />
         <List
           ref={listRef}
           listId={listId}
           filterKeyword={isSearching ? searchKeyword : ''}
           onShowMenu={showMenu}
           onMuiltSelectMode={hancelMultiSelect}
-          onSelectAll={(isAll) => multipleModeBarRef.current?.setIsSelectAll(isAll)}
+          onSelectAll={(isAll) => setIsSelectAll(isAll)}
           showCover={showCover}
         />
       </View>

@@ -10,6 +10,7 @@ import { useI18n } from '@/lang'
 import Text from '@/components/common/Text'
 import Image from '@/components/common/Image'
 import { Icon } from '@/components/common/Icon'
+import ContentGlass from '@/components/common/ContentGlass'
 import { createStyle } from '@/utils/tools'
 import commonState from '@/store/common/state'
 import MusicList from './MusicList'
@@ -90,14 +91,17 @@ const FixedPlaylistCard = memo(({
         styles.cardContainer,
         {
           height: CARD_HEIGHT,
-          backgroundColor: activeId == item.id
-            ? theme['c-primary-background-hover']
-            // 与其它列表行统一用「底边」令牌（跟随主题色 + 主题页「底边不透明度」）；
-            // 原来这一处（以及下面的可拖拽卡片）用 -alpha-300，不跟滑杆变化。
-            : theme['c-primary-light-900-alpha-200'],
+          // 2026-10-04：背景改由内层 ContentGlass 提供（内容区玻璃）
         },
       ]}
     >
+      <ContentGlass
+        glassStyle={{ borderRadius: designRadius.md }}
+        fallbackBackgroundColor={activeId == item.id
+          ? theme['c-primary-background-hover']
+          : theme['c-primary-light-900-alpha-200']}
+        style={styles.glassInner}
+      >
       <TouchableOpacity onPress={onPress} style={styles.cardContent}>
         <Image url={item.cover} style={styles.artwork} />
         <View style={styles.info}>
@@ -113,6 +117,7 @@ const FixedPlaylistCard = memo(({
       <TouchableOpacity onPress={handleShowMenu} ref={moreButtonRef} style={styles.moreBtn}>
         <Icon name="dots-vertical" color={theme['c-350']} size={17} />
       </TouchableOpacity>
+      </ContentGlass>
     </Animated.View>
   )
 })
@@ -257,7 +262,7 @@ const PlaylistCard = memo(({
         styles.cardContainer,
         {
           height: CARD_HEIGHT,
-          backgroundColor,
+          // 2026-10-04：背景改由内层 ContentGlass 提供（内容区玻璃）
           opacity,
           transform,
           zIndex,
@@ -268,6 +273,11 @@ const PlaylistCard = memo(({
         },
       ]}
     >
+      <ContentGlass
+        glassStyle={{ borderRadius: designRadius.md }}
+        fallbackBackgroundColor={backgroundColor}
+        style={styles.glassInner}
+      >
       <TouchableOpacity onPress={onPress} style={styles.cardContent}>
         <Image
           url={item.cover}
@@ -295,6 +305,7 @@ const PlaylistCard = memo(({
       <TouchableOpacity onPress={handleShowMenu} ref={moreButtonRef} style={styles.moreBtn}>
         <Icon name="dots-vertical" color={theme['c-350']} size={17} />
       </TouchableOpacity>
+      </ContentGlass>
     </Animated.View>
   )
 })
@@ -868,6 +879,12 @@ const styles = createStyle({
     marginBottom: designSpacing.sm,
     borderRadius: designRadius.md,
     overflow: 'hidden',
+  },
+  // 2026-10-04：内层玻璃容器（内容区玻璃），填满卡片
+  glassInner: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   cardContent: {
     flex: 1,

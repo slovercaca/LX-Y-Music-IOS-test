@@ -225,7 +225,8 @@ export default memo(() => {
     return () => {
       active = false
     }
-  }, [completedKey, completedTasks])
+    // 2026-10-05 fix（P1-11）：只依赖 completedKey，避免每 tick 重跑 stat()
+  }, [completedKey])
 
   // 扫描下载路径下的「本地」文件夹
   const scanLocalDir = useCallback(async() => {
