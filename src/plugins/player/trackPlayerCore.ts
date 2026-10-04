@@ -159,6 +159,8 @@ export const updateCurrentTrackMetadata = async(metadata: {
   await TrackPlayer.updateNowPlayingMetadata(metadata, trackPlayerState.isPlaying).catch(() => {})
 }
 
+let metadataSeq = 0
+
 export const ensureCurrentTrackMetadata = (metadata: {
   title?: string
   artist?: string
@@ -168,26 +170,38 @@ export const ensureCurrentTrackMetadata = (metadata: {
   elapsedTime?: number
   playbackRate?: number
 }) => {
+  // 2026-10-05 fix（引擎-P1-1）：快速切歌时旧歌的延迟写会覆盖新歌的元数据。
+  // 用序列号校验：每次调用递增，延迟写前检查是否仍是最新，过期丢弃。
+  const seq = ++metadataSeq
   void (async() => {
     const targetMetadata = Platform.OS == 'ios' ? formatIOSNowPlayingMetadata(metadata) : metadata
     const delays = Platform.OS == 'ios' ? [0, 160, 420, 900] : [0]
     for (const delay of delays) {
       if (delay) await wait(delay)
+      if (seq !== metadataSeq) return // 已被新歌的调用超越，丢弃
       await updateCurrentTrackMetadata(targetMetadata)
     }
   })()
 }
 
-export const restoreTrack = async(track: LX.Player.Track, position: number, isPlaying: boolean) => {
+export const restoreTrack = async(track: LX.Player.Track, position: number, isPlaying: boolean, isStale?: () => boolean) => {
+  // 2026-10-05 fix（引擎-P1-2）：reloadConfig 推进代际后，旧的 restore 与新装载
+  // 可能交错对原生队列做 add/skip/remove——每个 await 后检查代际，过期直接返回。
+  const stale = () => isStale?.() === true
   const restoredTrack = { ...track }
   await TrackPlayer.add([restoredTrack]).then(() => list.push(restoredTrack))
+  if (stale()) return
   const queue = await TrackPlayer.getQueue() as LX.Player.Track[]
+  if (stale()) return
   const trackIndex = queue.findIndex(t => t.id == restoredTrack.id)
   if (trackIndex > -1) await TrackPlayer.skip(trackIndex)
+  if (stale()) return
   global.lx.playerTrackId = restoredTrack.id
   if (position > 0) await seekToTime(position)
+  if (stale()) return
   if (isPlaying) await TrackPlayer.play()
   else await TrackPlayer.pause()
+  if (stale()) return
   await applyCurrentVolume()
   ensureCurrentTrackMetadata({
     title: restoredTrack.title,

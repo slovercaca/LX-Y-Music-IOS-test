@@ -5,6 +5,7 @@ import { getCurrentTrack, restoreTrack, updateMetaData } from './playList'
 import { isNativeFlacActive, restoreNativeFlacPlayback, snapshotNativeFlacPlayback } from './nativeFlac'
 import { soundEffectController } from './soundEffect'
 import { acquireLifecycleGuard } from './engine/lifecycleGuard'
+import { bumpLoadGeneration, getLoadGeneration } from './engine/resourceLoader'
 import settingState from '@/store/setting/state'
 import playerState from '@/store/player/state'
 
@@ -83,6 +84,12 @@ const reloadConfig = async() => {
   const run = async() => {
     if (global.lx.playerStatus.isIniting || !global.lx.playerStatus.isInitialized) return
 
+    // 2026-10-05 fix（引擎-P1-2）：reloadConfig 开始时推进装载代际——
+    // destroyPlayer() 可能落在装载中的 TrackPlayer.add/skip await 中间，
+    // 推进后交错的在途装载会在下一个 await 后自行过期，不再误报错误 toast。
+    const generation = bumpLoadGeneration()
+    const isStale = () => generation !== getLoadGeneration()
+
     if (Platform.OS == 'ios' && isNativeFlacActive()) {
       const snapshot = await snapshotNativeFlacPlayback()
       // 与 resourceLoader 的换歌装载共用引用计数守卫：两者可能交错执行，
@@ -115,7 +122,7 @@ const reloadConfig = async() => {
     await initial(getPlayerConfig())
 
     if (!shouldRestoreTrack || !track) return
-    await restoreTrack(track, position, currentState == State.Playing)
+    await restoreTrack(track, position, currentState == State.Playing, isStale)
   }
 
   reconfigurePromise = reconfigurePromise.then(run, run)

@@ -85,9 +85,14 @@ export const startNativeFlacPlayback = async(musicInfo: LX.Player.PlayMusic, url
     currentState = 'loading'
     try {
       await openStreamingFlac(url, { 'User-Agent': defaultUserAgent }, settingState.setting['player.volume'], settingState.setting['player.playbackRate'], autoplay)
+      // 2026-10-05 fix（引擎-P1-3）：await 间隙里 reloadConfig 的 restore 可能
+      // 认领了模块状态（同文件 stop/reset 用的"抓拍 id、清理前比对"模式）。
+      // 写入前校验仍是自己这一代，否则跳过——避免覆盖新代际的状态。
+      if (currentTrackId != nextTrackId) return { position: 0, duration: 0, trackId: nextTrackId }
       const seekPosition = position > 0
         ? await seekStreamingFlac(position).catch(() => position)
         : 0
+      if (currentTrackId != nextTrackId) return { position: 0, duration: 0, trackId: nextTrackId }
       currentState = autoplay
         ? (seekPosition > 0 ? 'buffering' : 'loading')
         : 'paused'
@@ -98,9 +103,14 @@ export const startNativeFlacPlayback = async(musicInfo: LX.Player.PlayMusic, url
         trackId: nextTrackId,
       }
     } catch (err) {
-      currentTrackId = ''
-      currentMode = 'none'
-      currentState = 'idle'
+      // 2026-10-05 fix（引擎-P1-3）：catch 无条件清零会 wipe 掉新一代刚认领的
+      // 状态（→ getNativeFlacState 恒返 idle、暂停键失灵）。只在模块仍属于
+      // 自己时清理。
+      if (currentTrackId == nextTrackId) {
+        currentTrackId = ''
+        currentMode = 'none'
+        currentState = 'idle'
+      }
       throw err
     }
   }

@@ -28,6 +28,14 @@ const resolveShouldAutoStart = (currentTrackIndex: number | null) => {
 // 只有最新一代能走完全流程、写元数据。
 let loadGeneration = 0
 
+// 2026-10-05 fix（引擎-P1-2）：reloadConfig 与装载链互斥。
+// reloadConfig 的 destroyPlayer() 可能落在装载中的 TrackPlayer.add/skip await
+// 中间，导致 add/skip 因销毁而 reject → 误报错误 toast + 无意义重试切歌。
+// reloadConfig 开始时推进一次代际，让交错的在途装载在下一个 await 后自行
+// 过期丢弃；并在 restoreTrack 内加代际检查，避免恢复与新装载互相覆盖。
+export const bumpLoadGeneration = (): number => ++loadGeneration
+export const getLoadGeneration = (): number => loadGeneration
+
 export const loadPlaybackResource = async({
   musicInfo,
   url,
