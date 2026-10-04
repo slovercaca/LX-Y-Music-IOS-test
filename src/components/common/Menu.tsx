@@ -4,7 +4,7 @@ import { View, Animated, TouchableHighlight } from 'react-native'
 import { useWindowSize } from '@/utils/hooks'
 
 import Modal, { type ModalType } from './Modal'
-import GlassSurface from './GlassSurface'
+import UtilityGlass from './UtilityGlass'
 
 import { createStyle } from '@/utils/tools'
 import { shadow } from '@/utils/shadow'
@@ -145,8 +145,9 @@ const Menu = ({
   // console.log(menuStyle)
   // console.log(menuItemStyle)
   return (
-    <GlassSurface
+    <UtilityGlass
       glassStyle={{ borderRadius: 2 }}
+      fallbackBackgroundColor={theme['c-content-background']}
       style={{ ...styles.menu, ...menuStyle }}
       pointerEvents="auto"
     >
@@ -230,7 +231,7 @@ const Menu = ({
           ),
         )}
       </Animated.ScrollView>
-    </GlassSurface>
+    </UtilityGlass>
   )
 }
 

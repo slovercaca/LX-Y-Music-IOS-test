@@ -2,7 +2,7 @@ import { useImperativeHandle, forwardRef, useMemo, useRef } from 'react'
 import { View, TouchableHighlight } from 'react-native'
 
 import Modal, { type ModalType } from './Modal'
-import GlassSurface from './GlassSurface'
+import ContentGlass from './ContentGlass'
 import { Icon } from '@/components/common/Icon'
 import { useKeyboard, useHorizontalMode } from '@/utils/hooks'
 import { createStyle } from '@/utils/tools'
@@ -114,8 +114,9 @@ export default forwardRef<DialogType, DialogProps>(
         ref={modalRef}
       >
         <View style={{ ...styles.centeredView, paddingBottom: keyboardShown ? keyboardHeight : 0 }} pointerEvents="box-none">
-          <GlassSurface
+          <ContentGlass
             glassStyle={{ borderRadius: designRadius.md }}
+            fallbackBackgroundColor={theme['c-content-background']}
             style={{ ...styles.modalView, height, maxWidth: isHorizontal ? 760 : '90%', minWidth: isHorizontal ? undefined : '60%' }}
           >
             <View
@@ -132,7 +133,7 @@ export default forwardRef<DialogType, DialogProps>(
               {closeBtnComponent}
             </View>
             {children}
-          </GlassSurface>
+          </ContentGlass>
         </View>
       </Modal>
     )

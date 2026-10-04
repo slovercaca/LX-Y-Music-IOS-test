@@ -2,12 +2,13 @@ import { forwardRef, useImperativeHandle, useMemo, useRef } from 'react'
 import { View, TouchableOpacity } from 'react-native'
 
 import Modal, { type ModalType } from './Modal'
-import GlassSurface from './GlassSurface'
+import ContentGlass from './ContentGlass'
 import { Icon } from '@/components/common/Icon'
 import { useKeyboard, useHorizontalMode } from '@/utils/hooks'
 import { createStyle } from '@/utils/tools'
 import { shadow } from '@/utils/shadow'
 import { useTheme } from '@/store/theme/hook'
+import { useSettingValue } from '@/store/setting/hook'
 import Text from './Text'
 import { useStatusbarHeight, useSafeAreaBottom } from '@/store/common/hook'
 import { designRadius, designSpacing, designTypography } from '@/theme/DesignTokens'
@@ -84,6 +85,8 @@ export default forwardRef<PopupType, PopupProps>(
     const statusBarHeight = useStatusbarHeight()
     const isHorizontal = useHorizontalMode()
     const safeAreaBottom = useSafeAreaBottom()
+    // 内容玻璃开关状态：关时恢复纯色安全区延伸视图（玻璃开时由 glassStyle 覆盖）
+    const glassContentOn = useSettingValue('theme.glassContent')
 
     const modalRef = useRef<ModalType>(null)
 
@@ -208,7 +211,7 @@ export default forwardRef<PopupType, PopupProps>(
           }}
           pointerEvents="box-none"
         >
-          <GlassSurface
+          <ContentGlass
             glassStyle={
               position === 'bottom'
                 ? {
@@ -222,6 +225,7 @@ export default forwardRef<PopupType, PopupProps>(
                   }
                 : undefined
             }
+            fallbackBackgroundColor={theme['c-content-background']}
             style={{
               ...styles.modalView,
               ...modalViewStyle,
@@ -235,7 +239,22 @@ export default forwardRef<PopupType, PopupProps>(
               {closeBtnComponent}
             </View>
             {children}
-          </GlassSurface>
+            {/* 内容玻璃开关关时，恢复纯色安全区延伸（2026-09-30 原逻辑）：
+                开关开时由 glassStyle.bottom 负值让玻璃一整块画到屏幕底，无需此视图。 */}
+            {!glassContentOn && position === 'bottom' && !keyboardShown && safeAreaBottom > 0 ? (
+              <View
+                pointerEvents="none"
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  bottom: -safeAreaBottom,
+                  height: safeAreaBottom,
+                  backgroundColor: theme['c-content-background'],
+                }}
+              />
+            ) : null}
+          </ContentGlass>
         </View>
       </Modal>
     )
