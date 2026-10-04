@@ -197,6 +197,15 @@ declare global {
       'webdav.downloadPath': string
       'sync.webdav.path': string
       'sync.webdav.lastSyncTimeLists': number
+      /**
+       * 多服务器故障转移：备份/同步时当前服务器无法连接，自动按配置列表顺序
+       * 换一台可用的服务器重试。默认关闭，需用户手动开启。
+       */
+      'sync.webdav.failoverEnabled': boolean
+      /**
+       * 故障转移发生时是否 toast 提示。关闭后静默切换。
+       */
+      'sync.webdav.failoverNotify': boolean
 
       /**
        * 液态玻璃（vendored LiquidGlassKit 的 Metal 折射）开关，仅 iOS 14~26.1

@@ -23,6 +23,7 @@ import {
   manualDownloadLists,
 } from '@/core/sync/webdavSync'
 import IsEnable from '@/screens/Home/Views/Setting/settings/Sync/IsEnable.tsx'
+import WebDAVProfiles from '@/components/common/WebDAVProfiles'
 
 export default memo(() => {
   const theme = useTheme()
@@ -34,6 +35,8 @@ export default memo(() => {
   const webdavUsername = useSettingValue('sync.webdav.username')
   const webdavPassword = useSettingValue('sync.webdav.password')
   const webdavPath = useSettingValue('sync.webdav.path')
+  const isFailoverEnabled = useSettingValue('sync.webdav.failoverEnabled')
+  const isFailoverNotify = useSettingValue('sync.webdav.failoverNotify')
 
   const lastSyncTimeLists = useSettingValue('sync.webdav.lastSyncTimeLists')
 
@@ -74,6 +77,14 @@ export default memo(() => {
 
   const handleEnableDownloadTasksSync = (enable: boolean) => {
     updateSetting({ 'sync.webdav.syncDownloadTasks': enable })
+  }
+
+  const handleFailoverEnabled = (enable: boolean) => {
+    updateSetting({ 'sync.webdav.failoverEnabled': enable })
+  }
+
+  const handleFailoverNotify = (enable: boolean) => {
+    updateSetting({ 'sync.webdav.failoverNotify': enable })
   }
 
   const handleTestConnection = useCallback(async() => {
@@ -171,6 +182,8 @@ export default memo(() => {
             用户必须先填好地址/账号/密码才能「测试连接」、也才能把同步打开；而 editable={false} 时
             iOS 的 TextInput 会直接忽略点击，键盘根本唤不起来，表现为“填写栏点不动、无法使用”。
             该区块同时不再套 opacity:0.5——半透明会被误读成“已禁用”，进一步让人以为不能填。 */}
+        {/* 服务器配置：一键切换 / 保存 / 编辑 / 删除（与听歌页共用同一套配置） */}
+        <WebDAVProfiles />
         <InputItem
           label="服务器地址"
           value={webdavUrl}
@@ -196,6 +209,20 @@ export default memo(() => {
           onChanged={handleWebdavSettingChanged('sync.webdav.path')}
           placeholder="例如: /LX_Music/"
           editable={!isSyncing}
+        />
+
+        <CheckBoxItem
+          check={isFailoverEnabled}
+          label="连接失败时自动切换服务器"
+          helpDesc="备份/同步时若当前服务器无法连接，按配置列表顺序自动换一台可用的重试。切换后听歌与同步都使用新服务器。"
+          onChange={handleFailoverEnabled}
+        />
+        <CheckBoxItem
+          check={isFailoverNotify}
+          label="自动切换时弹出提示"
+          helpDesc="关闭后切换过程静默进行，不打扰你。"
+          onChange={handleFailoverNotify}
+          disabled={!isFailoverEnabled}
         />
 
         <View style={{ opacity: isEnableWebdav ? 1 : 0.5 }}>

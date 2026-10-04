@@ -38,6 +38,7 @@ import { designRadius, designSpacing, designTypography } from '@/theme/DesignTok
 import { useBottomOverlayInset } from '@/store/common/hook'
 import PageTopInset from '@/components/common/PageTopInset'
 import WebDAVListMenu, { type WebDAVListMenuType, type SelectInfo as WebDAVSelectInfo } from './WebDAVListMenu'
+import WebDAVProfiles from '@/components/common/WebDAVProfiles'
 import WebDAVDownloadPath from './components/WebDAVDownloadPath'
 import MetadataEditModal from '@/components/MetadataEditModal'
 import {
@@ -784,6 +785,9 @@ export default memo(() => {
       contentContainerStyle={styles.content}
     >
       {renderTabsHeader()}
+      {/* 服务器配置：一键切换/保存/编辑/删除。下面的手工输入区保留，
+          首次配置、临时服务器仍走那里。 */}
+      <WebDAVProfiles />
       {/* 连接配置就地可改：与「设置 → 数据同步 → WebDAV 同步」共用同一批设置键
           （sync.webdav.*），不再像旧版那样只给一句「请在设置中配置」把人赶去别的页面。
           注：输入项本身已是卡片（InputItem 自带边框/底色），这里不再套一层 panel，避免双层边框。 */}
