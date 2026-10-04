@@ -1,6 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Alert,
   FlatList,
   Keyboard,
   RefreshControl,
@@ -13,6 +12,7 @@ import {
 } from 'react-native'
 import Text from '@/components/common/Text'
 import Button from '@/components/common/Button'
+import CheckBox from '@/components/common/CheckBox'
 import Image from '@/components/common/Image'
 import { Icon } from '@/components/common/Icon'
 import { SvgIcon } from '@/components/common/SvgIcon'
@@ -25,6 +25,7 @@ import { playList } from '@/core/player/player'
 import { addTempPlayList } from '@/core/player/tempPlayList'
 import { useHorizontalMode } from '@/utils/hooks'
 import { usePlayMusicInfo } from '@/store/player/hook'
+import { useDownloadTasks } from '@/store/download/hook'
 import playerState from '@/store/player/state'
 import {
   fetchWebDAVPic,
@@ -43,7 +44,6 @@ import { designRadius, designSpacing, designTypography } from '@/theme/DesignTok
 import { useBottomOverlayInset } from '@/store/common/hook'
 import PageTopInset from '@/components/common/PageTopInset'
 import WebDAVListMenu, { type WebDAVListMenuType, type SelectInfo as WebDAVSelectInfo } from './WebDAVListMenu'
-import WebDAVUploadSelect, { type WebDAVUploadSelectType } from './components/WebDAVUploadSelect'
 import WebDAVProfiles from '@/components/common/WebDAVProfiles'
 import WebDAVDownloadPath from './components/WebDAVDownloadPath'
 import MetadataEditModal from '@/components/MetadataEditModal'
@@ -60,8 +60,16 @@ import { existsFile, selectFile, unlink } from '@/utils/fs'
 import InputItem from '@/screens/Home/Views/Setting/components/InputItem'
 import { updateSetting } from '@/core/common'
 
-type ActiveTab = 'config' | 'list' | 'folders'
+type ActiveTab = 'config' | 'list' | 'folders' | 'upload'
 const ITEM_HEIGHT = scaleSizeH(LIST_ITEM_HEIGHT)
+
+/** 上传 tab 用：格式化文件大小 */
+const formatUploadSize = (size?: number) => {
+  if (!size) return ''
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
+}
 
 const TabButton = ({ label, tab, activeTab, onPress }: {
   label: string
@@ -233,7 +241,22 @@ export default memo(() => {
   const searchInputRef = useRef<TextInput>(null)
   const pendingJumpIdRef = useRef<string | null>(null)
   const webDAVListMenuRef = useRef<WebDAVListMenuType>(null)
-  const uploadSelectRef = useRef<WebDAVUploadSelectType>(null)
+  // 上传 tab 状态（2026-10-04：上传改为独立 tab 界面，不再用悬浮窗）
+  const [uploadFiles, setUploadFiles] = useState<WebDAVUploadItem[]>([])
+  const [uploadPickerExpanded, setUploadPickerExpanded] = useState(false)
+  const [uploadCheckedIds, setUploadCheckedIds] = useState<Set<string>>(new Set())
+  // 2026-10-04 bugfix：文件 App 选的临时文件（/tmp/）若用户未上传就离开 tab，
+  // 需要清理，避免 tmp 堆积。用 ref 跟踪，避免闭包过期。
+  const uploadTempFilesRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    // 离开上传 tab 或组件卸载时，清理未上传的临时文件
+    if (activeTab !== 'upload') {
+      for (const p of uploadTempFilesRef.current) {
+        void unlink(p).catch(() => {})
+      }
+      uploadTempFilesRef.current.clear()
+    }
+  }, [activeTab])
   const metadataEditTypeRef = useRef<any>(null)
   const selectedMusicInfoRef = useRef<LX.WebDAV.MusicInfo | null>(null)
 
@@ -245,6 +268,7 @@ export default memo(() => {
   const webdavUrl = useSettingValue('sync.webdav.url')
   const webdavUsername = useSettingValue('sync.webdav.username')
   const webdavPassword = useSettingValue('sync.webdav.password')
+  const webdavMediaSource = useSettingValue('webdav.mediaSource')
   const hasConfig = !!(webdavUrl && webdavUsername)
   const [isTesting, setIsTesting] = useState(false)
 
@@ -342,6 +366,12 @@ export default memo(() => {
       },
     [],
   )
+
+  // 2026-10-04：封面歌词来源切换
+  const handleWebdavMediaSourceChanged = useCallback((source: 'file' | 'online') => {
+    updateSetting({ 'webdav.mediaSource': source })
+    toast(source === 'file' ? '已切换为从歌曲文件获取封面歌词' : '已切换为从云端插件获取封面歌词')
+  }, [])
 
   const handleTestConnection = useCallback(async() => {
     if (isTesting) return
@@ -505,6 +535,67 @@ export default memo(() => {
           : song,
       ))
     })
+  }, [])
+
+  // 2026-10-04：手动指定封面文件（每首歌单独配置）
+  const handleSpecifyPicFile = useCallback((info: WebDAVSelectInfo) => {
+    void selectFile({ extTypes: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'] })
+      .then((res) => {
+        if (!res?.path) return
+        // picker 复制的临时文件长期保留（作为该歌曲的封面），不删除
+        void updateWebDAVMusicMeta(info.musicInfo.id, { customPicPath: res.path })
+          .then(() => {
+            setSongs(prevSongs => prevSongs.map(song =>
+              song.id === info.musicInfo.id
+                ? { ...song, meta: { ...song.meta, customPicPath: res.path } }
+                : song,
+            ))
+            toast('已指定封面文件')
+          })
+          .catch((err: any) => { toast(`保存失败：${err?.message ?? err}`, 'long') })
+      })
+      .catch((err: any) => {
+        if (err?.code === 'picker_cancelled') return
+        toast(`无法打开文件选择器：${err?.message ?? err}`, 'long')
+      })
+  }, [])
+
+  // 2026-10-04：手动指定歌词文件（每首歌单独配置）
+  const handleSpecifyLrcFile = useCallback((info: WebDAVSelectInfo) => {
+    void selectFile({ extTypes: ['lrc'] })
+      .then((res) => {
+        if (!res?.path) return
+        void updateWebDAVMusicMeta(info.musicInfo.id, { customLrcPath: res.path })
+          .then(() => {
+            setSongs(prevSongs => prevSongs.map(song =>
+              song.id === info.musicInfo.id
+                ? { ...song, meta: { ...song.meta, customLrcPath: res.path } }
+                : song,
+            ))
+            toast('已指定歌词文件')
+          })
+          .catch((err: any) => { toast(`保存失败：${err?.message ?? err}`, 'long') })
+      })
+      .catch((err: any) => {
+        if (err?.code === 'picker_cancelled') return
+        toast(`无法打开文件选择器：${err?.message ?? err}`, 'long')
+      })
+  }, [])
+
+  // 2026-10-04：清除手动指定的封面/歌词，恢复自动获取
+  const handleClearCustomMedia = useCallback((info: WebDAVSelectInfo) => {
+    void updateWebDAVMusicMeta(info.musicInfo.id, { customPicPath: undefined, customLrcPath: undefined })
+      .then(() => {
+        setSongs(prevSongs => prevSongs.map(song => {
+          if (song.id !== info.musicInfo.id) return song
+          const meta = { ...song.meta }
+          delete meta.customPicPath
+          delete meta.customLrcPath
+          return { ...song, meta }
+        }))
+        toast('已清除手动指定，恢复自动获取')
+      })
+      .catch((err: any) => { toast(`清除失败：${err?.message ?? err}`, 'long') })
   }, [])
 
   const handleEditMetadata = useCallback((info: WebDAVSelectInfo) => {
@@ -672,31 +763,102 @@ export default memo(() => {
     }
   }, [uploadTargetDir, selectedFolder])
 
-  const handleUploadFromDownloads = useCallback(() => {
-    uploadSelectRef.current?.show((items) => {
-      if (items.length > 0) void runWebDAVUpload(items)
-    })
-  }, [runWebDAVUpload])
+  // ===== 上传 tab（2026-10-04）：独立界面，不再用悬浮窗 =====
+  const downloadTasks = useDownloadTasks()
+  // 已完成且有本地文件的下载任务才可加入上传队列
+  const uploadableTasks = useMemo(
+    () => downloadTasks.filter(t => t.status === 'completed' && t.filePath && t.fileName),
+    [downloadTasks],
+  )
 
-  const handleUploadFromFilePicker = useCallback(() => {
-    // 原生 UIDocumentPicker(Import 模式)：会把选中的文件复制到系统 tmp 目录再返回，
-    // res.path 即该临时副本路径（RNFS 可读）；上传完成后删掉，避免 tmp 堆积。
+  const toggleUploadCheck = useCallback((id: string) => {
+    setUploadCheckedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const toggleUploadCheckAll = useCallback(() => {
+    setUploadCheckedIds(prev => {
+      if (prev.size === uploadableTasks.length) return new Set<string>()
+      return new Set(uploadableTasks.map(t => t.id))
+    })
+  }, [uploadableTasks])
+
+  /** 从下载列表把勾选的文件加入上传队列 */
+  const handleAddUploadFromDownloads = useCallback(() => {
+    const items: WebDAVUploadItem[] = uploadableTasks
+      .filter(t => uploadCheckedIds.has(t.id))
+      .map(t => ({
+        localPath: t.filePath!,
+        fileName: t.fileName!,
+        size: t.progress?.total || 0,
+      }))
+    if (items.length === 0) {
+      toast('请先勾选要上传的文件')
+      return
+    }
+    setUploadFiles(prev => {
+      const existing = new Set(prev.map(f => f.localPath))
+      const newItems = items.filter(it => !existing.has(it.localPath))
+      return [...prev, ...newItems]
+    })
+    setUploadCheckedIds(new Set())
+    setUploadPickerExpanded(false)
+    toast(`已添加 ${items.length} 个文件到上传队列`)
+  }, [uploadableTasks, uploadCheckedIds])
+
+  /** 从文件 App 选择文件，加入上传队列（不立即上传） */
+  const handleAddUploadFromFilePicker = useCallback(() => {
     void selectFile({ extTypes: ['mp3', 'flac', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'wma', 'ape'] })
       .then((res) => {
         if (!res?.path) return
         const fileName = res.name || res.path.split('/').pop() || 'unknown'
-        const tempPath = res.path
-        return runWebDAVUpload([{ localPath: tempPath, fileName, size: res.size || 0 }])
-          .finally(() => {
-            // 无论上传成功失败都删掉 picker 复制的临时文件（用户源文件不受影响）
-            void unlink(tempPath).catch(() => {})
-          })
+        // 注意：picker 复制的临时文件在上传完成后删除（见 handleStartUpload）；
+        // 若用户未上传就离开 tab，由 uploadTempFilesRef 的清理 effect 删除。
+        uploadTempFilesRef.current.add(res.path)
+        setUploadFiles(prev => {
+          if (prev.some(f => f.localPath === res.path)) {
+            toast('该文件已在队列中')
+            return prev
+          }
+          return [...prev, { localPath: res.path!, fileName, size: res.size || 0 }]
+        })
       })
       .catch((err: any) => {
         if (err?.code === 'picker_cancelled') return
         toast(`无法打开文件选择器：${err?.message ?? err}`, 'long')
       })
-  }, [runWebDAVUpload])
+  }, [])
+
+  const handleRemoveUploadFile = useCallback((localPath: string) => {
+    setUploadFiles(prev => {
+      const target = prev.find(f => f.localPath === localPath)
+      // 如果是文件 App 选的临时文件，从队列移除时顺手删掉，避免 tmp 堆积
+      if (target && uploadTempFilesRef.current.has(target.localPath)) {
+        uploadTempFilesRef.current.delete(target.localPath)
+        void unlink(target.localPath).catch(() => {})
+      }
+      return prev.filter(f => f.localPath !== localPath)
+    })
+  }, [])
+
+  /** 开始上传队列中的文件 */
+  const handleStartUpload = useCallback(async() => {
+    if (uploadFiles.length === 0) {
+      toast('请先添加要上传的文件')
+      return
+    }
+    await runWebDAVUpload(uploadFiles)
+    // 上传完成后清理：删掉文件 App 选的临时文件，清空队列
+    for (const p of uploadTempFilesRef.current) {
+      void unlink(p).catch(() => {})
+    }
+    uploadTempFilesRef.current.clear()
+    setUploadFiles([])
+  }, [uploadFiles, runWebDAVUpload])
 
   const handleUpload = useCallback(() => {
     if (!hasConfig) {
@@ -704,16 +866,9 @@ export default memo(() => {
       setActiveTab('config')
       return
     }
-    Alert.alert(
-      '上传到 WebDAV',
-      `目标目录：${uploadTargetDir}\n选择要上传的本地音频文件：`,
-      [
-        { text: '取消', style: 'cancel' },
-        { text: '从下载列表选择', onPress: handleUploadFromDownloads },
-        { text: '从文件 App 选择', onPress: handleUploadFromFilePicker },
-      ],
-    )
-  }, [hasConfig, uploadTargetDir, handleUploadFromDownloads, handleUploadFromFilePicker])
+    // 2026-10-04：上传改为独立 tab 界面，不再弹悬浮窗
+    setActiveTab('upload')
+  }, [hasConfig])
 
   const loadFolders = useCallback((folder: LX.WebDAV.DriveFolder | null) => {
     setFolderLoading(true)
@@ -916,6 +1071,7 @@ export default memo(() => {
       <View style={{ ...styles.tabs, borderBottomColor: theme['c-border-background'] }}>
         <TabButton label="列表" tab="list" activeTab={activeTab} onPress={() => { setActiveTab('list') }} />
         <TabButton label="目录" tab="folders" activeTab={activeTab} onPress={() => { setActiveTab('folders') }} />
+        <TabButton label="上传" tab="upload" activeTab={activeTab} onPress={() => { setActiveTab('upload') }} />
         <TabButton label="配置" tab="config" activeTab={activeTab} onPress={() => { setActiveTab('config') }} />
       </View>
     </>
@@ -978,6 +1134,42 @@ export default memo(() => {
       </Text>
 
       <WebDAVDownloadPath />
+
+      {/* 封面歌词来源（2026-10-04）：歌曲文件 = 同目录/内嵌（默认）；云端插件 = 在线匹配优先 */}
+      <View style={{ ...styles.panel, borderColor: theme['c-border-background'] }}>
+        <Text style={styles.label}>封面歌词来源</Text>
+        <View style={styles.mediaSourceRow}>
+          <Button
+            style={{
+              ...styles.mediaSourceButton,
+              backgroundColor: webdavMediaSource === 'file' ? theme['c-primary'] : theme['c-primary-light-900-alpha-300'],
+            }}
+            onPress={() => { handleWebdavMediaSourceChanged('file') }}
+          >
+            <Text color={webdavMediaSource === 'file' ? theme['c-primary-light-1000'] : theme['c-font']}>
+              歌曲文件
+            </Text>
+          </Button>
+          <Button
+            style={{
+              ...styles.mediaSourceButton,
+              marginLeft: designSpacing.sm,
+              backgroundColor: webdavMediaSource === 'online' ? theme['c-primary'] : theme['c-primary-light-900-alpha-300'],
+            }}
+            onPress={() => { handleWebdavMediaSourceChanged('online') }}
+          >
+            <Text color={webdavMediaSource === 'online' ? theme['c-primary-light-1000'] : theme['c-font']}>
+              云端插件
+            </Text>
+          </Button>
+        </View>
+        <Text size={12} color={theme['c-font-label']} style={styles.meta}>
+          {webdavMediaSource === 'file'
+            ? '从歌曲文件获取：同目录同名封面/歌词、音频内嵌标签。'
+            : '从云端插件获取：按歌名/歌手在线匹配封面歌词，失败时回退到歌曲文件。'}
+          {'\n'}也可在歌曲菜单里手动指定单个歌曲的封面/歌词文件（优先级最高）。
+        </Text>
+      </View>
 
       <View style={{ ...styles.panel, borderColor: theme['c-border-background'] }}>
         <Text style={styles.label}>扫描范围</Text>
@@ -1097,6 +1289,137 @@ export default memo(() => {
       </View>
     </ScrollView>
   )
+
+  const renderUpload = () => {
+    const totalSize = uploadFiles.reduce((sum, f) => sum + (f.size || 0), 0)
+    return (
+      <View style={styles.uploadPage}>
+        <ScrollView
+          style={styles.uploadScroll}
+          contentContainerStyle={styles.uploadContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          {renderTabsHeader()}
+          {/* 上传目标目录 */}
+          <View style={styles.uploadSection}>
+            <Text size={designTypography.caption} color={theme['c-font-label']}>上传目标目录</Text>
+            <Text size={designTypography.body} color={theme['c-font']} numberOfLines={2} style={styles.uploadTargetPath}>
+              {uploadTargetDir}
+            </Text>
+          </View>
+
+          {/* 来源选择：大按钮（2026-10-04 修复按钮尺寸问题：旧按钮 paddingVertical 仅 6，
+              触摸目标过小且三按钮宽度不一；新按钮统一 48pt 高、等宽并排） */}
+          <View style={styles.uploadSourceRow}>
+            <Button
+              style={[styles.uploadSourceButton, { backgroundColor: theme['c-button-background'] }]}
+              onPress={() => { setUploadPickerExpanded(v => !v) }}
+            >
+              <Text color={theme['c-button-font']}>从下载列表选择</Text>
+            </Button>
+            <Button
+              style={[styles.uploadSourceButton, { backgroundColor: theme['c-button-background'], marginLeft: designSpacing.md }]}
+              onPress={handleAddUploadFromFilePicker}
+            >
+              <Text color={theme['c-button-font']}>从文件 App 选择</Text>
+            </Button>
+          </View>
+
+          {/* 下载列表（展开时内嵌选择，不再用悬浮窗） */}
+          {uploadPickerExpanded ? (
+            <View style={styles.uploadSection}>
+              <View style={styles.uploadRowHeader}>
+                <Text size={designTypography.body} color={theme['c-font']}>已下载文件</Text>
+                <TouchableOpacity onPress={toggleUploadCheckAll} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text size={designTypography.caption} color={theme['c-primary']}>
+                    {uploadCheckedIds.size === uploadableTasks.length && uploadableTasks.length > 0 ? '取消全选' : '全选'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              {uploadableTasks.length === 0 ? (
+                <Text size={designTypography.caption} color={theme['c-font-label']} style={styles.uploadEmptyText}>
+                  没有已完成的下载任务
+                </Text>
+              ) : (
+                uploadableTasks.map(task => {
+                  const checked = uploadCheckedIds.has(task.id)
+                  return (
+                    <TouchableOpacity
+                      key={task.id}
+                      style={styles.uploadTaskRow}
+                      activeOpacity={0.7}
+                      onPress={() => { toggleUploadCheck(task.id) }}
+                    >
+                      <CheckBox checked={checked} onChange={() => { toggleUploadCheck(task.id) }} />
+                      <View style={styles.uploadTaskInfo}>
+                        <Text size={designTypography.body} color={theme['c-font']} numberOfLines={1}>
+                          {task.fileName}
+                        </Text>
+                        <Text size={designTypography.caption} color={theme['c-font-label']}>
+                          {formatUploadSize(task.progress?.total)}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  )
+                })
+              )}
+              <Button
+                style={[styles.uploadAddButton, { backgroundColor: theme['c-primary-light-900-alpha-300'] }]}
+                onPress={handleAddUploadFromDownloads}
+              >
+                <Text color={theme['c-primary']}>添加所选（{uploadCheckedIds.size}）</Text>
+              </Button>
+            </View>
+          ) : null}
+
+          {/* 待上传队列 */}
+          <View style={styles.uploadSection}>
+            <Text size={designTypography.body} color={theme['c-font']} style={styles.uploadSectionTitle}>
+              待上传（{uploadFiles.length}）
+            </Text>
+            {uploadFiles.length === 0 ? (
+              <Text size={designTypography.caption} color={theme['c-font-label']} style={styles.uploadEmptyText}>
+                还没有添加文件，用上面的按钮选择要上传的音频
+              </Text>
+            ) : (
+              uploadFiles.map(f => (
+                <View key={f.localPath} style={styles.uploadFileRow}>
+                  <View style={styles.uploadTaskInfo}>
+                    <Text size={designTypography.body} color={theme['c-font']} numberOfLines={1}>
+                      {f.fileName}
+                    </Text>
+                    <Text size={designTypography.caption} color={theme['c-font-label']}>
+                      {formatUploadSize(f.size)}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => { handleRemoveUploadFile(f.localPath) }}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    style={styles.uploadRemoveBtn}
+                  >
+                    <Icon name="close" size={16} color={theme['c-font-label']} />
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
+          </View>
+        </ScrollView>
+
+        {/* 底部大上传按钮 */}
+        <View style={styles.uploadFooter}>
+          <Button
+            style={[styles.uploadStartButton, { backgroundColor: theme['c-primary'] }]}
+            disabled={uploadFiles.length === 0 || loading || !!batchLoadingText}
+            onPress={() => { void handleStartUpload() }}
+          >
+            <Text color={theme['c-primary-light-1000']}>
+              {batchLoadingText || `开始上传${uploadFiles.length > 0 ? `（${uploadFiles.length} 个，${formatUploadSize(totalSize)}）` : ''}`}
+            </Text>
+          </Button>
+        </View>
+      </View>
+    )
+  }
 
   const renderList = () => (
     <View style={styles.listPage}>
@@ -1222,19 +1545,21 @@ export default memo(() => {
 
   return (
     <View style={styles.container}>
-      {activeTab === 'config' ? renderConfig() : activeTab === 'folders' ? renderFolders() : renderList()}
+      {activeTab === 'config' ? renderConfig() : activeTab === 'folders' ? renderFolders() : activeTab === 'upload' ? renderUpload() : renderList()}
       <WebDAVListMenu
         ref={webDAVListMenuRef}
         onPlay={(info) => { handlePlay(info.musicInfo) }}
         onPlayLater={handlePlayLater}
         onDownload={handleDownload}
         onFetchPicFromOnline={handleFetchPicFromOnline}
+        onSpecifyPicFile={handleSpecifyPicFile}
+        onSpecifyLrcFile={handleSpecifyLrcFile}
+        onClearCustomMedia={handleClearCustomMedia}
         onEditMetadata={handleEditMetadata}
         onRemove={handleRemove}
         onLoadMetadata={handleLoadMetadata}
       />
       <MetadataEditModal ref={metadataEditTypeRef} onUpdate={handleUpdateMetadata} />
-      <WebDAVUploadSelect ref={uploadSelectRef} />
     </View>
   )
 })
@@ -1242,6 +1567,98 @@ export default memo(() => {
 const styles = createStyle({
   container: {
     flex: 1,
+  },
+  // ===== 上传 tab（2026-10-04）：独立界面，大按钮修复旧按钮尺寸问题 =====
+  uploadPage: {
+    flex: 1,
+  },
+  uploadScroll: {
+    flex: 1,
+  },
+  uploadContent: {
+    paddingBottom: designSpacing.lg,
+  },
+  uploadSection: {
+    paddingHorizontal: designSpacing.lg,
+    paddingVertical: designSpacing.md,
+  },
+  uploadTargetPath: {
+    marginTop: designSpacing.xs,
+  },
+  uploadSourceRow: {
+    flexDirection: 'row',
+    paddingHorizontal: designSpacing.lg,
+    paddingVertical: designSpacing.sm,
+  },
+  // 来源按钮：等宽并排、48pt 高，保证触摸目标（旧按钮 paddingVertical 仅 6）
+  uploadSourceButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: designRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadRowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: designSpacing.sm,
+  },
+  uploadTaskRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: designSpacing.sm,
+  },
+  uploadTaskInfo: {
+    flex: 1,
+    marginLeft: designSpacing.sm,
+  },
+  uploadFileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: designSpacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  uploadRemoveBtn: {
+    padding: designSpacing.sm,
+  },
+  uploadSectionTitle: {
+    marginBottom: designSpacing.sm,
+    fontWeight: '600',
+  },
+  uploadEmptyText: {
+    paddingVertical: designSpacing.md,
+  },
+  uploadAddButton: {
+    marginTop: designSpacing.md,
+    minHeight: 44,
+    borderRadius: designRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadFooter: {
+    paddingHorizontal: designSpacing.lg,
+    paddingVertical: designSpacing.md,
+  },
+  // 底部上传按钮：全宽、52pt 高，大触摸目标
+  uploadStartButton: {
+    minHeight: 52,
+    borderRadius: designRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // 封面歌词来源选择（2026-10-04）
+  mediaSourceRow: {
+    flexDirection: 'row',
+    marginTop: designSpacing.sm,
+    marginBottom: designSpacing.sm,
+  },
+  mediaSourceButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: designRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   tabs: {
     flexDirection: 'row',
@@ -1341,7 +1758,11 @@ const styles = createStyle({
   },
   scanButton: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    // 2026-10-04 修复按钮尺寸：旧 paddingVertical 仅 6，触摸目标过小；
+    // 统一最小高度 36，保证可点且三按钮视觉一致。
+    minHeight: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
     borderRadius: 4,
   },
   songItem: {
