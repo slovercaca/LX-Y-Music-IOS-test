@@ -1,1 +1,83 @@
-aW1wb3J0IHsgbWVtbywgdXNlTWVtbyB9IGZyb20gJ3JlYWN0JwppbXBvcnQgeyBQcmVzc2FibGUsIFN0eWxlU2hlZXQsIFZpZXcgfSBmcm9tICdyZWFjdC1uYXRpdmUnCmltcG9ydCB7IHVzZVRoZW1lIH0gZnJvbSAnQC9zdG9yZS90aGVtZS9ob29rJwppbXBvcnQgeyBjcmVhdGVTdHlsZSB9IGZyb20gJ0AvdXRpbHMvdG9vbHMnCmltcG9ydCB7IGRlc2lnblJhZGl1cywgZGVzaWduU3BhY2luZywgZGVzaWduVHlwb2dyYXBoeSB9IGZyb20gJ0AvdGhlbWUvRGVzaWduVG9rZW5zJwppbXBvcnQgeyBTdmdJY29uIH0gZnJvbSAnQC9jb21wb25lbnRzL2NvbW1vbi9JY29uJwppbXBvcnQgVGV4dCBmcm9tICdAL2NvbXBvbmVudHMvY29tbW9uL1RleHQnCmltcG9ydCBDb250ZW50R2xhc3MgZnJvbSAnQC9jb21wb25lbnRzL2NvbW1vbi9Db250ZW50R2xhc3MnCgppbnRlcmZhY2UgRGFpbHlSZWNvbW1lbmRDYXJkUHJvcHMgewogIHRpdGxlOiBzdHJpbmcKICBzdWJ0aXRsZTogc3RyaW5nCiAgb25QcmVzczogKCkgPT4gdm9pZAp9Cgpjb25zdCBzdHlsZXMgPSBjcmVhdGVTdHlsZSh7CiAgY2FyZDogewogICAgZmxleERpcmVjdGlvbjogJ3JvdycsCiAgICBhbGlnbkl0ZW1zOiAnY2VudGVyJywKICAgIGhlaWdodDogNzIsCiAgICBwYWRkaW5nSG9yaXpvbnRhbDogZGVzaWduU3BhY2luZy5tZCwKICAgIGJvcmRlclJhZGl1czogZGVzaWduUmFkaXVzLm1kLAogIH0sCiAgaWNvbkNvbnRlbnQ6IHsKICAgIHdpZHRoOiA0NCwKICAgIGhlaWdodDogNDQsCiAgICBib3JkZXJSYWRpdXM6IGRlc2lnblJhZGl1cy5zbSwKICAgIGFsaWduSXRlbXM6ICdjZW50ZXInLAogICAganVzdGlmeUNvbnRlbnQ6ICdjZW50ZXInLAogIH0sCiAgY29udGVudDogewogICAgZmxleDogMSwKICAgIHBhZGRpbmdMZWZ0OiBkZXNpZ25TcGFjaW5nLnNtLAogIH0sCiAgdGl0bGU6IHsKICAgIGZvbnRXZWlnaHQ6ICc3MDAnLAogIH0sCiAgc3VidGl0bGU6IHsKICAgIG1hcmdpblRvcDogMiwKICB9LAp9KQoKY29uc3QgRGFpbHlSZWNvbW1lbmRDYXJkID0gbWVtbygoeyB0aXRsZSwgc3VidGl0bGUsIG9uUHJlc3MgfTogRGFpbHlSZWNvbW1lbmRDYXJkUHJvcHMpID0+IHsKICBjb25zdCB0aGVtZSA9IHVzZVRoZW1lKCkKCiAgY29uc3QgY2FyZFN0eWxlID0gdXNlTWVtbygKICAgICgpID0+IFN0eWxlU2hlZXQuY29tcG9zZShzdHlsZXMuY2FyZCwgewogICAgICAvLyDog4zmma/mlLnnlLEgQ29udGVudEdsYXNzIOaPkOS+m++8iDIwMjYtMTAtMDQg5YaF5a65546755KD77yJ44CCCiAgICB9KSwKICAgIFtdLAogICkKCiAgY29uc3QgaWNvbkNvbnRlbnRTdHlsZSA9IHVzZU1lbW8oCiAgICAoKSA9PiBTdHlsZVNoZWV0LmNvbXBvc2Uoc3R5bGVzLmljb25Db250ZW50LCB7CiAgICAgIGJhY2tncm91bmRDb2xvcjogdGhlbWVbJ2MtcHJpbWFyeSddLAogICAgfSksCiAgICBbdGhlbWVdLAogICkKCiAgcmV0dXJuICgKICAgIDxQcmVzc2FibGUgb25QcmVzcz17b25QcmVzc30gc3R5bGU9e3sgYm9yZGVyUmFkaXVzOiBkZXNpZ25SYWRpdXMubWQgfX0+CiAgICAgIDxDb250ZW50R2xhc3MKICAgICAgICBnbGFzc1N0eWxlPXt7IGJvcmRlclJhZGl1czogZGVzaWduUmFkaXVzLm1kIH19CiAgICAgICAgZmFsbGJhY2tCYWNrZ3JvdW5kQ29sb3I9e3RoZW1lWydjLXByaW1hcnktbGlnaHQtOTAwLWFscGhhLTMwMCddfQogICAgICAgIHN0eWxlPXtjYXJkU3R5bGV9CiAgICAgID4KICAgICAgICA8VmlldyBzdHlsZT17aWNvbkNvbnRlbnRTdHlsZX0+CiAgICAgICAgICA8U3ZnSWNvbiBuYW1lPSJjYWxlbmRhciIgc2l6ZT17MjJ9IGNvbG9yPXt0aGVtZVsnYy1wcmltYXJ5LWxpZ2h0LTEwMDAnXX0gLz4KICAgICAgICA8L1ZpZXc+CiAgICAgICAgPFZpZXcgc3R5bGU9e3N0eWxlcy5jb250ZW50fT4KICAgICAgICAgIDxUZXh0IHN0eWxlPXtzdHlsZXMudGl0bGV9IHNpemU9e2Rlc2lnblR5cG9ncmFwaHkudGl0bGV9IGNvbG9yPXt0aGVtZVsnYy1mb250J119PgogICAgICAgICAgICB7dGl0bGV9CiAgICAgICAgICA8L1RleHQ+CiAgICAgICAgICA8VGV4dCBzdHlsZT17c3R5bGVzLnN1YnRpdGxlfSBzaXplPXtkZXNpZ25UeXBvZ3JhcGh5LmJvZHl9IGNvbG9yPXt0aGVtZVsnYy1mb250LWxhYmVsJ119IG51bWJlck9mTGluZXM9ezF9PgogICAgICAgICAgICB7c3VidGl0bGV9CiAgICAgICAgICA8L1RleHQ+CiAgICAgICAgPC9WaWV3PgogICAgICA8L0NvbnRlbnRHbGFzcz4KICAgIDwvUHJlc3NhYmxlPgogICkKfSkKRGFpbHlSZWNvbW1lbmRDYXJkLmRpc3BsYXlOYW1lID0gJ0hvbWVEYWlseVJlY29tbWVuZENhcmQnCmV4cG9ydCBkZWZhdWx0IERhaWx5UmVjb21tZW5kQ2FyZAo=
+import { memo, useMemo } from 'react'
+import { Pressable, StyleSheet, View } from 'react-native'
+import { useTheme } from '@/store/theme/hook'
+import { createStyle } from '@/utils/tools'
+import { designRadius, designSpacing, designTypography } from '@/theme/DesignTokens'
+import { SvgIcon } from '@/components/common/Icon'
+import Text from '@/components/common/Text'
+import ContentGlass from '@/components/common/ContentGlass'
+
+interface DailyRecommendCardProps {
+  title: string
+  subtitle: string
+  onPress: () => void
+}
+
+const styles = createStyle({
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 72,
+    paddingHorizontal: designSpacing.md,
+    borderRadius: designRadius.md,
+  },
+  iconContent: {
+    width: 44,
+    height: 44,
+    borderRadius: designRadius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  content: {
+    flex: 1,
+    paddingLeft: designSpacing.sm,
+  },
+  title: {
+    fontWeight: '700',
+  },
+  subtitle: {
+    marginTop: 2,
+  },
+})
+
+const DailyRecommendCard = memo(({ title, subtitle, onPress }: DailyRecommendCardProps) => {
+  const theme = useTheme()
+
+  const cardStyle = useMemo(
+    () => StyleSheet.compose(styles.card, {
+      // 背景改由 ContentGlass 提供（2026-10-04 内容玻璃）。
+    }),
+    [],
+  )
+
+  const iconContentStyle = useMemo(
+    () => StyleSheet.compose(styles.iconContent, {
+      backgroundColor: theme['c-primary'],
+    }),
+    [theme],
+  )
+
+  return (
+    <Pressable onPress={onPress} style={{ borderRadius: designRadius.md }}>
+      <ContentGlass
+        glassStyle={{ borderRadius: designRadius.md }}
+        fallbackBackgroundColor={theme['c-primary-light-900-alpha-300']}
+        style={cardStyle}
+      >
+        <View style={iconContentStyle}>
+          <SvgIcon name="calendar" size={22} color={theme['c-primary-light-1000']} />
+        </View>
+        <View style={styles.content}>
+          <Text style={styles.title} size={designTypography.title} color={theme['c-font']}>
+            {title}
+          </Text>
+          <Text style={styles.subtitle} size={designTypography.body} color={theme['c-font-label']} numberOfLines={1}>
+            {subtitle}
+          </Text>
+        </View>
+      </ContentGlass>
+    </Pressable>
+  )
+})
+DailyRecommendCard.displayName = 'HomeDailyRecommendCard'
+export default DailyRecommendCard

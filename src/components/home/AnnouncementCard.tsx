@@ -1,1 +1,87 @@
-aW1wb3J0IHsgbWVtbywgdXNlTWVtbyB9IGZyb20gJ3JlYWN0JwppbXBvcnQgeyBTdHlsZVNoZWV0LCBWaWV3IH0gZnJvbSAncmVhY3QtbmF0aXZlJwppbXBvcnQgeyB1c2VUaGVtZSB9IGZyb20gJ0Avc3RvcmUvdGhlbWUvaG9vaycKaW1wb3J0IHsgY3JlYXRlU3R5bGUgfSBmcm9tICdAL3V0aWxzL3Rvb2xzJwppbXBvcnQgeyBkZXNpZ25SYWRpdXMsIGRlc2lnblNwYWNpbmcsIGRlc2lnblR5cG9ncmFwaHkgfSBmcm9tICdAL3RoZW1lL0Rlc2lnblRva2VucycKaW1wb3J0IHsgSWNvbiB9IGZyb20gJ0AvY29tcG9uZW50cy9jb21tb24vSWNvbicKaW1wb3J0IFRleHQgZnJvbSAnQC9jb21wb25lbnRzL2NvbW1vbi9UZXh0JwppbXBvcnQgQ29udGVudEdsYXNzIGZyb20gJ0AvY29tcG9uZW50cy9jb21tb24vQ29udGVudEdsYXNzJwoKaW50ZXJmYWNlIEFubm91bmNlbWVudENhcmRQcm9wcyB7CiAgdGl0bGU6IHN0cmluZwogIG1lc3NhZ2U6IHN0cmluZwp9Cgpjb25zdCBzdHlsZXMgPSBjcmVhdGVTdHlsZSh7CiAgY2FyZDogewogICAgZmxleERpcmVjdGlvbjogJ3JvdycsCiAgICBhbGlnbkl0ZW1zOiAnY2VudGVyJywKICAgIHBhZGRpbmc6IGRlc2lnblNwYWNpbmcubWQsCiAgICBib3JkZXJSYWRpdXM6IGRlc2lnblJhZGl1cy5sZywKICAgIGJvcmRlcldpZHRoOiAxLAogIH0sCiAgaWNvbkNvbnRlbnQ6IHsKICAgIHdpZHRoOiA1NCwKICAgIGhlaWdodDogNTQsCiAgICBib3JkZXJSYWRpdXM6IGRlc2lnblJhZGl1cy5tZCwKICAgIGFsaWduSXRlbXM6ICdjZW50ZXInLAogICAganVzdGlmeUNvbnRlbnQ6ICdjZW50ZXInLAogIH0sCiAgY29udGVudDogewogICAgZmxleDogMSwKICAgIHBhZGRpbmdMZWZ0OiBkZXNpZ25TcGFjaW5nLm1kLAogIH0sCiAgdGl0bGU6IHsKICAgIGZvbnRXZWlnaHQ6ICc3MDAnLAogIH0sCiAgbWVzc2FnZTogewogICAgbWFyZ2luVG9wOiAzLAogIH0sCn0pCgpjb25zdCBBbm5vdW5jZW1lbnRDYXJkID0gbWVtbygoeyB0aXRsZSwgbWVzc2FnZSB9OiBBbm5vdW5jZW1lbnRDYXJkUHJvcHMpID0+IHsKICBjb25zdCB0aGVtZSA9IHVzZVRoZW1lKCkKCiAgY29uc3QgY2FyZFN0eWxlID0gdXNlTWVtbygKICAgICgpID0+IFN0eWxlU2hlZXQuY29tcG9zZShzdHlsZXMuY2FyZCwgewogICAgICAvLyDog4zmma/mlLnnlLEgQ29udGVudEdsYXNzIOaPkOS+m++8iDIwMjYtMTAtMDQg5YaF5a65546755KD77yJ77ya5byA5YWz5byAID0g546755KD77yMCiAgICAgIC8vIOW8gOWFs+WFsyA9IGZhbGxiYWNrQmFja2dyb3VuZENvbG9yIOWbnumAgOWIsOWOn+adpeeahOe6r+iJsuOAggogICAgICBib3JkZXJDb2xvcjogdGhlbWVbJ2MtcHJpbWFyeS1hbHBoYS01MDAnXSwKICAgIH0pLAogICAgW3RoZW1lXSwKICApCgogIGNvbnN0IGljb25Db250ZW50U3R5bGUgPSB1c2VNZW1vKAogICAgKCkgPT4gU3R5bGVTaGVldC5jb21wb3NlKHN0eWxlcy5pY29uQ29udGVudCwgewogICAgICBiYWNrZ3JvdW5kQ29sb3I6IHRoZW1lWydjLXByaW1hcnknXSwKICAgIH0pLAogICAgW3RoZW1lXSwKICApCgogIHJldHVybiAoCiAgICA8Q29udGVudEdsYXNzCiAgICAgIGdsYXNzU3R5bGU9e3sgYm9yZGVyUmFkaXVzOiBkZXNpZ25SYWRpdXMubGcgfX0KICAgICAgZmFsbGJhY2tCYWNrZ3JvdW5kQ29sb3I9e3RoZW1lWydjLXByaW1hcnktbGlnaHQtOTAwLWFscGhhLTIwMCddfQogICAgICBzdHlsZT17Y2FyZFN0eWxlfQogICAgPgogICAgICA8VmlldyBzdHlsZT17aWNvbkNvbnRlbnRTdHlsZX0+CiAgICAgICAgPEljb24gbmFtZT0iYWxidW0iIHNpemU9ezI2fSBjb2xvcj17dGhlbWVbJ2MtcHJpbWFyeS1saWdodC0xMDAwJ119IC8+CiAgICAgIDwvVmlldz4KICAgICAgPFZpZXcgc3R5bGU9e3N0eWxlcy5jb250ZW50fT4KICAgICAgICA8VGV4dCBzdHlsZT17c3R5bGVzLnRpdGxlfSBzaXplPXtkZXNpZ25UeXBvZ3JhcGh5LmJvZHl9IGNvbG9yPXt0aGVtZVsnYy1wcmltYXJ5LWRhcmstMTAwJ119PgogICAgICAgICAge3RpdGxlfQogICAgICAgIDwvVGV4dD4KICAgICAgICA8VGV4dAogICAgICAgICAgc3R5bGU9e3N0eWxlcy5tZXNzYWdlfQogICAgICAgICAgc2l6ZT17ZGVzaWduVHlwb2dyYXBoeS5jYXB0aW9ufQogICAgICAgICAgY29sb3I9e3RoZW1lWydjLWZvbnQtbGFiZWwnXX0KICAgICAgICAgIG51bWJlck9mTGluZXM9ezF9CiAgICAgICAgPgogICAgICAgICAge21lc3NhZ2V9CiAgICAgICAgPC9UZXh0PgogICAgICA8L1ZpZXc+CiAgICA8L0NvbnRlbnRHbGFzcz4KICApCn0pCkFubm91bmNlbWVudENhcmQuZGlzcGxheU5hbWUgPSAnSG9tZUFubm91bmNlbWVudENhcmQnCmV4cG9ydCBkZWZhdWx0IEFubm91bmNlbWVudENhcmQK
+import { memo, useMemo } from 'react'
+import { StyleSheet, View } from 'react-native'
+import { useTheme } from '@/store/theme/hook'
+import { createStyle } from '@/utils/tools'
+import { designRadius, designSpacing, designTypography } from '@/theme/DesignTokens'
+import { Icon } from '@/components/common/Icon'
+import Text from '@/components/common/Text'
+import ContentGlass from '@/components/common/ContentGlass'
+
+interface AnnouncementCardProps {
+  title: string
+  message: string
+}
+
+const styles = createStyle({
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: designSpacing.md,
+    borderRadius: designRadius.lg,
+    borderWidth: 1,
+  },
+  iconContent: {
+    width: 54,
+    height: 54,
+    borderRadius: designRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  content: {
+    flex: 1,
+    paddingLeft: designSpacing.md,
+  },
+  title: {
+    fontWeight: '700',
+  },
+  message: {
+    marginTop: 3,
+  },
+})
+
+const AnnouncementCard = memo(({ title, message }: AnnouncementCardProps) => {
+  const theme = useTheme()
+
+  const cardStyle = useMemo(
+    () => StyleSheet.compose(styles.card, {
+      // 背景改由 ContentGlass 提供（2026-10-04 内容玻璃）：开关开 = 玻璃，
+      // 开关关 = fallbackBackgroundColor 回退到原来的纯色。
+      borderColor: theme['c-primary-alpha-500'],
+    }),
+    [theme],
+  )
+
+  const iconContentStyle = useMemo(
+    () => StyleSheet.compose(styles.iconContent, {
+      backgroundColor: theme['c-primary'],
+    }),
+    [theme],
+  )
+
+  return (
+    <ContentGlass
+      glassStyle={{ borderRadius: designRadius.lg }}
+      fallbackBackgroundColor={theme['c-primary-light-900-alpha-200']}
+      style={cardStyle}
+    >
+      <View style={iconContentStyle}>
+        <Icon name="album" size={26} color={theme['c-primary-light-1000']} />
+      </View>
+      <View style={styles.content}>
+        <Text style={styles.title} size={designTypography.body} color={theme['c-primary-dark-100']}>
+          {title}
+        </Text>
+        <Text
+          style={styles.message}
+          size={designTypography.caption}
+          color={theme['c-font-label']}
+          numberOfLines={1}
+        >
+          {message}
+        </Text>
+      </View>
+    </ContentGlass>
+  )
+})
+AnnouncementCard.displayName = 'HomeAnnouncementCard'
+export default AnnouncementCard

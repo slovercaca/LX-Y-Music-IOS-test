@@ -1,1 +1,352 @@
-aW1wb3J0IHsgbWVtbywgdXNlUmVmIH0gZnJvbSAncmVhY3QnCmltcG9ydCB7IFZpZXcsIFRvdWNoYWJsZU9wYWNpdHksIFN0eWxlU2hlZXQgfSBmcm9tICdyZWFjdC1uYXRpdmUnCmltcG9ydCBUZXh0IGZyb20gJ0AvY29tcG9uZW50cy9jb21tb24vVGV4dCcKaW1wb3J0IENvbnRlbnRHbGFzcyBmcm9tICdAL2NvbXBvbmVudHMvY29tbW9uL0NvbnRlbnRHbGFzcycKaW1wb3J0IHsgdXNlU2V0dGluZ1ZhbHVlIH0gZnJvbSAnQC9zdG9yZS9zZXR0aW5nL2hvb2snCmltcG9ydCBCYWRnZSwgeyB0eXBlIEJhZGdlVHlwZSB9IGZyb20gJ0AvY29tcG9uZW50cy9jb21tb24vQmFkZ2UnCmltcG9ydCB7IEljb24gfSBmcm9tICdAL2NvbXBvbmVudHMvY29tbW9uL0ljb24nCmltcG9ydCB7IHVzZUkxOG4gfSBmcm9tICdAL2xhbmcnCmltcG9ydCB7IHVzZVRoZW1lIH0gZnJvbSAnQC9zdG9yZS90aGVtZS9ob29rJwppbXBvcnQgc2V0dGluZ1N0YXRlIGZyb20gJ0Avc3RvcmUvc2V0dGluZy9zdGF0ZScKaW1wb3J0IHsgc2NhbGVTaXplSCB9IGZyb20gJ0AvdXRpbHMvcGl4ZWxSYXRpbycKaW1wb3J0IHsgTElTVF9JVEVNX0hFSUdIVCB9IGZyb20gJ0AvY29uZmlnL2NvbnN0YW50JwppbXBvcnQgeyBjcmVhdGVTdHlsZSwgdHlwZSBSb3dJbmZvIH0gZnJvbSAnQC91dGlscy90b29scycKaW1wb3J0IHsgZGVzaWduUmFkaXVzLCBkZXNpZ25TcGFjaW5nLCBkZXNpZ25UeXBvZ3JhcGh5IH0gZnJvbSAnQC90aGVtZS9EZXNpZ25Ub2tlbnMnCmltcG9ydCBJbWFnZSBmcm9tICdAL2NvbXBvbmVudHMvY29tbW9uL0ltYWdlJwppbXBvcnQgUGxheWluZ0ljb24gZnJvbSAnQC9jb21wb25lbnRzL2NvbW1vbi9QbGF5aW5nSWNvbicKaW1wb3J0IHsgdXNlSXNXeUxpa2VkLCB1c2VJc1R4TGlrZWQsIHVzZUlzS2dMaWtlZCB9IGZyb20gJ0Avc3RvcmUvdXNlci9ob29rJwppbXBvcnQgeyBoYW5kbGVMaWtlTXVzaWMsIGhhbmRsZVR4TGlrZU11c2ljLCBoYW5kbGVLZ0xpa2VNdXNpYyB9IGZyb20gJy4vbGlzdEFjdGlvbicKaW1wb3J0IHVzZUNvdmVyVXJsIGZyb20gJ0AvdXRpbHMvaG9va3MvdXNlQ292ZXJVcmwnCgovLyDliJfooajpobnlsIHpnaLvvJrkvJjlhYjnlKjoh6rluKYgbWV0YS5waWNVcmzvvJvkuLrnqbrml7bmjInpnIDliqjmgIHojrflj5bvvIjlnKjnur/mjqXlj6Mv5pys5Zyw5YaF5bWMLwovLyDnvZHnm5jlsIHpnaIvcXMg6Leo5bmz5Y+w5Yy56YWN77yJ77yM6Kej5YazIGNvb2tpZSDmrYzljZXjgIFXZWJEQVYg5ZCM5q2l44CB5aSH5Lu95a+85YWl55qE5q2M5Y2VCi8vIOOAjOWIl+ihqOaXoOWwgemdouS9huaSreaUvuacieWwgemdouOAjeeahOmXrumimO+8iOaSreaUvuaXtiBwbGF5ZXIg6LWw5ZCM5LiAIGdldFBpY1BhdGgg5Yqo5oCB6I635Y+W77yJ44CCCi8vIOe7k+aenOW4pue8k+WtmOS4juW5tuWPkemZkOWItu+8jOingSBjb3JlL211c2ljL2NvdmVyVXJsLnRz44CCCgpleHBvcnQgY29uc3QgSVRFTV9IRUlHSFQgPSBzY2FsZVNpemVIKExJU1RfSVRFTV9IRUlHSFQpCgpjb25zdCB1c2VRdWFsaXR5VGFnID0gKG11c2ljSW5mbzogTFguTXVzaWMuTXVzaWNJbmZvT25saW5lKSA9PiB7CiAgY29uc3QgdCA9IHVzZUkxOG4oKQogIGxldCBpbmZvOiB7IHR5cGU6IEJhZGdlVHlwZSB8IG51bGwsIHRleHQ6IHN0cmluZyB9ID0geyB0eXBlOiBudWxsLCB0ZXh0OiAnJyB9CiAgY29uc3QgcXVhbGl0eXMgPSAobXVzaWNJbmZvLm1ldGEgYXMgTFguTXVzaWMuTXVzaWNJbmZvTWV0YV9vbmxpbmUpPy5fcXVhbGl0eXMgPz8ge30KICBjb25zdCBzaG93SGlnaGVzdCA9IHNldHRpbmdTdGF0ZS5zZXR0aW5nWydjb21tb24ucXVhbGl0eV9zaG93X2hpZ2hlc3QnXQoKICBpZiAoc2hvd0hpZ2hlc3QpIHsKICAgIGlmIChxdWFsaXR5cy5tYXN0ZXIpIHsKICAgICAgaW5mby50eXBlID0gJ3NlY29uZGFyeScKICAgICAgaW5mby50ZXh0ID0gdCgncXVhbGl0eV9sb3NzbGVzc19tYXN0ZXInKQogICAgfSBlbHNlIGlmIChxdWFsaXR5cy5hdG1vc19wbHVzKSB7CiAgICAgIGluZm8udHlwZSA9ICdzZWNvbmRhcnknCiAgICAgIGluZm8udGV4dCA9IHQoJ3F1YWxpdHlfbG9zc2xlc3NfYXRtb3NfcGx1cycpCiAgICB9IGVsc2UgaWYgKHF1YWxpdHlzLmF0bW9zKSB7CiAgICAgIGluZm8udHlwZSA9ICdzZWNvbmRhcnknCiAgICAgIGluZm8udGV4dCA9IHQoJ3F1YWxpdHlfbG9zc2xlc3NfYXRtb3MnKQogICAgfSBlbHNlIGlmIChxdWFsaXR5cy5oaXJlcykgewogICAgICBpbmZvLnR5cGUgPSAnc2Vjb25kYXJ5JwogICAgICBpbmZvLnRleHQgPSB0KCdxdWFsaXR5X2xvc3NsZXNzXzI0Yml0JykKICAgIH0gZWxzZSBpZiAocXVhbGl0eXMuZmxhYykgewogICAgICBpbmZvLnR5cGUgPSAnc3EnCiAgICAgIGluZm8udGV4dCA9IHQoJ3F1YWxpdHlfbG9zc2xlc3MnKQogICAgfSBlbHNlIGlmIChxdWFsaXR5c1snMzIwayddKSB7CiAgICAgIGluZm8udHlwZSA9ICdocScKICAgICAgaW5mby50ZXh0ID0gdCgncXVhbGl0eV9oaWdoX3F1YWxpdHknKQogICAgfQogIH0gZWxzZSB7CiAgICBpZiAocXVhbGl0eXMuaGlyZXMpIHsKICAgICAgaW5mby50eXBlID0gJ3NlY29uZGFyeScKICAgICAgaW5mby50ZXh0ID0gdCgncXVhbGl0eV9sb3NzbGVzc18yNGJpdCcpCiAgICB9IGVsc2UgaWYgKHF1YWxpdHlzLmZsYWMpIHsKICAgICAgaW5mby50eXBlID0gJ3NxJwogICAgICBpbmZvLnRleHQgPSB0KCdxdWFsaXR5X2xvc3NsZXNzJykKICAgIH0gZWxzZSBpZiAocXVhbGl0eXNbJzMyMGsnXSkgewogICAgICBpbmZvLnR5cGUgPSAnaHEnCiAgICAgIGluZm8udGV4dCA9IHQoJ3F1YWxpdHlfaGlnaF9xdWFsaXR5JykKICAgIH0KICB9CgogIHJldHVybiBpbmZvCn0KCmV4cG9ydCBkZWZhdWx0IG1lbW8oCiAgKHsKICAgIGl0ZW0sCiAgICBpbmRleCwKICAgIHNob3dTb3VyY2UsCiAgICBvblByZXNzLAogICAgb25Mb25nUHJlc3MsCiAgICBvblNob3dNZW51LAogICAgc2VsZWN0ZWRMaXN0LAogICAgcm93SW5mbywKICAgIGlzU2hvd0FsYnVtTmFtZSwKICAgIHBsYXlpbmdJZCwKICAgIGlzU2hvd0ludGVydmFsLAogICAgbGlzdElkOiBfbGlzdElkLAogICAgc2hvd0NvdmVyID0gdHJ1ZSwKICAgIGhpZGVNZW51ID0gZmFsc2UsCiAgfTogewogICAgaXRlbTogTFguTXVzaWMuTXVzaWNJbmZvT25saW5lCiAgICBpbmRleDogbnVtYmVyCiAgICBzaG93U291cmNlPzogYm9vbGVhbgogICAgb25QcmVzczogKGl0ZW06IExYLk11c2ljLk11c2ljSW5mb09ubGluZSwgaW5kZXg6IG51bWJlcikgPT4gdm9pZAogICAgb25Mb25nUHJlc3M6IChpdGVtOiBMWC5NdXNpYy5NdXNpY0luZm9PbmxpbmUsIGluZGV4OiBudW1iZXIpID0+IHZvaWQKICAgIG9uU2hvd01lbnU6ICgKICAgICAgaXRlbTogTFguTXVzaWMuTXVzaWNJbmZvT25saW5lLAogICAgICBpbmRleDogbnVtYmVyLAogICAgICBwb3NpdGlvbjogeyB4OiBudW1iZXIsIHk6IG51bWJlciwgdzogbnVtYmVyLCBoOiBudW1iZXIgfQogICAgKSA9PiB2b2lkCiAgICBzZWxlY3RlZExpc3Q6IExYLk11c2ljLk11c2ljSW5mb09ubGluZVtdCiAgICByb3dJbmZvOiBSb3dJbmZvCiAgICBpc1Nob3dBbGJ1bU5hbWU6IGJvb2xlYW4KICAgIGlzU2hvd0ludGVydmFsOiBib29sZWFuCiAgICBwbGF5aW5nSWQ/OiBzdHJpbmcgfCBudWxsCiAgICBsaXN0SWQ/OiBzdHJpbmcKICAgIHNob3dDb3Zlcj86IGJvb2xlYW4KICAgIGhpZGVNZW51PzogYm9vbGVhbgogIH0pID0+IHsKICAgIGNvbnN0IHRoZW1lID0gdXNlVGhlbWUoKQogICAgY29uc3QgaXNQbGF5aW5nID0gcGxheWluZ0lkID09PSBpdGVtLmlkCiAgICBjb25zdCBpc1NlbGVjdGVkID0gc2VsZWN0ZWRMaXN0LmluY2x1ZGVzKGl0ZW0pCiAgICBjb25zdCBjb3ZlclVybCA9IHVzZUNvdmVyVXJsKGl0ZW0pCiAgICBjb25zdCBpc1d5TGlrZWQgPSB1c2VJc1d5TGlrZWQoaXRlbS5tZXRhLnNvbmdJZCkKICAgIGNvbnN0IHR4U29uZ0lkID0gKGl0ZW0ubWV0YSBhcyBhbnkpLmlkCiAgICBjb25zdCBpc051bWVyaWNJZCA9IHR4U29uZ0lkICYmIC9eXGQrJC8udGVzdChTdHJpbmcodHhTb25nSWQpKQogICAgY29uc3QgdHhTb25nTWlkID0gaXNOdW1lcmljSWQKICAgICAgPyBTdHJpbmcodHhTb25nSWQpCiAgICAgIDogKGl0ZW0ubWV0YSBhcyBhbnkpLnNvbmdtaWQgfHwgKGl0ZW0ubWV0YSBhcyBhbnkpLnN0ck1lZGlhTWlkIHx8ICh0eXBlb2YgaXRlbS5pZCA9PT0gJ3N0cmluZycgJiYgaXRlbS5pZC5zdGFydHNXaXRoKCd0eF8nKSA/IGl0ZW0uaWQuc2xpY2UoMykgOiBpdGVtLmlkKQogICAgY29uc3QgaXNUeExpa2VkID0gdXNlSXNUeExpa2VkKHR4U29uZ01pZCkKICAgIGNvbnN0IGlzS2dMaWtlZCA9IHVzZUlzS2dMaWtlZCgoaXRlbS5tZXRhIGFzIGFueSkuaGFzaCB8fCBpdGVtLm1ldGEuc29uZ0lkKQoKICAgIGNvbnN0IG1vcmVCdXR0b25SZWYgPSB1c2VSZWY8VG91Y2hhYmxlT3BhY2l0eT4obnVsbCkKICAgIGNvbnN0IGhhbmRsZVNob3dNZW51ID0gKCkgPT4gewogICAgICBpZiAobW9yZUJ1dHRvblJlZi5jdXJyZW50Py5tZWFzdXJlKSB7CiAgICAgICAgbW9yZUJ1dHRvblJlZi5jdXJyZW50Lm1lYXN1cmUoKGZ4LCBmeSwgd2lkdGgsIGhlaWdodCwgcHgsIHB5KSA9PiB7CiAgICAgICAgICBvblNob3dNZW51KGl0ZW0sIGluZGV4LCB7CiAgICAgICAgICAgIHg6IE1hdGguY2VpbChweCksCiAgICAgICAgICAgIHk6IE1hdGguY2VpbChweSksCiAgICAgICAgICAgIHc6IE1hdGguY2VpbCh3aWR0aCksCiAgICAgICAgICAgIGg6IE1hdGguY2VpbChoZWlnaHQpLAogICAgICAgICAgfSkKICAgICAgICB9KQogICAgICB9CiAgICB9CgogICAgY29uc3Qgc2hvd0xpa2VCdXR0b24gPSBpdGVtLnNvdXJjZSA9PT0gJ3d5JyB8fCBpdGVtLnNvdXJjZSA9PT0gJ3R4JyB8fCBpdGVtLnNvdXJjZSA9PT0gJ2tnJwogICAgY29uc3QgaXNMaWtlZCA9IGl0ZW0uc291cmNlID09PSAnd3knID8gaXNXeUxpa2VkIDogaXRlbS5zb3VyY2UgPT09ICd0eCcgPyBpc1R4TGlrZWQgOiBpdGVtLnNvdXJjZSA9PT0gJ2tnJyA/IGlzS2dMaWtlZCA6IGZhbHNlCgogICAgY29uc3QgaGFuZGxlTGlrZSA9ICgpID0+IHsKICAgICAgaWYgKGl0ZW0uc291cmNlID09PSAnd3knKSB7CiAgICAgICAgaGFuZGxlTGlrZU11c2ljKGl0ZW0pCiAgICAgIH0gZWxzZSBpZiAoaXRlbS5zb3VyY2UgPT09ICd0eCcpIHsKICAgICAgICBoYW5kbGVUeExpa2VNdXNpYyhpdGVtKQogICAgICB9IGVsc2UgaWYgKGl0ZW0uc291cmNlID09PSAna2cnKSB7CiAgICAgICAgaGFuZGxlS2dMaWtlTXVzaWMoaXRlbSkKICAgICAgfQogICAgfQoKICAgIGNvbnN0IHRhZ0luZm8gPSB1c2VRdWFsaXR5VGFnKGl0ZW0pCiAgICBjb25zdCBoaXN0b3J5U291cmNlID0gKGl0ZW0gYXMgTFguTXVzaWMuTXVzaWNJbmZvT25saW5lICYgeyBwbGF5SGlzdG9yeVNvdXJjZT86IExYLlBsYXllci5QbGF5SGlzdG9yeVNvdXJjZSB9KS5wbGF5SGlzdG9yeVNvdXJjZQogICAgY29uc3Qgc2luZ2VyID0gYCR7aXRlbS5zaW5nZXJ9JHtpc1Nob3dBbGJ1bU5hbWUgJiYgaXRlbS5tZXRhLmFsYnVtTmFtZSA/IGDCtyR7aXRlbS5tZXRhLmFsYnVtTmFtZX1gIDogJyd9YAogICAgLy8g5YaF5a65546755KD5byA5YWz77yIMjAyNi0xMC0wNO+8ie+8muW8gCA9IOavj+ihjOmDveaYr+eOu+eSg++8iOebuOmCu+ihjOaXoOe8neaLvOaIkOaVtOeJh+eOu+eSg+WIl+ihqO+8ie+8mwogICAgLy8g6auY5Lqu77yI5pKt5pS+5LitL+mAieS4re+8ieWcqOeOu+eSg+W8gOaXtuebluWcqOeOu+eSg+S4iuWxgu+8jOWFs+aXtui1sOWOn+adpeeahOiDjOaZr+iJsuOAggogICAgY29uc3QgZ2xhc3NDb250ZW50T24gPSB1c2VTZXR0aW5nVmFsdWUoJ3RoZW1lLmdsYXNzQ29udGVudCcpCiAgICBjb25zdCBoaWdobGlnaHQgPSBpc1BsYXlpbmcgfHwgaXNTZWxlY3RlZAoKICAgIHJldHVybiAoCiAgICAgIDxDb250ZW50R2xhc3MKICAgICAgICBnbGFzc1N0eWxlPXt7IGJvcmRlclJhZGl1czogMCB9fQogICAgICAgIGZhbGxiYWNrQmFja2dyb3VuZENvbG9yPXtoaWdobGlnaHQgPyB0aGVtZVsnYy1wcmltYXJ5LWJhY2tncm91bmQtaG92ZXInXSA6ICd0cmFuc3BhcmVudCd9CiAgICAgICAgc3R5bGU9e3sKICAgICAgICAgIC4uLnN0eWxlcy5saXN0SXRlbSwKICAgICAgICAgIHdpZHRoOiByb3dJbmZvLnJvd1dpZHRoLAogICAgICAgICAgaGVpZ2h0OiBJVEVNX0hFSUdIVCwKICAgICAgICB9fQogICAgICA+CiAgICAgICAge2dsYXNzQ29udGVudE9uICYmIGhpZ2hsaWdodCA/ICgKICAgICAgICAgIDxWaWV3CiAgICAgICAgICAgIHBvaW50ZXJFdmVudHM9Im5vbmUiCiAgICAgICAgICAgIHN0eWxlPXtbU3R5bGVTaGVldC5hYnNvbHV0ZUZpbGwsIHsgYmFja2dyb3VuZENvbG9yOiB0aGVtZVsnYy1wcmltYXJ5LWJhY2tncm91bmQtaG92ZXInXSB9XX0KICAgICAgICAgIC8+CiAgICAgICAgKSA6IG51bGx9CiAgICAgICAgPFRvdWNoYWJsZU9wYWNpdHkKICAgICAgICAgIHN0eWxlPXtzdHlsZXMubGlzdEl0ZW1MZWZ0fQogICAgICAgICAgb25QcmVzcz17KCkgPT4geyBvblByZXNzKGl0ZW0sIGluZGV4KSB9fQogICAgICAgICAgb25Mb25nUHJlc3M9eygpID0+IHsgb25Mb25nUHJlc3MoaXRlbSwgaW5kZXgpIH19CiAgICAgICAgPgoKCiAgICAgICAgICA8VmlldyBzdHlsZT17c2hvd0NvdmVyID8gc3R5bGVzLnNuIDogc3R5bGVzLnNuSW5kZXh9PgogICAgICAgICAgICB7c2hvd0NvdmVyID8gKAogICAgICAgICAgICAgIDxJbWFnZSB1cmw9e2NvdmVyVXJsfSBzdHlsZT17c3R5bGVzLmFsYnVtQXJ0fSAvPgogICAgICAgICAgICApIDogaXNQbGF5aW5nID8gKAogICAgICAgICAgICAgIDxQbGF5aW5nSWNvbiAvPgogICAgICAgICAgICApIDogKAogICAgICAgICAgICAgIDxUZXh0IGNvbG9yPXt0aGVtZVsnYy1mb250J119IHNpemU9ezE0fSBzdHlsZT17c3R5bGVzLmluZGV4VGV4dH0+CiAgICAgICAgICAgICAgICB7aW5kZXggKyAxfQogICAgICAgICAgICAgIDwvVGV4dD4KICAgICAgICAgICAgKX0KICAgICAgICAgIDwvVmlldz4KICAgICAgICAgIDxWaWV3IHN0eWxlPXtzdHlsZXMuaXRlbUluZm99PgogICAgICAgICAgICA8VGV4dAogICAgICAgICAgICAgIG51bWJlck9mTGluZXM9ezF9CiAgICAgICAgICAgICAgc2l6ZT17ZGVzaWduVHlwb2dyYXBoeS5ib2R5fQogICAgICAgICAgICAgIHN0eWxlPXtzdHlsZXMuc29uZ05hbWV9CiAgICAgICAgICAgICAgY29sb3I9e2lzUGxheWluZyA/IHRoZW1lWydjLXByaW1hcnktZm9udCddIDogdGhlbWVbJ2MtZm9udCddfQogICAgICAgICAgICA+CiAgICAgICAgICAgICAge2l0ZW0ubmFtZX0KICAgICAgICAgICAgICB7aXRlbS5hbGlhcyA/IDxUZXh0IGNvbG9yPXt0aGVtZVsnYy1mb250LWxhYmVsJ119PiAoe2l0ZW0uYWxpYXN9KTwvVGV4dD4gOiBudWxsfQogICAgICAgICAgICA8L1RleHQ+CiAgICAgICAgICAgIDxWaWV3IHN0eWxlPXtzdHlsZXMubGlzdEl0ZW1TaW5nbGV9PgogICAgICAgICAgICAgIHtzaG93U291cmNlID8gPEJhZGdlIHR5cGU9InRlcnRpYXJ5Ij57aXRlbS5zb3VyY2UudG9VcHBlckNhc2UoKX08L0JhZGdlPiA6IG51bGx9CiAgICAgICAgICAgICAge3RhZ0luZm8udHlwZSA/IDxCYWRnZSB0eXBlPXt0YWdJbmZvLnR5cGV9Pnt0YWdJbmZvLnRleHR9PC9CYWRnZT4gOiBudWxsfQogICAgICAgICAgICAgIHtpdGVtLm1ldGEuZmVlID09PSAxID8gPEJhZGdlIHR5cGU9InZpcCI+VklQPC9CYWRnZT4gOiBudWxsfQogICAgICAgICAgICAgIHtpdGVtLnNvdXJjZSA9PT0gJ3d5JyAmJiBpdGVtLm1ldGEub3JpZ2luQ292ZXJUeXBlID09PSAyID8gPEJhZGdlIHR5cGU9Im5vcm1hbCI+Y292ZXI8L0JhZGdlPiA6IG51bGx9CiAgICAgICAgICAgICAge2hpc3RvcnlTb3VyY2UgPyA8QmFkZ2UgdHlwZT0ibm9ybWFsIj57aGlzdG9yeVNvdXJjZX08L0JhZGdlPiA6IG51bGx9CiAgICAgICAgICAgICAgPFRleHQKICAgICAgICAgICAgICAgIHN0eWxlPXtzdHlsZXMubGlzdEl0ZW1TaW5nbGVUZXh0fQogICAgICAgICAgICAgICAgc2l6ZT17MTJ9CiAgICAgICAgICAgICAgICBjb2xvcj17aXNQbGF5aW5nID8gdGhlbWVbJ2MtcHJpbWFyeS1hbHBoYS0yMDAnXSA6IHRoZW1lWydjLTUwMCddfQogICAgICAgICAgICAgICAgbnVtYmVyT2ZMaW5lcz17MX0KICAgICAgICAgICAgICA+CiAgICAgICAgICAgICAgICB7c2luZ2VyfQogICAgICAgICAgICAgIDwvVGV4dD4KICAgICAgICAgICAgPC9WaWV3PgogICAgICAgICAgPC9WaWV3PgogICAgICAgICAge2lzU2hvd0ludGVydmFsID8gKAogICAgICAgICAgICA8VGV4dAogICAgICAgICAgICAgIHNpemU9ezEyfQogICAgICAgICAgICAgIGNvbG9yPXtpc1BsYXlpbmcgPyB0aGVtZVsnYy1wcmltYXJ5LWFscGhhLTIwMCddIDogdGhlbWVbJ2MtNTAwJ119CiAgICAgICAgICAgICAgbnVtYmVyT2ZMaW5lcz17MX0KICAgICAgICAgICAgPgogICAgICAgICAgICAgIHtpdGVtLmludGVydmFsfQogICAgICAgICAgICA8L1RleHQ+CiAgICAgICAgICApIDogbnVsbH0KICAgICAgICA8L1RvdWNoYWJsZU9wYWNpdHk+CgogICAgICAgIHtzaG93TGlrZUJ1dHRvbiA/ICgKICAgICAgICAgIDxUb3VjaGFibGVPcGFjaXR5IG9uUHJlc3M9e2hhbmRsZUxpa2V9IHN0eWxlPXtzdHlsZXMubGlrZUJ1dHRvbn0+CiAgICAgICAgICAgIDxJY29uCiAgICAgICAgICAgICAgbmFtZT17aXNMaWtlZCA/ICdsb3ZlLWZpbGxlZCcgOiAnbG92ZSd9CiAgICAgICAgICAgICAgc2l6ZT17MTd9CiAgICAgICAgICAgICAgY29sb3I9e2lzTGlrZWQgPyB0aGVtZVsnYy1saWtlZCddIDogdGhlbWVbJ2MtMzUwJ119CiAgICAgICAgICAgIC8+CiAgICAgICAgICA8L1RvdWNoYWJsZU9wYWNpdHk+CiAgICAgICAgKSA6IG51bGx9CgogICAgICAgIHtoaWRlTWVudSA/IG51bGwgOiAoCiAgICAgICAgICA8VG91Y2hhYmxlT3BhY2l0eSBvblByZXNzPXtoYW5kbGVTaG93TWVudX0gcmVmPXttb3JlQnV0dG9uUmVmfSBzdHlsZT17c3R5bGVzLm1vcmVCdXR0b259PgogICAgICAgICAgICA8SWNvbiBuYW1lPSJkb3RzLXZlcnRpY2FsIiBzdHlsZT17eyBjb2xvcjogdGhlbWVbJ2MtMzUwJ10gfX0gc2l6ZT17MTd9IC8+CiAgICAgICAgICA8L1RvdWNoYWJsZU9wYWNpdHk+CiAgICAgICAgKX0KICAgICAgPC9Db250ZW50R2xhc3M+CiAgICApCiAgfSwKICAocHJldlByb3BzLCBuZXh0UHJvcHMpID0+IHsKICAgIHJldHVybiAhISgKICAgICAgcHJldlByb3BzLml0ZW0gPT09IG5leHRQcm9wcy5pdGVtICYmCiAgICAgIHByZXZQcm9wcy5pbmRleCA9PT0gbmV4dFByb3BzLmluZGV4ICYmCiAgICAgIHByZXZQcm9wcy5zaG93U291cmNlID09PSBuZXh0UHJvcHMuc2hvd1NvdXJjZSAmJgogICAgICBwcmV2UHJvcHMuaXNTaG93QWxidW1OYW1lID09PSBuZXh0UHJvcHMuaXNTaG93QWxidW1OYW1lICYmCiAgICAgIHByZXZQcm9wcy5pc1Nob3dJbnRlcnZhbCA9PT0gbmV4dFByb3BzLmlzU2hvd0ludGVydmFsICYmCiAgICAgIHByZXZQcm9wcy5saXN0SWQgPT09IG5leHRQcm9wcy5saXN0SWQgJiYKICAgICAgcHJldlByb3BzLnBsYXlpbmdJZCA9PT0gbmV4dFByb3BzLnBsYXlpbmdJZCAmJgogICAgICBwcmV2UHJvcHMuaGlkZU1lbnUgPT09IG5leHRQcm9wcy5oaWRlTWVudSAmJgogICAgICAocHJldlByb3BzLml0ZW0gYXMgYW55KS5wbGF5SGlzdG9yeVNvdXJjZSA9PT0gKG5leHRQcm9wcy5pdGVtIGFzIGFueSkucGxheUhpc3RvcnlTb3VyY2UgJiYKICAgICAgbmV4dFByb3BzLnNlbGVjdGVkTGlzdC5pbmNsdWRlcyhuZXh0UHJvcHMuaXRlbSkgPT0KICAgICAgcHJldlByb3BzLnNlbGVjdGVkTGlzdC5pbmNsdWRlcyhuZXh0UHJvcHMuaXRlbSkgJiYKICAgICAgcHJldlByb3BzLnNob3dDb3ZlciA9PT0gbmV4dFByb3BzLnNob3dDb3ZlcgogICAgKQogIH0sCikKCmNvbnN0IHN0eWxlcyA9IGNyZWF0ZVN0eWxlKHsKICBsaXN0SXRlbTogewogICAgZmxleERpcmVjdGlvbjogJ3JvdycsCiAgICBmbGV4V3JhcDogJ25vd3JhcCcsCiAgICAvLyDlt6blj7PlkITnlZkgMTZwdO+8muWwgemdouebku+8iOWuvSA3MOOAgeWGheWuueWxheS4rea6ouWHuue6piA4cHTvvInlj6DliqDlkI7vvIzlsIHpnaLlrp7pmYXokL3lnKjot53lsY/luZUKICAgIC8vIOi+uee8mCAyNHB077yM5LiO6aG15aS05aSn5qCH6aKY77yIcGFkZGluZ0hvcml6b250YWw6IGxnPTI077yJ5a+56b2Q77yb5Y+z5L6nIG1vcmUg5oyJ6ZKuCiAgICAvLyDvvIhtYXJnaW5SaWdodCB4cz0477yJ5ZCM5qC35pS25ZyoIDI0cHTjgILliJfooajmlbTkvZPkuI3lho3otLTovrnvvJtpUGFkIOaoquWxj+WPjOWIl+aXtgogICAgLy8g5Lik5YiX6Ze06Led5a+556ew77yIMTYrOCDvvZwgOCsxNu+8ieOAggogICAgcGFkZGluZ0xlZnQ6IGRlc2lnblNwYWNpbmcubWQsCiAgICBwYWRkaW5nUmlnaHQ6IGRlc2lnblNwYWNpbmcubWQsCiAgICBhbGlnbkl0ZW1zOiAnY2VudGVyJywKICB9LAogIGxpc3RJdGVtTGVmdDogewogICAgZmxleDogMSwKICAgIGZsZXhHcm93OiAxLAogICAgZmxleFNocmluazogMSwKICAgIGZsZXhEaXJlY3Rpb246ICdyb3cnLAogICAgYWxpZ25JdGVtczogJ2NlbnRlcicsCiAgfSwKICBzbjogewogICAgd2lkdGg6IDcwLAogICAganVzdGlmeUNvbnRlbnQ6ICdjZW50ZXInLAogICAgYWxpZ25JdGVtczogJ2NlbnRlcicsCiAgICBwYWRkaW5nTGVmdDogZGVzaWduU3BhY2luZy5zbSwKICAgIHBhZGRpbmdSaWdodDogZGVzaWduU3BhY2luZy5zbSwKICB9LAogIHNuSW5kZXg6IHsKICAgIHdpZHRoOiA0MCwKICAgIGp1c3RpZnlDb250ZW50OiAnY2VudGVyJywKICAgIGFsaWduSXRlbXM6ICdjZW50ZXInLAogICAgcGFkZGluZ0xlZnQ6IDUsCiAgICBwYWRkaW5nUmlnaHQ6IDUsCiAgfSwKICBhbGJ1bUFydDogewogICAgd2lkdGg6IDU0LAogICAgaGVpZ2h0OiA1NCwKICAgIGJvcmRlclJhZGl1czogZGVzaWduUmFkaXVzLm1kLAogIH0sCiAgaXRlbUluZm86IHsKICAgIGZsZXhHcm93OiAxLAogICAgZmxleFNocmluazogMSwKICAgIHBhZGRpbmdMZWZ0OiBkZXNpZ25TcGFjaW5nLnhzLAogICAgcGFkZGluZ1JpZ2h0OiBkZXNpZ25TcGFjaW5nLnhzLAogIH0sCiAgc29uZ05hbWU6IHsKICAgIGZvbnRXZWlnaHQ6ICc2MDAnLAogIH0sCiAgaW5kZXhUZXh0OiB7CiAgICBmb250V2VpZ2h0OiAnNzAwJywKICB9LAogIGxpc3RJdGVtU2luZ2xlOiB7CiAgICBwYWRkaW5nVG9wOiAyLAogICAgZmxleERpcmVjdGlvbjogJ3JvdycsCiAgICBhbGlnbkl0ZW1zOiAnY2VudGVyJywKICB9LAogIGxpc3RJdGVtVGltZUxhYmVsOiB7CiAgICBtYXJnaW5SaWdodDogNSwKICAgIGZvbnRXZWlnaHQ6ICc0MDAnLAogIH0sCiAgbGlzdEl0ZW1TaW5nbGVUZXh0OiB7CiAgICBmbGV4R3JvdzogMCwKICAgIGZsZXhTaHJpbms6IDEsCiAgICBmb250V2VpZ2h0OiAnMzAwJywKICB9LAogIGxpc3RJdGVtQmFkZ2U6IHsKICAgIHBhZGRpbmdMZWZ0OiA1LAogICAgcGFkZGluZ1RvcDogMiwKICAgIGFsaWduU2VsZjogJ2ZsZXgtc3RhcnQnLAogIH0sCiAgbGlzdEl0ZW1SaWdodDogewogICAgZmxleEdyb3c6IDAsCiAgICBmbGV4U2hyaW5rOiAwLAogICAgZmxleEJhc2lzOiAnYXV0bycsCiAgICBqdXN0aWZ5Q29udGVudDogJ2NlbnRlcicsCiAgfSwKICBsaWtlQnV0dG9uOiB7CiAgICB3aWR0aDogNDAsCiAgICBoZWlnaHQ6IDQwLAogICAgbWFyZ2luSG9yaXpvbnRhbDogZGVzaWduU3BhY2luZy54cywKICAgIGJvcmRlclJhZGl1czogOTk5LAogICAganVzdGlmeUNvbnRlbnQ6ICdjZW50ZXInLAogICAgYWxpZ25JdGVtczogJ2NlbnRlcicsCiAgfSwKICBtb3JlQnV0dG9uOiB7CiAgICB3aWR0aDogNDAsCiAgICBoZWlnaHQ6IDQwLAogICAgbWFyZ2luUmlnaHQ6IGRlc2lnblNwYWNpbmcueHMsCiAgICBib3JkZXJSYWRpdXM6IDk5OSwKICAgIGp1c3RpZnlDb250ZW50OiAnY2VudGVyJywKICAgIGFsaWduSXRlbXM6ICdjZW50ZXInLAogIH0sCn0pCg==
+import { memo, useRef } from 'react'
+import { View, TouchableOpacity, StyleSheet } from 'react-native'
+import Text from '@/components/common/Text'
+import ContentGlass from '@/components/common/ContentGlass'
+import { useSettingValue } from '@/store/setting/hook'
+import Badge, { type BadgeType } from '@/components/common/Badge'
+import { Icon } from '@/components/common/Icon'
+import { useI18n } from '@/lang'
+import { useTheme } from '@/store/theme/hook'
+import settingState from '@/store/setting/state'
+import { scaleSizeH } from '@/utils/pixelRatio'
+import { LIST_ITEM_HEIGHT } from '@/config/constant'
+import { createStyle, type RowInfo } from '@/utils/tools'
+import { designRadius, designSpacing, designTypography } from '@/theme/DesignTokens'
+import Image from '@/components/common/Image'
+import PlayingIcon from '@/components/common/PlayingIcon'
+import { useIsWyLiked, useIsTxLiked, useIsKgLiked } from '@/store/user/hook'
+import { handleLikeMusic, handleTxLikeMusic, handleKgLikeMusic } from './listAction'
+import useCoverUrl from '@/utils/hooks/useCoverUrl'
+
+// 列表项封面：优先用自带 meta.picUrl；为空时按需动态获取（在线接口/本地内嵌/
+// 网盘封面/qs 跨平台匹配），解决 cookie 歌单、WebDAV 同步、备份导入的歌单
+// 「列表无封面但播放有封面」的问题（播放时 player 走同一 getPicPath 动态获取）。
+// 结果带缓存与并发限制，见 core/music/coverUrl.ts。
+
+export const ITEM_HEIGHT = scaleSizeH(LIST_ITEM_HEIGHT)
+
+const useQualityTag = (musicInfo: LX.Music.MusicInfoOnline) => {
+  const t = useI18n()
+  let info: { type: BadgeType | null, text: string } = { type: null, text: '' }
+  const qualitys = (musicInfo.meta as LX.Music.MusicInfoMeta_online)?._qualitys ?? {}
+  const showHighest = settingState.setting['common.quality_show_highest']
+
+  if (showHighest) {
+    if (qualitys.master) {
+      info.type = 'secondary'
+      info.text = t('quality_lossless_master')
+    } else if (qualitys.atmos_plus) {
+      info.type = 'secondary'
+      info.text = t('quality_lossless_atmos_plus')
+    } else if (qualitys.atmos) {
+      info.type = 'secondary'
+      info.text = t('quality_lossless_atmos')
+    } else if (qualitys.hires) {
+      info.type = 'secondary'
+      info.text = t('quality_lossless_24bit')
+    } else if (qualitys.flac) {
+      info.type = 'sq'
+      info.text = t('quality_lossless')
+    } else if (qualitys['320k']) {
+      info.type = 'hq'
+      info.text = t('quality_high_quality')
+    }
+  } else {
+    if (qualitys.hires) {
+      info.type = 'secondary'
+      info.text = t('quality_lossless_24bit')
+    } else if (qualitys.flac) {
+      info.type = 'sq'
+      info.text = t('quality_lossless')
+    } else if (qualitys['320k']) {
+      info.type = 'hq'
+      info.text = t('quality_high_quality')
+    }
+  }
+
+  return info
+}
+
+export default memo(
+  ({
+    item,
+    index,
+    showSource,
+    onPress,
+    onLongPress,
+    onShowMenu,
+    selectedList,
+    rowInfo,
+    isShowAlbumName,
+    playingId,
+    isShowInterval,
+    listId: _listId,
+    showCover = true,
+    hideMenu = false,
+  }: {
+    item: LX.Music.MusicInfoOnline
+    index: number
+    showSource?: boolean
+    onPress: (item: LX.Music.MusicInfoOnline, index: number) => void
+    onLongPress: (item: LX.Music.MusicInfoOnline, index: number) => void
+    onShowMenu: (
+      item: LX.Music.MusicInfoOnline,
+      index: number,
+      position: { x: number, y: number, w: number, h: number }
+    ) => void
+    selectedList: LX.Music.MusicInfoOnline[]
+    rowInfo: RowInfo
+    isShowAlbumName: boolean
+    isShowInterval: boolean
+    playingId?: string | null
+    listId?: string
+    showCover?: boolean
+    hideMenu?: boolean
+  }) => {
+    const theme = useTheme()
+    const isPlaying = playingId === item.id
+    const isSelected = selectedList.includes(item)
+    const coverUrl = useCoverUrl(item)
+    const isWyLiked = useIsWyLiked(item.meta.songId)
+    const txSongId = (item.meta as any).id
+    const isNumericId = txSongId && /^\d+$/.test(String(txSongId))
+    const txSongMid = isNumericId
+      ? String(txSongId)
+      : (item.meta as any).songmid || (item.meta as any).strMediaMid || (typeof item.id === 'string' && item.id.startsWith('tx_') ? item.id.slice(3) : item.id)
+    const isTxLiked = useIsTxLiked(txSongMid)
+    const isKgLiked = useIsKgLiked((item.meta as any).hash || item.meta.songId)
+
+    const moreButtonRef = useRef<TouchableOpacity>(null)
+    const handleShowMenu = () => {
+      if (moreButtonRef.current?.measure) {
+        moreButtonRef.current.measure((fx, fy, width, height, px, py) => {
+          onShowMenu(item, index, {
+            x: Math.ceil(px),
+            y: Math.ceil(py),
+            w: Math.ceil(width),
+            h: Math.ceil(height),
+          })
+        })
+      }
+    }
+
+    const showLikeButton = item.source === 'wy' || item.source === 'tx' || item.source === 'kg'
+    const isLiked = item.source === 'wy' ? isWyLiked : item.source === 'tx' ? isTxLiked : item.source === 'kg' ? isKgLiked : false
+
+    const handleLike = () => {
+      if (item.source === 'wy') {
+        handleLikeMusic(item)
+      } else if (item.source === 'tx') {
+        handleTxLikeMusic(item)
+      } else if (item.source === 'kg') {
+        handleKgLikeMusic(item)
+      }
+    }
+
+    const tagInfo = useQualityTag(item)
+    const historySource = (item as LX.Music.MusicInfoOnline & { playHistorySource?: LX.Player.PlayHistorySource }).playHistorySource
+    const singer = `${item.singer}${isShowAlbumName && item.meta.albumName ? `·${item.meta.albumName}` : ''}`
+    // 内容玻璃开关（2026-10-04）：开 = 每行都是玻璃（相邻行无缝拼成整片玻璃列表）；
+    // 高亮（播放中/选中）在玻璃开时盖在玻璃上层，关时走原来的背景色。
+    const glassContentOn = useSettingValue('theme.glassContent')
+    const highlight = isPlaying || isSelected
+
+    return (
+      <ContentGlass
+        glassStyle={{ borderRadius: 0 }}
+        fallbackBackgroundColor={highlight ? theme['c-primary-background-hover'] : 'transparent'}
+        style={{
+          ...styles.listItem,
+          width: rowInfo.rowWidth,
+          height: ITEM_HEIGHT,
+        }}
+      >
+        {glassContentOn && highlight ? (
+          <View
+            pointerEvents="none"
+            style={[StyleSheet.absoluteFill, { backgroundColor: theme['c-primary-background-hover'] }]}
+          />
+        ) : null}
+        <TouchableOpacity
+          style={styles.listItemLeft}
+          onPress={() => { onPress(item, index) }}
+          onLongPress={() => { onLongPress(item, index) }}
+        >
+
+
+          <View style={showCover ? styles.sn : styles.snIndex}>
+            {showCover ? (
+              <Image url={coverUrl} style={styles.albumArt} />
+            ) : isPlaying ? (
+              <PlayingIcon />
+            ) : (
+              <Text color={theme['c-font']} size={14} style={styles.indexText}>
+                {index + 1}
+              </Text>
+            )}
+          </View>
+          <View style={styles.itemInfo}>
+            <Text
+              numberOfLines={1}
+              size={designTypography.body}
+              style={styles.songName}
+              color={isPlaying ? theme['c-primary-font'] : theme['c-font']}
+            >
+              {item.name}
+              {item.alias ? <Text color={theme['c-font-label']}> ({item.alias})</Text> : null}
+            </Text>
+            <View style={styles.listItemSingle}>
+              {showSource ? <Badge type="tertiary">{item.source.toUpperCase()}</Badge> : null}
+              {tagInfo.type ? <Badge type={tagInfo.type}>{tagInfo.text}</Badge> : null}
+              {item.meta.fee === 1 ? <Badge type="vip">VIP</Badge> : null}
+              {item.source === 'wy' && item.meta.originCoverType === 2 ? <Badge type="normal">cover</Badge> : null}
+              {historySource ? <Badge type="normal">{historySource}</Badge> : null}
+              <Text
+                style={styles.listItemSingleText}
+                size={12}
+                color={isPlaying ? theme['c-primary-alpha-200'] : theme['c-500']}
+                numberOfLines={1}
+              >
+                {singer}
+              </Text>
+            </View>
+          </View>
+          {isShowInterval ? (
+            <Text
+              size={12}
+              color={isPlaying ? theme['c-primary-alpha-200'] : theme['c-500']}
+              numberOfLines={1}
+            >
+              {item.interval}
+            </Text>
+          ) : null}
+        </TouchableOpacity>
+
+        {showLikeButton ? (
+          <TouchableOpacity onPress={handleLike} style={styles.likeButton}>
+            <Icon
+              name={isLiked ? 'love-filled' : 'love'}
+              size={17}
+              color={isLiked ? theme['c-liked'] : theme['c-350']}
+            />
+          </TouchableOpacity>
+        ) : null}
+
+        {hideMenu ? null : (
+          <TouchableOpacity onPress={handleShowMenu} ref={moreButtonRef} style={styles.moreButton}>
+            <Icon name="dots-vertical" style={{ color: theme['c-350'] }} size={17} />
+          </TouchableOpacity>
+        )}
+      </ContentGlass>
+    )
+  },
+  (prevProps, nextProps) => {
+    return !!(
+      prevProps.item === nextProps.item &&
+      prevProps.index === nextProps.index &&
+      prevProps.showSource === nextProps.showSource &&
+      prevProps.isShowAlbumName === nextProps.isShowAlbumName &&
+      prevProps.isShowInterval === nextProps.isShowInterval &&
+      prevProps.listId === nextProps.listId &&
+      prevProps.playingId === nextProps.playingId &&
+      prevProps.hideMenu === nextProps.hideMenu &&
+      (prevProps.item as any).playHistorySource === (nextProps.item as any).playHistorySource &&
+      nextProps.selectedList.includes(nextProps.item) ==
+      prevProps.selectedList.includes(nextProps.item) &&
+      prevProps.showCover === nextProps.showCover
+    )
+  },
+)
+
+const styles = createStyle({
+  listItem: {
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    // 左右各留 16pt：封面盒（宽 70、内容居中溢出约 8pt）叠加后，封面实际落在距屏幕
+    // 边缘 24pt，与页头大标题（paddingHorizontal: lg=24）对齐；右侧 more 按钮
+    // （marginRight xs=8）同样收在 24pt。列表整体不再贴边；iPad 横屏双列时
+    // 两列间距对称（16+8 ｜ 8+16）。
+    paddingLeft: designSpacing.md,
+    paddingRight: designSpacing.md,
+    alignItems: 'center',
+  },
+  listItemLeft: {
+    flex: 1,
+    flexGrow: 1,
+    flexShrink: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sn: {
+    width: 70,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingLeft: designSpacing.sm,
+    paddingRight: designSpacing.sm,
+  },
+  snIndex: {
+    width: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingLeft: 5,
+    paddingRight: 5,
+  },
+  albumArt: {
+    width: 54,
+    height: 54,
+    borderRadius: designRadius.md,
+  },
+  itemInfo: {
+    flexGrow: 1,
+    flexShrink: 1,
+    paddingLeft: designSpacing.xs,
+    paddingRight: designSpacing.xs,
+  },
+  songName: {
+    fontWeight: '600',
+  },
+  indexText: {
+    fontWeight: '700',
+  },
+  listItemSingle: {
+    paddingTop: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  listItemTimeLabel: {
+    marginRight: 5,
+    fontWeight: '400',
+  },
+  listItemSingleText: {
+    flexGrow: 0,
+    flexShrink: 1,
+    fontWeight: '300',
+  },
+  listItemBadge: {
+    paddingLeft: 5,
+    paddingTop: 2,
+    alignSelf: 'flex-start',
+  },
+  listItemRight: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: 'auto',
+    justifyContent: 'center',
+  },
+  likeButton: {
+    width: 40,
+    height: 40,
+    marginHorizontal: designSpacing.xs,
+    borderRadius: 999,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  moreButton: {
+    width: 40,
+    height: 40,
+    marginRight: designSpacing.xs,
+    borderRadius: 999,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+})

@@ -1,1 +1,52 @@
-aW1wb3J0IHsgbWVtbyB9IGZyb20gJ3JlYWN0JwppbXBvcnQgeyBWaWV3LCB0eXBlIFN0eWxlUHJvcCwgdHlwZSBWaWV3UHJvcHMsIHR5cGUgVmlld1N0eWxlIH0gZnJvbSAncmVhY3QtbmF0aXZlJwoKaW1wb3J0IHsgdXNlU2V0dGluZ1ZhbHVlIH0gZnJvbSAnQC9zdG9yZS9zZXR0aW5nL2hvb2snCgppbXBvcnQgR2xhc3NTdXJmYWNlIGZyb20gJy4vR2xhc3NTdXJmYWNlJwoKZXhwb3J0IGludGVyZmFjZSBDb250ZW50R2xhc3NQcm9wcyBleHRlbmRzIFZpZXdQcm9wcyB7CiAgLyoqCiAgICog6YCP5Lyg57uZIExpcXVpZEdsYXNzIOeahOagt+W8j++8iOmAmuW4uOWPquaUvuWchuinku+8ie+8jOW8gOWFs+W8gOaXtueUn+aViOOAggogICAqLwogIGdsYXNzU3R5bGU/OiBTdHlsZVByb3A8Vmlld1N0eWxlPgogIC8qKgogICAqIOW8gOWFs+WFs+mXreaXtueahOWbnumAgOiDjOaZr+iJsuKAlOKAlOWhq+ivpee7hOS7tioq5Y6f5p2lKirnmoQgYmFja2dyb3VuZENvbG9y77yMCiAgICog5YWz5byA5YWz5Y2z5Y6f5qC35oGi5aSN5pen5aSW6KeC44CCCiAgICovCiAgZmFsbGJhY2tCYWNrZ3JvdW5kQ29sb3I/OiBzdHJpbmcKfQoKLyoqCiAqIOWGheWuueWMuueOu+eSg+WuueWZqO+8iDIwMjYtMTAtMDTvvInvvJrliJfooajpobnjgIHpppbpobXljaHniYfnrYnlhoXlrrnnu4Tku7bnlKjjgIIKICoKICog5Y+X6K6+572uIGB0aGVtZS5nbGFzc0NvbnRlbnRgIOaOp+WItu+8mgogKiAtIOW8gO+8mui1sCBHbGFzc1N1cmZhY2XvvIjkuI4gdGFiIOagjy/lvLnnqpflkIzkuIDlpZcgTGlxdWlkR2xhc3PvvIzmtrLmgIEv56Oo56CC5Y+M5b2i5oCB77yJ77ybCiAqIC0g5YWz77ya5pmu6YCaIFZpZXcgKyBmYWxsYmFja0JhY2tncm91bmRDb2xvcu+8jOWNs+aUueWKqOWJjeeahOe6r+iJsuWkluinguOAggogKgogKiDosIPnlKjmlrnms6jmhI/vvJrlvIDml7bkuI3opoHlho3lnKggc3R5bGUg6YeM5bimIGJhY2tncm91bmRDb2xvcu+8iOS8muiiq+eOu+eSg+aMoeS9j++8jOaXoOaEj+S5ie+8ieOAggogKi8KY29uc3QgQ29udGVudEdsYXNzID0gbWVtbygoeyBnbGFzc1N0eWxlLCBmYWxsYmFja0JhY2tncm91bmRDb2xvciwgc3R5bGUsIGNoaWxkcmVuLCAuLi5wcm9wcyB9OiBDb250ZW50R2xhc3NQcm9wcykgPT4gewogIGNvbnN0IGVuYWJsZWQgPSB1c2VTZXR0aW5nVmFsdWUoJ3RoZW1lLmdsYXNzQ29udGVudCcpCgogIGlmICghZW5hYmxlZCkgewogICAgcmV0dXJuICgKICAgICAgPFZpZXcKICAgICAgICBzdHlsZT17W3N0eWxlLCBmYWxsYmFja0JhY2tncm91bmRDb2xvciA/IHsgYmFja2dyb3VuZENvbG9yOiBmYWxsYmFja0JhY2tncm91bmRDb2xvciB9IDogbnVsbF19CiAgICAgICAgey4uLnByb3BzfQogICAgICA+CiAgICAgICAge2NoaWxkcmVufQogICAgICA8L1ZpZXc+CiAgICApCiAgfQoKICByZXR1cm4gKAogICAgPEdsYXNzU3VyZmFjZSBnbGFzc1N0eWxlPXtnbGFzc1N0eWxlfSBzdHlsZT17c3R5bGV9IHsuLi5wcm9wc30+CiAgICAgIHtjaGlsZHJlbn0KICAgIDwvR2xhc3NTdXJmYWNlPgogICkKfSkKCkNvbnRlbnRHbGFzcy5kaXNwbGF5TmFtZSA9ICdDb250ZW50R2xhc3MnCgpleHBvcnQgZGVmYXVsdCBDb250ZW50R2xhc3MK
+import { memo } from 'react'
+import { View, type StyleProp, type ViewProps, type ViewStyle } from 'react-native'
+
+import { useSettingValue } from '@/store/setting/hook'
+
+import GlassSurface from './GlassSurface'
+
+export interface ContentGlassProps extends ViewProps {
+  /**
+   * 透传给 LiquidGlass 的样式（通常只放圆角），开关开时生效。
+   */
+  glassStyle?: StyleProp<ViewStyle>
+  /**
+   * 开关关闭时的回退背景色——填该组件**原来**的 backgroundColor，
+   * 关开关即原样恢复旧外观。
+   */
+  fallbackBackgroundColor?: string
+}
+
+/**
+ * 内容区玻璃容器（2026-10-04）：列表项、首页卡片等内容组件用。
+ *
+ * 受设置 `theme.glassContent` 控制：
+ * - 开：走 GlassSurface（与 tab 栏/弹窗同一套 LiquidGlass，液态/磨砂双形态）；
+ * - 关：普通 View + fallbackBackgroundColor，即改动前的纯色外观。
+ *
+ * 调用方注意：开时不要再在 style 里带 backgroundColor（会被玻璃挡住，无意义）。
+ */
+const ContentGlass = memo(({ glassStyle, fallbackBackgroundColor, style, children, ...props }: ContentGlassProps) => {
+  const enabled = useSettingValue('theme.glassContent')
+
+  if (!enabled) {
+    return (
+      <View
+        style={[style, fallbackBackgroundColor ? { backgroundColor: fallbackBackgroundColor } : null]}
+        {...props}
+      >
+        {children}
+      </View>
+    )
+  }
+
+  return (
+    <GlassSurface glassStyle={glassStyle} style={style} {...props}>
+      {children}
+    </GlassSurface>
+  )
+})
+
+ContentGlass.displayName = 'ContentGlass'
+
+export default ContentGlass

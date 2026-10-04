@@ -1,1 +1,229 @@
-Y29uc3QgZGVmYXVsdFNldHRpbmc6IExYLkFwcFNldHRpbmcgPSB7DQogIHZlcnNpb246ICcyLjAnLA0KICAndmVyc2lvbi5hdXRvQ2hlY2tVcGRhdGUnOiB0cnVlLA0KICAnY29tbW9uLmlzQXV0b1RoZW1lJzogZmFsc2UsDQogICdjb21tb24uaXNEYXJrTW9kZSc6IGZhbHNlLA0KICAnY29tbW9uLmxhbmdJZCc6IG51bGwsDQogICdjb21tb24uYXBpU291cmNlJzogJycsDQogICdjb21tb24uc291cmNlTmFtZVR5cGUnOiAnYWxpYXMnLA0KICAnY29tbW9uLnNoYXJlVHlwZSc6ICdzeXN0ZW0nLA0KICAvLyDpu5jorqQgZmFsc2XvvJrpppbmrKHlronoo4XlkK/liqjml7blvLnlh7rljY/orq7lvLnnqpfvvIhQYWN0TW9kYWzvvInvvIzlkIzmhI/lkI7lhpnlhaUgdHJ1ZSDkuI3lho3lvLnlh7oNCiAgJ2NvbW1vbi5pc0FncmVlUGFjdCc6IGZhbHNlLA0KICAnY29tbW9uLmF1dG9IaWRlUGxheUJhcic6IHRydWUsDQogICdjb21tb24uZHJhd2VyTGF5b3V0UG9zaXRpb24nOiAnbGVmdCcsDQogIC8vIOOAjOWQr+eUqOerluWxj+mmlumhteaoquWQkea7muWKqOOAjeiuvue9ruW3suenu+mZpO+8mummlumhteWbuuWumu+8jOS7hemAmui/h+W6lemDqCB0YWIgLyDkvqfovrnmoI/liIfmjaLpobXpnaLjgIINCiAgLy8g6K+l6ZSu5LiN5YaN6KKr6K+75Y+W77yb5pen5a6J6KOF6YeM5q6L55WZ55qEIHRydWUg5YC85Li65q275pWw5o2u77yM5peg5Lu75L2V5Luj56CB5byV55So44CCDQogICdjb21tb24uYWxsb3dQcm9ncmVzc0JhclNlZWsnOiB0cnVlLA0KICAnY29tbW9uLnNob3dCYWNrQnRuJzogZmFsc2UsDQogICdjb21tb24uc2hvd0V4aXRCdG4nOiBmYWxzZSwNCiAgJ2NvbW1vbi53eV9jb29raWUnOiAnJywNCiAgJ2NvbW1vbi53eV9zZXJwYXBpX2tleSc6ICcnLA0KICAnY29tbW9uLnR4X2Nvb2tpZSc6ICcnLA0KICAnY29tbW9uLmtnX2Nvb2tpZSc6ICcnLA0KICAnY29tbW9uLnl0X2Nvb2tpZSc6ICcnLA0KICAnY29tbW9uLmlzRW5hYmxlTG9nJzogdHJ1ZSwNCiAgJ2NvbW1vbi5pc0VuYWJsZVN5bmNMb2cnOiBmYWxzZSwNCiAgJ2NvbW1vbi5pc0VuYWJsZVVzZXJBcGlMb2cnOiBmYWxzZSwNCiAgJ2NvbW1vbi5pc0VuYWJsZVdlYkRBVkxvZyc6IGZhbHNlLA0KICAnY29tbW9uLmlzRW5hYmxlU2VhcmNoTG9nJzogZmFsc2UsDQogICdjb21tb24uaXNFbmFibGVQbGF5ZXJMb2cnOiBmYWxzZSwNCiAgLy8g6ZSZ6K+v5pel5b+X5p+l55yL5Zmo55qE5pi+56S66ZiI5YC877yI5p2h77yJ77ya5Y6f5p2l5Y+q5piv6aG16Z2i5YaFIHVzZVN0YXRl77yM56a75byA6K6+572u6aG15bCx5Zue5YiwIDIwMDDvvIwNCiAgLy8g55So5oi35pS56L+H55qE5YC85LiN5L+d5a2Y44CCDQogICdjb21tb24ubG9nTWF4TGluZXMnOiAyMDAwLA0KICAnY29tbW9uLmJpbGliaWxpX211bHRpX3BhZ2UnOiBmYWxzZSwNCiAgJ2NvbW1vbi5xdWFsaXR5X3Nob3dfaGlnaGVzdCc6IGZhbHNlLA0KDQogICdjb21tb24ubmF2U3RhdHVzJzogew0KICAgIG5hdl9kaXNjb3Zlcnk6IHRydWUsDQogICAgbmF2X3NvbmdsaXN0OiB0cnVlLA0KICAgIG5hdl90b3A6IHRydWUsDQogICAgbmF2X2xvdmU6IHRydWUsDQogICAgbmF2X2RhaWx5X3JlYzogdHJ1ZSwNCiAgICBuYXZfbXlfcGxheWxpc3Q6IHRydWUsDQogICAgbmF2X2ZvbGxvd2VkX2FydGlzdHM6IHRydWUsDQogICAgbmF2X3N1YnNjcmliZWRfYWxidW1zOiB0cnVlLA0KICAgIG5hdl93ZWJkYXY6IHRydWUsDQogICAgbmF2X3R4X2RhaWx5X3JlYzogdHJ1ZSwNCiAgICBuYXZfcGxheV9oaXN0b3J5OiB0cnVlLA0KICB9LA0KDQogICdjb21tb24ubmF2T3JkZXInOiBbDQogICAgJ25hdl9kaXNjb3ZlcnknLA0KICAgICduYXZfc2VhcmNoJywNCiAgICAnbmF2X3BsYXlfaGlzdG9yeScsDQogICAgJ25hdl9zb25nbGlzdCcsDQogICAgJ25hdl90b3AnLA0KICAgICduYXZfbG92ZScsDQogICAgJ25hdl9kYWlseV9yZWMnLA0KICAgICduYXZfa2dfZGFpbHlfcmVjJywNCiAgICAnbmF2X3R4X2RhaWx5X3JlYycsDQogICAgJ25hdl9rZ19wbGF5bGlzdCcsDQogICAgJ25hdl90eF9wbGF5bGlzdCcsDQogICAgJ25hdl9mb2xsb3dlZF9hcnRpc3RzJywNCiAgICAnbmF2X3N1YnNjcmliZWRfYWxidW1zJywNCiAgICAnbmF2X215X3BsYXlsaXN0JywNCiAgICAnbmF2X3dlYmRhdicsDQogICAgJ25hdl9sb2NhbF9kb3dubG9hZCcsDQogICAgJ25hdl9zZXR0aW5nJywNCiAgXSwNCg0KICAnY29tbW9uLm5hdkZsYXRPcmRlcic6IFtdLA0KDQogIC8vIOaOqOiNkOmhteW5s+WPsOaMiemSrumhuuW6j++8iOW5s+WPsCBpZCDmlbDnu4TvvInjgILnqbrmlbDnu4QgPSDmjInpu5jorqTpobrluo/mmL7npLrvvJsNCiAgLy8g5o6S5Zyo56ys5LiA5L2N55qE5bmz5Y+w5Li66L+b5YWl5o6o6I2Q6aG15pe255qE6buY6K6k6YCJ5Lit5bmz5Y+w44CCDQogICdjb21tb24uZGlzY292ZXJ5UGxhdGZvcm1PcmRlcic6IFtdLA0KDQogICdjb21tb24uc2VjdGlvbkV4cGFuZGVkU3RhdHVzJzogew0KICAgIHNldHRpbmdfcGxheWVyOiB0cnVlLA0KICAgIHNldHRpbmdfZG93bmxvYWQ6IHRydWUsDQogICAgc2V0dGluZ190aGVtZTogdHJ1ZSwNCiAgICBzZXR0aW5nX3N5bmM6IHRydWUsDQogICAgc2V0dGluZ19zZWFyY2g6IHRydWUsDQogICAgc2V0dGluZ19saXN0OiB0cnVlLA0KICAgIHNldHRpbmdfYmFzaWM6IHRydWUsDQogICAgc2V0dGluZ19vdGhlcjogdHJ1ZSwNCiAgICBzZXR0aW5nX2JhY2t1cDogdHJ1ZSwNCiAgICBzZXR0aW5nX2Fib3V0OiB0cnVlLA0KICAgIHNldHRpbmdfdmVyc2lvbjogdHJ1ZSwNCiAgICBzZXR0aW5nX2Jhc2ljX25hdl9tZW51OiB0cnVlLA0KICAgIHNldHRpbmdfYmFzaWNfc291cmNlX3VzZXJfYXBpOiB0cnVlLA0KICB9LA0KDQogICdwbGF5ZXIuc3RhcnR1cFB1c2hQbGF5RGV0YWlsU2NyZWVuJzogZmFsc2UsDQogICdwbGF5ZXIudG9nZ2xlUGxheU1ldGhvZCc6ICdsaXN0TG9vcCcsDQogICdwbGF5ZXIucGxheVF1YWxpdHknOiAnMzIwaycsDQogICdwbGF5ZXIuaXNTYXZlUGxheVRpbWUnOiB0cnVlLA0KICAncGxheWVyLnZvbHVtZSc6IDEsDQogICdwbGF5ZXIucGxheWJhY2tSYXRlJzogMSwNCiAgJ3BsYXllci5jYWNoZUxpbWl0JzogMCwNCiAgJ3BsYXllci50aW1lb3V0RXhpdCc6ICcnLA0KICAncGxheWVyLnRpbWVvdXRFeGl0UGxheWVkJzogdHJ1ZSwNCiAgJ3BsYXllci5pc0F1dG9DbGVhblBsYXllZExpc3QnOiBmYWxzZSwNCiAgJ3BsYXllci5hdXRvU2tpcE9uRXJyb3InOiB0cnVlLA0KICAncGxheWVyLnNvdW5kRWZmZWN0LmVuYWJsZWQnOiBmYWxzZSwNCiAgJ3BsYXllci5zb3VuZEVmZmVjdC5wcmVzZXQnOiAnbm9uZScsDQogICdwbGF5ZXIuc291bmRFZmZlY3QuY29udm9sdXRpb24uZmlsZU5hbWUnOiAnJywNCiAgJ3BsYXllci5zb3VuZEVmZmVjdC5jb252b2x1dGlvbi5tYWluR2Fpbic6IDEwLA0KICAncGxheWVyLnNvdW5kRWZmZWN0LmNvbnZvbHV0aW9uLnNlbmRHYWluJzogMCwNCiAgJ3BsYXllci5zb3VuZEVmZmVjdC5lcS4zMSc6IDAsDQogICdwbGF5ZXIuc291bmRFZmZlY3QuZXEuNjInOiAwLA0KICAncGxheWVyLnNvdW5kRWZmZWN0LmVxLjEyNSc6IDAsDQogICdwbGF5ZXIuc291bmRFZmZlY3QuZXEuMjUwJzogMCwNCiAgJ3BsYXllci5zb3VuZEVmZmVjdC5lcS41MDAnOiAwLA0KICAncGxheWVyLnNvdW5kRWZmZWN0LmVxLjEwMDAnOiAwLA0KICAncGxheWVyLnNvdW5kRWZmZWN0LmVxLjIwMDAnOiAwLA0KICAncGxheWVyLnNvdW5kRWZmZWN0LmVxLjQwMDAnOiAwLA0KICAncGxheWVyLnNvdW5kRWZmZWN0LmVxLjgwMDAnOiAwLA0KICAncGxheWVyLnNvdW5kRWZmZWN0LmVxLjE2MDAwJzogMCwNCiAgJ3BsYXllci5pc0hhbmRsZUF1ZGlvRm9jdXMnOiB0cnVlLA0KICAncGxheWVyLmlzRW5hYmxlQXVkaW9QcmVsb2FkJzogZmFsc2UsDQogICdwbGF5ZXIuY2FjaGVTaXplJzogJzEwMjQnLA0KICAncGxheWVyLmlzRW5hYmxlQXVkaW9PZmZsb2FkJzogZmFsc2UsDQogICdwbGF5ZXIudXNlTmF0aXZlRmxhY1BsYXllcic6IGZhbHNlLA0KICAncGxheWVyLmlzU2hvd0x5cmljVHJhbnNsYXRpb24nOiB0cnVlLA0KICAncGxheWVyLmlzU2hvd0x5cmljUm9tYSc6IGZhbHNlLA0KICAncGxheWVyLmlzU2hvd05vdGlmaWNhdGlvbkltYWdlJzogdHJ1ZSwNCiAgJ3BsYXllci5pc1MydCc6IHRydWUsDQogIC8vIOWQr+WKqOi9r+S7tuiHquWKqOaSreaUvu+8iOWJjeaPkO+8muWQr+WKqOaXtuaBouWkjeWHuuS4gOmmluOAjOaaguWBnOS4reOAjeeahOatjOabsu+8iQ0KICAncGxheWVyLnN0YXJ0dXBBdXRvUGxheSc6IGZhbHNlLA0KICAvLyDok53niZnmrYzor43vvJrlvIAgPSDmiorlvZPliY3mrYzor43ooYzmjqjpgIHliLDns7vnu5/lqpLkvZPkv6Hmga/vvIjmjqfliLbkuK3lv4MgLyDplIHlsY8gLyDovabmnLogLyDok53niZnpn7PnrrENCiAgLy8g6K+755qE6YO95piv5ZCM5LiA5Lu9IE1QTm93UGxheWluZ0luZm9DZW50ZXLvvIxhcnRpc3Qg5a2X5q615om/6L295q2M6K+N6KGM77yJ77ybDQogIC8vIOWFsyA9IOWPquaYvuekuuatjOWQjcK35q2M5omL77yM5LiN5o6o6YCB5q2M6K+N6KGM44CC6buY6K6k5byA77yM5L+d5oyB5pei5pyJ6KGM5Li644CCDQogICdwbGF5ZXIuaXNTaG93Qmx1ZXRvb3RoTHlyaWMnOiB0cnVlLA0KDQogICdwbGF5RGV0YWlsLmlzQ292ZXJTcGluJzogZmFsc2UsDQogICdwbGF5RGV0YWlsLnN0eWxlLmFsaWduJzogJ2NlbnRlcicsDQogICdwbGF5RGV0YWlsLnN0eWxlLm1pbmlMeXJpY0FsaWduJzogJ2NlbnRlcicsDQogICdwbGF5RGV0YWlsLnN0eWxlLmNvdmVyU2l6ZSc6IDEwMCwNCiAgJ3BsYXlEZXRhaWwuc3R5bGUuY292ZXJTaGFwZSc6ICdjaXJjbGUnLA0KICAncGxheURldGFpbC52ZXJ0aWNhbC5zdHlsZS5scmNGb250U2l6ZSc6IDIwMCwNCiAgJ3BsYXlEZXRhaWwuaG9yaXpvbnRhbC5zdHlsZS5scmNGb250U2l6ZSc6IDIyMCwNCiAgJ3BsYXlEZXRhaWwuaXNTaG93THlyaWNQcm9ncmVzc1NldHRpbmcnOiB0cnVlLA0KDQogICdzZWFyY2guaXNTaG93SG90U2VhcmNoJzogZmFsc2UsDQogICdzZWFyY2guaXNTaG93SGlzdG9yeVNlYXJjaCc6IHRydWUsDQogICdzZWFyY2guZW5hYmxlZFNvdXJjZXMnOiB7IGt3OiB0cnVlLCBrZzogdHJ1ZSwgdHg6IHRydWUsIHd5OiB0cnVlLCBtZzogdHJ1ZSwgYmlsaWJpbGk6IHRydWUsIGFsbDogdHJ1ZSB9LA0KDQogICdsaXN0LmlzQ2xpY2tQbGF5TGlzdCc6IGZhbHNlLA0KICAnbGlzdC5pc1Nob3dTb3VyY2UnOiB0cnVlLA0KICAnbGlzdC5pc1Nob3dBbGJ1bU5hbWUnOiB0cnVlLA0KICAnbGlzdC5pc1Nob3dJbnRlcnZhbCc6IHRydWUsDQogICdsaXN0LmlzU2F2ZVNjcm9sbExvY2F0aW9uJzogdHJ1ZSwNCiAgJ2xpc3QuYWRkTXVzaWNMb2NhdGlvblR5cGUnOiAndG9wJywNCiAgJ2xpc3QuaXNBdXRvU2F2ZURhaWx5UmVjJzogdHJ1ZSwNCiAgJ2xpc3QubXlMaXN0VmlzaWJpbGl0eSc6IHt9LA0KICAnbGlzdC5pc1Nob3dDb3Zlcic6IHRydWUsDQoNCiAgJ21lbnUucGxheUxhdGVyJzogdHJ1ZSwNCiAgJ21lbnUuYWRkVG8nOiB0cnVlLA0KICAnbWVudS5kaXNsaWtlJzogdHJ1ZSwNCg0KICAnbWVudS5tb3ZlVG8nOiB0cnVlLA0KICAnbWVudS5jaGFuZ2VQb3NpdGlvbic6IHRydWUsDQogICdtZW51LmNoYW5nZVNvdXJjZSc6IHRydWUsDQogICdhcnRpc3REZXRhaWwuYWxidW1WaWV3TW9kZSc6ICdncmlkJywNCg0KICAnZG93bmxvYWQuZW5hYmxlJzogdHJ1ZSwNCiAgJ2Rvd25sb2FkLnBhdGgnOiAnJywNCiAgJ2Rvd25sb2FkLmZpbGVOYW1lJzogJ+atjOWQjSAtIOatjOaJiycsDQogICdkb3dubG9hZC53cml0ZUx5cmljJzogZmFsc2UsDQogICdkb3dubG9hZC53cml0ZVJvbWFMeXJpYyc6IGZhbHNlLA0KICAnZG93bmxvYWQud3JpdGVFbWJlZEx5cmljJzogdHJ1ZSwNCiAgJ2Rvd25sb2FkLndyaXRlTWV0YWRhdGEnOiB0cnVlLA0KICAnZG93bmxvYWQud3JpdGVQaWN0dXJlJzogdHJ1ZSwNCiAgJ2Rvd25sb2FkLndyaXRlQWxpYXMnOiBmYWxzZSwNCiAgJ2Rvd25sb2FkLnF1YWxpdHknOiAnMTI4aycsDQoNCiAgJ3N5bmMuZW5hYmxlJzogZmFsc2UsDQogICdzeW5jLndlYmRhdi5lbmFibGUnOiBmYWxzZSwNCiAgJ3N5bmMud2ViZGF2LnN5bmNMaXN0cyc6IGZhbHNlLA0KICAnc3luYy53ZWJkYXYuc3luY1BsYXlIaXN0b3J5JzogdHJ1ZSwNCiAgJ3N5bmMud2ViZGF2LnN5bmNEb3dubG9hZFRhc2tzJzogdHJ1ZSwNCiAgJ3N5bmMud2ViZGF2LnVybCc6ICcnLA0KICAnc3luYy53ZWJkYXYudXNlcm5hbWUnOiAnJywNCiAgJ3N5bmMud2ViZGF2LnBhc3N3b3JkJzogJycsDQogICd3ZWJkYXYuZG93bmxvYWRQYXRoJzogJycsDQogICdzeW5jLndlYmRhdi5wYXRoJzogJy9MWF9NdXNpYy8nLA0KICAnc3luYy53ZWJkYXYubGFzdFN5bmNUaW1lTGlzdHMnOiAwLA0KICAnc3luYy53ZWJkYXYuZmFpbG92ZXJFbmFibGVkJzogZmFsc2UsDQogICdzeW5jLndlYmRhdi5mYWlsb3Zlck5vdGlmeSc6IHRydWUsDQoNCiAgJ3RoZW1lLmlkJzogJ2dyZWVuJywNCiAgJ3RoZW1lLmxpZ2h0SWQnOiAnZ3JlZW4nLA0KICAndGhlbWUuZGFya0lkJzogJ2JsYWNrJywNCiAgJ3RoZW1lLmR5bmFtaWNCZyc6IHRydWUsDQogICd0aGVtZS5ibHVyJzogMTgsDQogICd0aGVtZS5mb250U2hhZG93JzogZmFsc2UsDQogICd0aGVtZS5nbGFzc09wYWNpdHknOiA0MCwNCiAgLy8g44CM5bqV6L655LiN6YCP5piO5bqm44CN77yIMH4xMDDvvInvvJrlhajova/ku7bljYrpgI/mmI7lupXvvIjmjpLooYzmppzmjInpkq4gLyDorr7nva7pobXlvIDlhbPooYzjgIHmk43kvZzmjInpkq4gLw0KICAvLyDpppbpobXljaHniYfnrYnvvInnu5/kuIDlj5boh6rkuLvpopjoibLku6TniYwgYy1wcmltYXJ5LWxpZ2h0LTkwMC1hbHBoYS0yMDDvvIzov5nph4znu5nlh7rlroPnmoTln7rnoYDmtZPluqbjgIINCiAgLy8gODAgPSDkuI7ljoblj7LlpJbop4LkuIDoh7TvvIjkuLvpopjoh6rluKYgYWxwaGEgMC44MO+8ieOAgg0KICAndGhlbWUuY2FyZE9wYWNpdHknOiA4MCwNCiAgLy8g44CMVGFiIOagj+i3neemu+OAje+8iDB+MTAw77yJ77ya6aaW6aG15bGV5byA5oCB6L+35L2g5pKt5pS+5Zmo5LiO5bqV6YOoIFRhYiDmoI/kuYvpl7TnmoTpl7Tot53vvIwNCiAgLy8gMTAwID0g5b2T5YmN6Ze06Led77yI5omL5py6IDEycHQgLyBpUGFkIOaoquWxjyA4cHTvvInvvIwwID0g6LS05ZyoIFRhYiDmoI/kuIrjgIINCiAgLy8g5LiO5a2X5L2T5aSn5bCP5peg5YWz77yI6Ze06Led5piv5Zu65a6aIHRva2Vu77yJ77yM5ruR5p2G5Y+q5ZyoIDB+5b2T5YmN5YC85LmL6Ze057yp5pS+44CCDQogICd0aGVtZS50YWJCYXJEaXN0YW5jZSc6IDEwMCwNCiAgLy8g5ray5oCB546755KD77yIdmVuZG9yZWQgTGlxdWlkR2xhc3NLaXQgTWV0YWwg5oqY5bCE77yJ5byA5YWz77yM5LuFIGlPUyAxNH4yNi4xIOeUn+aViO+8mw0KICAvLyDlhbPpl63otbDns7vnu5/no6jnoILjgILjgIznjrvnkoPkuI3pgI/mmI7luqbjgI3orr7nva7lj6rlr7nno6jnoILlvaLmgIHmnInmhI/kuYnvvIjop4EgVGhlbWVTY3JlZW7vvInjgIINCiAgLy8gMjYuMisg5by65Yi256Oo56CC77yI5byA5YWz5bey6ZqQ6JeP44CB5raI6LS554K56Zeo5o6n77yMMjAyNi0wOS0zMCDlrprmoYjvvIkNCiAgJ3RoZW1lLmxpcXVpZEdsYXNzJzogdHJ1ZSwKICAvLyDlhoXlrrnnjrvnkoPvvIgyMDI2LTEwLTA077yJ77ya5YiX6KGo6aG544CB6aaW6aG15Y2h54mH562J5YaF5a655Yy65Lmf55So546755KD6IOM5pmv77yI5LiOIHRhYiDmoI8vCiAgLy8g5by556qX5ZCM5LiA5aWXIExpcXVpZEdsYXNz77yJ44CC6buY6K6k5byA77yb5YWzID0g5oGi5aSN5ZCE57uE5Lu25Y6f5p2l55qE57qv6Imy6IOM5pmv44CCCiAgLy8g5oCn6IO96K+05piO77ya5ray5oCB5qih5byP5LiL5q+P5Liq546755KD6YO95piv5oyB57ut5riy5p+T55qEIE1ldGFsIOinhuWbvu+8jOmVv+WIl+ihqOWQjOaXtuaMgui9vee6pgogIC8vIOWNgeWHoOS4qu+8iOiZmuaLn+WIl+ihqOWPqua4suafk+WPr+ingeihjO+8ie+8jOejqOegguaooeW8j+WImeaYr+ezu+e7n+WQiOaIkOOAgeaIkOacrOWPr+W/veeVpeOAggogIC8vIOiLpeS9juerr+acuuWNoemhv++8jOWFs+aOieacrOW8gOWFs+WNs+WPr+OAggogICd0aGVtZS5nbGFzc0NvbnRlbnQnOiB0cnVlLA0KICAndGhlbWUuaXNMYW5kc2NhcGVTdHJldGNoJzogZmFsc2UsDQogIC8vIOatjOWNlemhteWwgemdouWIl+aVsO+8iOaJi+acuuerluWxj++8ie+8mjIgLyAzIOS4quS4gOaOku+8jOm7mOiupCAy44CCDQogIC8vIGlQYWQg5LiO5aSn5bGP5LuN5ZyoIExpc3QudHN4IOmHjOaMieWPr+eUqOWuveW6puiHqumAguW6lOWkmuWIl+OAgg0KICAndGhlbWUuc29uZ2xpc3RDb2x1bW5zJzogMiwNCiAgJ3RoZW1lLmN1c3RvbUJnUGljUGF0aCc6ICcnLA0KICAndGhlbWUucGljT3BhY2l0eSc6IDc2LA0KICAndGhlbWUuc3ViQ29udGFpbmVyT3BhY2l0eSc6IDUwLA0KfQ0KDQppZiAobmV3IERhdGUoKS5nZXRNb250aCgpIDwgMikgew0KICBkZWZhdWx0U2V0dGluZ1sndGhlbWUuaWQnXSA9ICdoYXBweV9uZXdfeWVhcicNCn0NCg0KZXhwb3J0IGRlZmF1bHQgZGVmYXVsdFNldHRpbmcNCg==
+const defaultSetting: LX.AppSetting = {
+  version: '2.0',
+  'version.autoCheckUpdate': true,
+  'common.isAutoTheme': false,
+  'common.isDarkMode': false,
+  'common.langId': null,
+  'common.apiSource': '',
+  'common.sourceNameType': 'alias',
+  'common.shareType': 'system',
+  // 默认 false：首次安装启动时弹出协议弹窗（PactModal），同意后写入 true 不再弹出
+  'common.isAgreePact': false,
+  'common.autoHidePlayBar': true,
+  'common.drawerLayoutPosition': 'left',
+  // 「启用竖屏首页横向滚动」设置已移除：首页固定，仅通过底部 tab / 侧边栏切换页面。
+  // 该键不再被读取；旧安装里残留的 true 值为死数据，无任何代码引用。
+  'common.allowProgressBarSeek': true,
+  'common.showBackBtn': false,
+  'common.showExitBtn': false,
+  'common.wy_cookie': '',
+  'common.wy_serpapi_key': '',
+  'common.tx_cookie': '',
+  'common.kg_cookie': '',
+  'common.yt_cookie': '',
+  'common.isEnableLog': true,
+  'common.isEnableSyncLog': false,
+  'common.isEnableUserApiLog': false,
+  'common.isEnableWebDAVLog': false,
+  'common.isEnableSearchLog': false,
+  'common.isEnablePlayerLog': false,
+  // 错误日志查看器的显示阈值（条）：原来只是页面内 useState，离开设置页就回到 2000，
+  // 用户改过的值不保存。
+  'common.logMaxLines': 2000,
+  'common.bilibili_multi_page': false,
+  'common.quality_show_highest': false,
+
+  'common.navStatus': {
+    nav_discovery: true,
+    nav_songlist: true,
+    nav_top: true,
+    nav_love: true,
+    nav_daily_rec: true,
+    nav_my_playlist: true,
+    nav_followed_artists: true,
+    nav_subscribed_albums: true,
+    nav_webdav: true,
+    nav_tx_daily_rec: true,
+    nav_play_history: true,
+  },
+
+  'common.navOrder': [
+    'nav_discovery',
+    'nav_search',
+    'nav_play_history',
+    'nav_songlist',
+    'nav_top',
+    'nav_love',
+    'nav_daily_rec',
+    'nav_kg_daily_rec',
+    'nav_tx_daily_rec',
+    'nav_kg_playlist',
+    'nav_tx_playlist',
+    'nav_followed_artists',
+    'nav_subscribed_albums',
+    'nav_my_playlist',
+    'nav_webdav',
+    'nav_local_download',
+    'nav_setting',
+  ],
+
+  'common.navFlatOrder': [],
+
+  // 推荐页平台按钮顺序（平台 id 数组）。空数组 = 按默认顺序显示；
+  // 排在第一位的平台为进入推荐页时的默认选中平台。
+  'common.discoveryPlatformOrder': [],
+
+  'common.sectionExpandedStatus': {
+    setting_player: true,
+    setting_download: true,
+    setting_theme: true,
+    setting_sync: true,
+    setting_search: true,
+    setting_list: true,
+    setting_basic: true,
+    setting_other: true,
+    setting_backup: true,
+    setting_about: true,
+    setting_version: true,
+    setting_basic_nav_menu: true,
+    setting_basic_source_user_api: true,
+  },
+
+  'player.startupPushPlayDetailScreen': false,
+  'player.togglePlayMethod': 'listLoop',
+  'player.playQuality': '320k',
+  'player.isSavePlayTime': true,
+  'player.volume': 1,
+  'player.playbackRate': 1,
+  'player.cacheLimit': 0,
+  'player.timeoutExit': '',
+  'player.timeoutExitPlayed': true,
+  'player.isAutoCleanPlayedList': false,
+  'player.autoSkipOnError': true,
+  'player.soundEffect.enabled': false,
+  'player.soundEffect.preset': 'none',
+  'player.soundEffect.convolution.fileName': '',
+  'player.soundEffect.convolution.mainGain': 10,
+  'player.soundEffect.convolution.sendGain': 0,
+  'player.soundEffect.eq.31': 0,
+  'player.soundEffect.eq.62': 0,
+  'player.soundEffect.eq.125': 0,
+  'player.soundEffect.eq.250': 0,
+  'player.soundEffect.eq.500': 0,
+  'player.soundEffect.eq.1000': 0,
+  'player.soundEffect.eq.2000': 0,
+  'player.soundEffect.eq.4000': 0,
+  'player.soundEffect.eq.8000': 0,
+  'player.soundEffect.eq.16000': 0,
+  'player.isHandleAudioFocus': true,
+  'player.isEnableAudioPreload': false,
+  'player.cacheSize': '1024',
+  'player.isEnableAudioOffload': false,
+  'player.useNativeFlacPlayer': false,
+  'player.isShowLyricTranslation': true,
+  'player.isShowLyricRoma': false,
+  'player.isShowNotificationImage': true,
+  'player.isS2t': true,
+  // 启动软件自动播放（前提：启动时恢复出一首「暂停中」的歌曲）
+  'player.startupAutoPlay': false,
+  // 蓝牙歌词：开 = 把当前歌词行推送到系统媒体信息（控制中心 / 锁屏 / 车机 / 蓝牙音箱
+  // 读的都是同一份 MPNowPlayingInfoCenter，artist 字段承载歌词行）；
+  // 关 = 只显示歌名·歌手，不推送歌词行。默认开，保持既有行为。
+  'player.isShowBluetoothLyric': true,
+
+  'playDetail.isCoverSpin': false,
+  'playDetail.style.align': 'center',
+  'playDetail.style.miniLyricAlign': 'center',
+  'playDetail.style.coverSize': 100,
+  'playDetail.style.coverShape': 'circle',
+  'playDetail.vertical.style.lrcFontSize': 200,
+  'playDetail.horizontal.style.lrcFontSize': 220,
+  'playDetail.isShowLyricProgressSetting': true,
+
+  'search.isShowHotSearch': false,
+  'search.isShowHistorySearch': true,
+  'search.enabledSources': { kw: true, kg: true, tx: true, wy: true, mg: true, bilibili: true, all: true },
+
+  'list.isClickPlayList': false,
+  'list.isShowSource': true,
+  'list.isShowAlbumName': true,
+  'list.isShowInterval': true,
+  'list.isSaveScrollLocation': true,
+  'list.addMusicLocationType': 'top',
+  'list.isAutoSaveDailyRec': true,
+  'list.myListVisibility': {},
+  'list.isShowCover': true,
+
+  'menu.playLater': true,
+  'menu.addTo': true,
+  'menu.dislike': true,
+
+  'menu.moveTo': true,
+  'menu.changePosition': true,
+  'menu.changeSource': true,
+  'artistDetail.albumViewMode': 'grid',
+
+  'download.enable': true,
+  'download.path': '',
+  'download.fileName': '歌名 - 歌手',
+  'download.writeLyric': false,
+  'download.writeRomaLyric': false,
+  'download.writeEmbedLyric': true,
+  'download.writeMetadata': true,
+  'download.writePicture': true,
+  'download.writeAlias': false,
+  'download.quality': '128k',
+
+  'sync.enable': false,
+  'sync.webdav.enable': false,
+  'sync.webdav.syncLists': false,
+  'sync.webdav.syncPlayHistory': true,
+  'sync.webdav.syncDownloadTasks': true,
+  'sync.webdav.url': '',
+  'sync.webdav.username': '',
+  'sync.webdav.password': '',
+  'webdav.downloadPath': '',
+  'sync.webdav.path': '/LX_Music/',
+  'sync.webdav.lastSyncTimeLists': 0,
+  'sync.webdav.failoverEnabled': false,
+  'sync.webdav.failoverNotify': true,
+
+  'theme.id': 'green',
+  'theme.lightId': 'green',
+  'theme.darkId': 'black',
+  'theme.dynamicBg': true,
+  'theme.blur': 18,
+  'theme.fontShadow': false,
+  'theme.glassOpacity': 40,
+  // 「底边不透明度」（0~100）：全软件半透明底（排行榜按钮 / 设置页开关行、操作按钮 /
+  // 首页卡片等）统一取自主题色令牌 c-primary-light-900-alpha-200，这里给出它的基础浓度。
+  // 80 = 与历史外观一致（主题自带 alpha 0.80）。
+  'theme.cardOpacity': 80,
+  // 「Tab 栏距离」（0~100）：首页展开态迷你播放器与底部 Tab 栏之间的间距，
+  // 100 = 当前间距（手机 12pt / iPad 横屏 8pt），0 = 贴在 Tab 栏上。
+  // 与字体大小无关（间距是固定 token），滑杆只在 0~当前值之间缩放。
+  'theme.tabBarDistance': 100,
+  // 液态玻璃（vendored LiquidGlassKit Metal 折射）开关，仅 iOS 14~26.1 生效；
+  // 关闭走系统磨砂。「玻璃不透明度」设置只对磨砂形态有意义（见 ThemeScreen）。
+  // 26.2+ 强制磨砂（开关已隐藏、消费点门控，2026-09-30 定案）
+  'theme.liquidGlass': true,
+  // 内容玻璃（2026-10-04）：列表项、首页卡片等内容区也用玻璃背景（与 tab 栏/
+  // 弹窗同一套 LiquidGlass）。默认开；关 = 恢复各组件原来的纯色背景。
+  // 性能说明：液态模式下每个玻璃都是持续渲染的 Metal 视图，长列表同时挂载约
+  // 十几个（虚拟列表只渲染可见行），磨砂模式则是系统合成、成本可忽略。
+  // 若低端机卡顿，关掉本开关即可。
+  'theme.glassContent': true,
+  'theme.isLandscapeStretch': false,
+  // 歌单页封面列数（手机竖屏）：2 / 3 个一排，默认 2。
+  // iPad 与大屏仍在 List.tsx 里按可用宽度自适应多列。
+  'theme.songlistColumns': 2,
+  'theme.customBgPicPath': '',
+  'theme.picOpacity': 76,
+  'theme.subContainerOpacity': 50,
+}
+
+if (new Date().getMonth() < 2) {
+  defaultSetting['theme.id'] = 'happy_new_year'
+}
+
+export default defaultSetting
