@@ -3,6 +3,7 @@ import { Animated, View, TouchableOpacity, StyleSheet } from 'react-native'
 
 import Text from '@/components/common/Text'
 import Button from '@/components/common/Button'
+import UtilityGlass from '@/components/common/UtilityGlass'
 import { useTheme } from '@/store/theme/hook'
 import { useSafeAreaBottom } from '@/store/common/hook'
 import { createStyle } from '@/utils/tools'
@@ -104,7 +105,8 @@ export default forwardRef<MultipleModeBarType, MultipleModeBarProps>(
         height: MULTI_SELECT_BAR_HEIGHT,
         // 悬浮在迷你播放器胶囊上方：胶囊 + tab 栏最高约到 safeAreaBottom + 150
         bottom: 160 + safeAreaBottom,
-        backgroundColor: theme['c-content-background'],
+        // 背景改由内层 UtilityGlass 提供（2026-10-04 浮动工具玻璃）：
+        // 纯色 backgroundColor 会挡住玻璃的折射/模糊，必须去掉。
         borderColor: theme['c-border-background'],
         opacity: animFade, // Bind opacity to animated value
         transform: [{ translateY: animTranslateY }],
@@ -121,6 +123,11 @@ export default forwardRef<MultipleModeBarType, MultipleModeBarProps>(
     const component = useMemo(() => {
       return (
         <Animated.View style={animaStyle}>
+          <UtilityGlass
+            glassStyle={{ borderRadius: designRadius.lg }}
+            fallbackBackgroundColor={theme['c-content-background']}
+            style={styles.glassInner}
+          >
           <View style={styles.switchBtn}>
             <Button
               onPress={() => {
@@ -160,6 +167,7 @@ export default forwardRef<MultipleModeBarType, MultipleModeBarProps>(
           <TouchableOpacity onPress={onExitSelectMode} style={styles.btn}>
             <Text color={theme['c-button-font']}>{global.i18n.t('list_select_cancel')}</Text>
           </TouchableOpacity>
+          </UtilityGlass>
         </Animated.View>
       )
     }, [
@@ -189,6 +197,13 @@ const styles = createStyle({
     borderWidth: StyleSheet.hairlineWidth,
     ...shadow(2),
     overflow: 'hidden',
+  },
+  // 内层玻璃容器：填满 Animated.View，接管横向布局（容器本身只留定位/动画/边框）
+  glassInner: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: designSpacing.xs,
   },
   switchBtn: {
     flexDirection: 'row',

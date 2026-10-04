@@ -3,6 +3,7 @@ import { useTheme } from '@/store/theme/hook'
 import { createStyle } from '@/utils/tools'
 import { shadow } from '@/utils/shadow'
 import { designRadius } from '@/theme/DesignTokens'
+import ContentGlass from '@/components/common/ContentGlass'
 // import { useWindowSize } from '@/utils/hooks'
 const HEADER_HEIGHT = 36
 
@@ -15,12 +16,16 @@ export default ({ children }: Props) => {
 
   return (
     <View style={{ ...styles.centeredView, backgroundColor: 'rgba(50,50,50,.3)' }}>
-      <View style={{ ...styles.modalView, backgroundColor: theme['c-content-background'] }}>
+      <ContentGlass
+        glassStyle={{ borderRadius: designRadius.md }}
+        fallbackBackgroundColor={theme['c-content-background']}
+        style={styles.modalView}
+      >
         <View
-          style={{ ...styles.header, backgroundColor: theme['c-primary-light-100-alpha-100'] }}
+          style={styles.header}
         ></View>
         {children}
-      </View>
+      </ContentGlass>
     </View>
   )
 }

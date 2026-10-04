@@ -6,6 +6,7 @@ import { designRadius, designSpacing, designTypography } from '@/theme/DesignTok
 import Image from '@/components/common/Image'
 import SectionHeader from '@/components/common/SectionHeader'
 import Text from '@/components/common/Text'
+import ContentGlass from '@/components/common/ContentGlass'
 import { Icon } from '@/components/common/Icon'
 
 interface HotSongListProps {
@@ -69,7 +70,7 @@ const HotSongList = memo(({
 
   const cardStyle = useMemo(
     () => StyleSheet.compose(styles.card, {
-      backgroundColor: theme['c-content-background'],
+      // 背景改由 ContentGlass 提供（2026-10-04 内容玻璃）。
       borderColor: theme['c-border-background'],
       borderWidth: 1,
     }),
@@ -114,7 +115,11 @@ const HotSongList = memo(({
   return (
     <>
       <SectionHeader title={title} actionLabel={actionLabel} onPressAction={onPressAction} />
-      <View style={cardStyle}>
+      <ContentGlass
+        glassStyle={{ borderRadius: designRadius.lg }}
+        fallbackBackgroundColor={theme['c-content-background']}
+        style={cardStyle}
+      >
         {songs.map((song, index) => (
           <Pressable
             key={song.id}
@@ -136,7 +141,7 @@ const HotSongList = memo(({
             </View>
           </Pressable>
         ))}
-      </View>
+      </ContentGlass>
     </>
   )
 })

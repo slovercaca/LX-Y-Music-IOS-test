@@ -9,6 +9,7 @@ import IsFontShadow from './Theme/IsFontShadow'
 import Blur from './Theme/Blur'
 import LiquidGlassToggle from './Theme/LiquidGlassToggle'
 import ContentGlassToggle from './Theme/ContentGlassToggle'
+import UtilityGlassToggle from './Theme/UtilityGlassToggle'
 import GlassOpacity from './Theme/GlassOpacity'
 import CustomBg from './Theme/CustomBg'
 import PicOpacity from './Theme/PicOpacity'
@@ -41,8 +42,10 @@ export default memo(() => {
       {/* 液态玻璃开关（仅 iOS 14~26.1，26.2+ 整行隐藏）：开 = vendored Metal 液态玻璃，关 = 系统磨砂 */}
       <LiquidGlassToggle />
       {showGlassOpacity && <GlassOpacity />}
-      {/* 内容区玻璃开关（全版本显示）：列表项、首页卡片等内容区也用玻璃 */}
+      {/* 内容区玻璃开关（全版本显示）：列表项、首页卡片、弹窗等内容区也用玻璃 */}
       <ContentGlassToggle />
+      {/* 浮动工具玻璃开关（全版本显示）：多选条、「…」菜单等浮动工具独立控制 */}
+      <UtilityGlassToggle />
       <SubContainerOpacity />
       <CardOpacity />
       <IsFontShadow />

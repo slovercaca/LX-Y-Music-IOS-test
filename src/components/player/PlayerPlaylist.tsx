@@ -3,6 +3,7 @@ import AnimatedSlideUpPanel, { type AnimatedSlideUpPanelType } from '@/component
 import { useI18n } from '@/lang'
 import { FlatList, View, TouchableOpacity } from 'react-native'
 import Text from '@/components/common/Text'
+import ContentGlass from '@/components/common/ContentGlass'
 import { useTheme } from '@/store/theme/hook'
 import playerState from '@/store/player/state'
 import listState from '@/store/list/state'
@@ -319,7 +320,11 @@ export default forwardRef<PlayerPlaylistType, {}>((props, ref) => {
   return (
     <>
       <AnimatedSlideUpPanel ref={panelRef} onHide={handlePanelHide}>
-        <View style={{ ...styles.panelContent, backgroundColor: theme['c-content-background'] }}>
+        <ContentGlass
+          glassStyle={{ borderTopLeftRadius: 8, borderTopRightRadius: 8 }}
+          fallbackBackgroundColor={theme['c-content-background']}
+          style={styles.panelContent}
+        >
           <View style={{ ...styles.header, borderBottomColor: theme['c-border-background'] }}>
             <View style={styles.headerTitleContainer}>
               <Text style={styles.panelTitle}>{title}</Text>
@@ -350,7 +355,7 @@ export default forwardRef<PlayerPlaylistType, {}>((props, ref) => {
             initialScrollIndex={Math.min(initialIndex, Math.max(0, playlist.length - 1))}
             contentContainerStyle={listContentStyle}
           />
-        </View>
+        </ContentGlass>
       </AnimatedSlideUpPanel>
 
       <ListMenu

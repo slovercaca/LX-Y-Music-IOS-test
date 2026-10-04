@@ -1,6 +1,7 @@
 import { memo, useState, useEffect } from 'react'
 import { View, ScrollView, TouchableOpacity, Modal } from 'react-native'
 import Text from '@/components/common/Text'
+import ContentGlass from '@/components/common/ContentGlass'
 import { useTheme } from '@/store/theme/hook'
 import { createStyle, toast } from '@/utils/tools'
 import { shadow } from '@/utils/shadow'
@@ -167,7 +168,12 @@ export default memo(({ visible, onClose, onConfirm }: StylizedModalProps) => {
       onRequestClose={onClose}
     >
       <TouchableOpacity activeOpacity={1} onPress={onClose} style={[styles.overlay, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
-        <TouchableOpacity activeOpacity={1} style={[styles.container, { backgroundColor: theme['c-content-background'] }]}>
+        <TouchableOpacity activeOpacity={1} style={styles.container}>
+          <ContentGlass
+            glassStyle={{ borderRadius: 8 }}
+            fallbackBackgroundColor={theme['c-content-background']}
+            style={{ flex: 1 }}
+          >
           <View style={[styles.header, { borderBottomColor: theme['c-border-background'] }]}>
             <Text size={18} style={{ fontWeight: 'bold', color: theme['c-font'] }}>选择风格标签</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
@@ -254,6 +260,7 @@ export default memo(({ visible, onClose, onConfirm }: StylizedModalProps) => {
               <Text color={theme['c-button-font']}>确定</Text>
             </TouchableOpacity>
           </View>
+          </ContentGlass>
         </TouchableOpacity>
       </TouchableOpacity>
     </Modal>
