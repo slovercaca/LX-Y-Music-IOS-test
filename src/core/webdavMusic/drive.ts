@@ -3,7 +3,7 @@ import { createClient, type FileStat } from 'webdav'
 import settingState from '@/store/setting/state'
 import { webDAVLog } from './logger'
 import { btoa } from 'react-native-quick-base64'
-import { downloadFile, existsFile, mkdir, temporaryDirectoryPath } from '@/utils/fs'
+import { downloadFile, existsFile, mkdir, temporaryDirectoryPath, unlink, read } from '@/utils/fs'
 import { enforceCacheLimit } from '@/utils/nativeModules/cache'
 import { stringMd5 } from 'react-native-quick-md5'
 
@@ -350,6 +350,16 @@ export const updateWebDAVMusicMeta = async(musicId: string, update: WebDAVMusicM
   await saveWebDAVConfig(config)
 }
 
+/**
+ * 兼容旧版本毒化缓存：此前下载未校验 statusCode，401/404 的错误页面
+ * （XML/HTML，首字节必为 '<'）会被当成正常文件缓存。音频文件的首字节
+ * 不可能是 '<'，命中则删掉并走正常下载流程；读不到首字节时保守地视为有效。
+ */
+const isPoisonedCache = async(filePath: string): Promise<boolean> => {
+  const head = await read(filePath, 1, 0, 'utf8').catch(() => '')
+  return head === '<'
+}
+
 // 拉取网盘内封面图片：下载到本地缓存目录，返回 file:// 本地路径
 // （FastImage 固定 defaultHeaders，无法注入 Basic Auth，需先下载到本地）
 export const fetchWebDAVPic = async(musicInfo: LX.WebDAV.MusicInfo): Promise<string | null> => {
@@ -361,9 +371,18 @@ export const fetchWebDAVPic = async(musicInfo: LX.WebDAV.MusicInfo): Promise<str
     const ext = picPath.split('.').pop()?.toLowerCase() || 'jpg'
     // 同音频缓存：用 md5 避免 encodeURIComponent 与 downloadFile 内部 decodeURIComponent 冲突
     const localPath = `${coversDir}/${stringMd5(picPath)}.${ext}`
-    if (await existsFile(localPath)) return `file://${localPath}`
+    if (await existsFile(localPath)) {
+      if (!(await isPoisonedCache(localPath))) return `file://${localPath}`
+      webDAVLog.warn('fetchWebDAVPic: 发现毒化缓存，删除后重新下载', { localPath })
+      await unlink(localPath).catch(() => {})
+    }
     await mkdir(coversDir)
-    await downloadFile(url, localPath, { headers: getWebDAVAuthHeaders() }).promise
+    // 与 downloadWebDAVMusic 同样的 statusCode 校验：401/404 的错误页面不能当封面缓存
+    const picResult = await downloadFile(url, localPath, { headers: getWebDAVAuthHeaders() }).promise
+    if (picResult.statusCode < 200 || picResult.statusCode >= 300 || !picResult.bytesWritten) {
+      await unlink(localPath).catch(() => {})
+      throw new Error(`cover download failed: ${picResult.statusCode}`)
+    }
     return `file://${localPath}`
   } catch (err) {
     webDAVLog.warn('fetchWebDAVPic: failed', { err })
@@ -400,11 +419,30 @@ export const downloadWebDAVMusic = async(musicInfo: LX.WebDAV.MusicInfo): Promis
   // 播放器的是“编码后”路径，两者不一致导致播放器找不到文件、无法播放。
   const filePath = `${cacheDir}/${stringMd5(remotePath)}.${ext}`
 
-  if (await existsFile(filePath)) return filePath
+  if (await existsFile(filePath)) {
+    if (!(await isPoisonedCache(filePath))) return filePath
+    webDAVLog.warn('downloadWebDAVMusic: 发现毒化缓存（错误页面），删除后重新下载', { filePath })
+    await unlink(filePath).catch(() => {})
+  }
 
   await mkdir(cacheDir)
   const downloadUrl = getWebDAVDownloadUrl(musicInfo)
-  await downloadFile(downloadUrl, filePath, { headers: getWebDAVAuthHeaders() }).promise
+  // BUG 修复：RNFS downloadFile 的 promise 在 HTTP 报错（401/403/404 等）时不会 reject，
+  // 而是 resolve 并把错误页面写进目标文件。原来不检查 statusCode，直接把"错误页面"
+  // 当成音频返回给播放器 → 现象就是能连上服务器、能看到歌单但听不了；更糟的是毒化
+  // 缓存（下次 existsFile 直接命中坏文件，瞬间"失败"，连重试下载的机会都没有）。
+  const dlResult = await downloadFile(downloadUrl, filePath, { headers: getWebDAVAuthHeaders() }).promise
+  if (dlResult.statusCode < 200 || dlResult.statusCode >= 300 || !dlResult.bytesWritten) {
+    // 删掉错误页面，避免毒化缓存
+    await unlink(filePath).catch(() => {})
+    webDAVLog.error('downloadWebDAVMusic: 下载失败', { statusCode: dlResult.statusCode, downloadUrl })
+    const hint = dlResult.statusCode === 401 || dlResult.statusCode === 403
+      ? '，请检查用户名密码（暂仅支持 Basic 认证）'
+      : dlResult.statusCode === 404
+        ? '，服务器上找不到该文件，请重新扫描歌单'
+        : ''
+    throw new Error(`WebDAV 下载失败（${dlResult.statusCode}）${hint}`)
+  }
 
   // 下载完成后按上限对全部应用缓存做 LRU 清理，避免缓存无限累积
   // （不仅清 WebDAV 子目录，让 getAppCacheSize 显示的总大小也收敛到上限内）
