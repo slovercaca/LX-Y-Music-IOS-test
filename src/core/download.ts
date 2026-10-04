@@ -525,8 +525,9 @@ export const removeTask = (id: string) => {
   const taskIndex = taskQueue.findIndex(t => t.id === id)
   if (taskIndex > -1) taskQueue.splice(taskIndex, 1)
   downloadActions.removeTask(id)
-  isProcessing = false
-  processQueue()
+  // 2026-10-05 fix（P1-5）：不要碰 isProcessing、不要调 processQueue()——
+  // 进行中的下载其 finally 本来就会重置标志并拉起下一个；无条件重置会导致
+  // 并发下载（删已完成任务时）或重复拉起（删下载中任务时 finally 再拉一次）。
 }
 
 

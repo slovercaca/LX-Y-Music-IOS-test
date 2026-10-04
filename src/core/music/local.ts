@@ -303,10 +303,11 @@ export const getPicUrl = async({
       if (audioFilePath) {
         const audioExists = await existsFile(audioFilePath).catch(() => false)
         if (!audioExists) {
-          targetFilePath = `${downloadDir}/${(musicInfo.meta as any).fileName}`
+          // 2026-10-05 fix：下载目录已重构为 music/ 子文件夹（Bug5）
+          targetFilePath = `${downloadDir}/music/${(musicInfo.meta as any).fileName}`
         }
       } else {
-        targetFilePath = `${downloadDir}/${(musicInfo.meta as any).fileName}`
+        targetFilePath = `${downloadDir}/music/${(musicInfo.meta as any).fileName}`
       }
 
       const targetExists = await existsFile(targetFilePath).catch(() => false)
@@ -489,10 +490,29 @@ export const getLyricInfo = async({
       if (audioFilePath) {
         const audioExists = await existsFile(audioFilePath).catch(() => false)
         if (!audioExists) {
-          targetFilePath = `${downloadDir}/${(musicInfo.meta as any).fileName}`
+          // 2026-10-05 fix：下载目录已重构为 music/ 子文件夹（Bug5）
+          targetFilePath = `${downloadDir}/music/${(musicInfo.meta as any).fileName}`
         }
       } else {
-        targetFilePath = `${downloadDir}/${(musicInfo.meta as any).fileName}`
+        targetFilePath = `${downloadDir}/music/${(musicInfo.meta as any).fileName}`
+      }
+
+      // 2026-10-05 fix（P1-3）：WebDAV 播放时检查本地 lrc/ 文件夹的歌词
+      // （Bug5：下载时歌词进 lrc/，显示时自动匹配；断网时也能显示已下载的歌词）
+      const lrcBase = ((musicInfo.meta as any).fileName?.replace(/\.[^/.]+$/, '')) || musicInfo.name
+      if (lrcBase) {
+        for (const lrcPath of [`${downloadDir}/lrc/${lrcBase}.lrc`, `${downloadDir}/lrc/${lrcBase}.LRC`]) {
+          try {
+            if (await existsFile(lrcPath).catch(() => false)) {
+              const text = await readFile(lrcPath, 'utf8').catch(() => '')
+              if (text?.trim()) {
+                return buildLyricInfo({ lyric: text })
+              }
+            }
+          } catch {
+            // 继续尝试下一个
+          }
+        }
       }
 
       const targetExists = await existsFile(targetFilePath).catch(() => false)

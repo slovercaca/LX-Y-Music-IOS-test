@@ -710,6 +710,9 @@ export const pause = async() => {
   // E1 修复：暂停时清除 URL 失败遗留的 5s 兜底切歌定时器，
   // 否则用户暂停后 5s 照样被强制跳到下一首播放。
   clearDelayNextTimeout()
+  // 2026-10-05 fix（逻辑-P1-1）：取消 200ms 内 pending 的切歌播放，
+  // 否则用户快速"下一首→暂停"后音乐仍会自己响起来
+  debouncePlay.cancel()
   await setPause()
 }
 
@@ -720,6 +723,8 @@ export const stop = async() => {
   clearManualPlayIntent()
   // E1 同类：用户主动停止后，不应再被失败遗留的 5s 兜底定时器强制切歌播放。
   clearDelayNextTimeout()
+  // 2026-10-05 fix（逻辑-P1-1）：同 pause，取消 pending 的切歌播放
+  debouncePlay.cancel()
   await setStop()
   setTimeout(() => {
     global.app_event.stop()

@@ -79,7 +79,11 @@ const doGetListLimit = async(
 
   return (
     (musicSdk[source])?.leaderboard.getList(bangId, sourcePage + 1).then((result: ListDetailInfo) => {
-      if (listCache !== cache.get(listKey)) return
+      // 2026-10-05 fix（P1-4）：缓存中途被重置时重建空 Map 继续，而非 return undefined
+      // （return 会让 promise resolve 为 undefined，调用方 result.list.length 抛 TypeError）
+      if (listCache !== cache.get(listKey)) {
+        cache.set(listKey, (listCache = new Map()))
+      }
       result.list = deduplicationList(
         result.list.map((m) => toNewMusicInfo(m)).filter(Boolean) as LX.Music.MusicInfoOnline[],
       )
