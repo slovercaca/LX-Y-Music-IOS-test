@@ -18,8 +18,13 @@ export default forwardRef<ListType, { header?: ReactElement, onOpenDetail: (item
   const applyListResult = (result: typeof songlistState.listInfo, page: number, currentLoadId: number) => {
     if (currentLoadId !== loadIdRef.current || isUnmountedRef.current) return
     if (!result.list.length) {
-      listRef.current?.setList([])
-      listRef.current?.setStatus('empty')
+      // 2026-10-05 fix（P1-5）：仅 page===1 时清空；page>1 空页时保留已有列表、置 end
+      if (page === 1) {
+        listRef.current?.setList([])
+        listRef.current?.setStatus('empty')
+      } else {
+        listRef.current?.setStatus('end')
+      }
       return
     }
     listRef.current?.setList(result.list)

@@ -1,6 +1,6 @@
 import { findMusic } from '@/utils/musicSdk'
-import { getWebDAVConfig, updateWebDAVMusicMeta, getWebDAVDownloadUrl, saveWebDAVConfig } from '@/core/webdavMusic/drive'
-import { downloadFile, existsFile, mkdir, getWebDAVPrivateDirectory } from '@/utils/fs'
+import { getWebDAVConfig, updateWebDAVMusicMeta, getWebDAVDownloadUrl, saveWebDAVConfig, getWebDAVRemoteUrl } from '@/core/webdavMusic/drive'
+import { downloadFile, existsFile, mkdir, unlink, getWebDAVPrivateDirectory } from '@/utils/fs'
 import { toast, requestStoragePermission } from '@/utils/tools'
 import settingState from '@/store/setting/state'
 import { btoa } from 'react-native-quick-base64'
@@ -61,13 +61,16 @@ export const handleWebDAVBatchDownload = async(
     for (const musicInfo of songs) {
       currentIndex++
       const fileName = musicInfo.meta.fileName
-      const filePath = `${downloadDir}/${fileName}`
+      // 2026-10-05 fix（P1-7）：批量下载同样使用 music/ 子目录（与单曲下载一致）
+      if (!fileName) continue
+      const musicDir = `${downloadDir}/music`
+      const filePath = `${musicDir}/${fileName}`
 
       if (onProgress) {
         onProgress(currentIndex, songs.length, fileName)
       }
 
-      const fileExists = await existsFile(filePath)
+      const fileExists = await existsFile(filePath).catch(() => false)
 
       if (musicInfo.meta.filePath && !fileExists) {
         webDAVLog.info('handleWebDAVBatchDownload: file was deleted, clearing old filePath', { oldPath: musicInfo.meta.filePath })
@@ -82,6 +85,9 @@ export const handleWebDAVBatchDownload = async(
         await updateWebDAVMusicMeta(musicInfo.id, { filePath })
         continue
       }
+
+      // 2026-10-05 fix（P1-7）：批量下载也下载歌词到 lrc/ 子目录
+      await mkdir(musicDir).catch(() => {})
 
       try {
         const downloadUrl = getWebDAVDownloadUrl(musicInfo)
@@ -105,6 +111,25 @@ export const handleWebDAVBatchDownload = async(
         if (picPath) {
           const newPicUrl = picPath.startsWith('/') ? `file://${picPath}` : picPath
           await updateWebDAVMusicMeta(musicInfo.id, { picUrl: newPicUrl })
+        }
+
+        // 2026-10-05 fix（P1-7）：批量下载歌词到 lrc/ 子目录
+        if (musicInfo.meta.lrcPath) {
+          try {
+            const lrcDir = `${downloadDir}/lrc`
+            await mkdir(lrcDir).catch(() => {})
+            const lrcFileName = fileName.replace(/\.[^/.]+$/, '.lrc')
+            const lrcFilePath = `${lrcDir}/${lrcFileName}`
+            if (!await existsFile(lrcFilePath).catch(() => false)) {
+              const lrcUrl = getWebDAVRemoteUrl(musicInfo.meta.lrcPath)
+              const lrcResult = await downloadFile(lrcUrl, lrcFilePath, { headers }).promise
+              if (lrcResult.statusCode < 200 || lrcResult.statusCode >= 300) {
+                await unlink(lrcFilePath).catch(() => {})
+              }
+            }
+          } catch {
+            // 歌词下载失败不影响歌曲
+          }
         }
 
         downloadedPaths.push(filePath)
@@ -330,7 +355,10 @@ export const handleWebDAVDownload = async(
     return undefined
   }
 
-  const filePath = `${downloadDir}/${fileName}`
+  // 2026-10-04：歌曲下载到 music/ 子文件夹，歌词下载到 lrc/ 子文件夹
+  const musicDir = `${downloadDir}/music`
+  const lrcDir = `${downloadDir}/lrc`
+  const filePath = `${musicDir}/${fileName}`
   const exists = await existsFile(filePath).catch(() => false)
 
   if (!exists) {
@@ -338,8 +366,29 @@ export const handleWebDAVDownload = async(
       const headers = getAuthHeaders()
 
       const downloadUrl = getWebDAVDownloadUrl(musicInfo)
-      await mkdir(downloadDir)
-      await downloadFile(downloadUrl, filePath, { headers }).promise
+      await mkdir(musicDir)
+      // 2026-10-05 fix（P1-8）：校验 statusCode，防毒缓存（错误页面写入）
+      const result = await downloadFile(downloadUrl, filePath, { headers }).promise
+      if (result.statusCode < 200 || result.statusCode >= 300) {
+        await unlink(filePath).catch(() => {})
+        throw new Error(`下载失败（${result.statusCode}）`)
+      }
+
+      // 同时下载歌词（如果服务器上有同名 .lrc）
+      if (musicInfo.meta.lrcPath) {
+        try {
+          await mkdir(lrcDir)
+          const lrcFileName = fileName.replace(/\.[^/.]+$/, '.lrc')
+          const lrcFilePath = `${lrcDir}/${lrcFileName}`
+          const lrcExists = await existsFile(lrcFilePath).catch(() => false)
+          if (!lrcExists) {
+            const lrcUrl = getWebDAVRemoteUrl(musicInfo.meta.lrcPath)
+            await downloadFile(lrcUrl, lrcFilePath, { headers }).promise
+          }
+        } catch {
+          // 歌词下载失败不影响歌曲
+        }
+      }
 
       const fileMetadata = await readMetadata(filePath).catch(() => null)
       const updates: Record<string, any> = { filePath }

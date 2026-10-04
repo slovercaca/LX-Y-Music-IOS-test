@@ -4,6 +4,7 @@ import { View } from 'react-native'
 import SortTab, { type SortTabProps, type SortTabType } from './SortTab'
 import SourceChips, { type SourceChipsProps, type SourceChipsType } from './SourceChips'
 import TagRows, { type TagRowsProps, type TagRowsType } from './TagRows'
+import OpenList from './OpenList'
 import { createStyle } from '@/utils/tools'
 import { type Source } from '@/store/songlist/state'
 import { useTheme } from '@/store/theme/hook'
@@ -52,6 +53,8 @@ export default forwardRef<HeaderBarType, HeaderBarProps>(
           <SortTab ref={sortTabRef} onSortChange={onSortChange} />
         </View>
         <TagRows ref={tagRowsRef} onTagChange={onTagChange} />
+        {/* 2026-10-05 fix（P1-10）：挂载 OpenList，使外链导入弹窗的监听生效 */}
+        <OpenList onOpenDetail={() => {}} />
       </View>
     )
   },

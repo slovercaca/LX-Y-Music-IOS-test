@@ -48,6 +48,9 @@ export default () => {
   )
 
   const [headerKey, setHeaderKey] = useState(Date.now())
+  // 2026-10-05 fix（P1-2）：标记是否已由 selectedList effect 触发加载，
+  // 避免 headerKey 变化导致重复搜索
+  const skipHeaderKeyLoadRef = useRef(false)
 
   useEffect(() => {
     const onBackPress = () => {
@@ -72,6 +75,7 @@ export default () => {
   useEffect(() => {
     if (!selectedList) {
       setHeaderKey(Date.now())
+      skipHeaderKeyLoadRef.current = true
       if (searchState.searchText) {
         listRef.current?.loadList(
           searchState.searchText,
@@ -141,7 +145,8 @@ export default () => {
       global.app_event.off('searchTypeChanged', handleTypeChange)
       global.app_event.off('searchDeepLink', handleSearchDeepLink)
     }
-  }, [filteredMusicSources, filteredSonglistSources, headerKey])
+    // 2026-10-05 fix（P1-2）：去掉 headerKey 依赖，避免关闭歌单详情时触发两次搜索
+  }, [filteredMusicSources, filteredSonglistSources])
 
   useEffect(() => {
     const handleNavChange = async(id: string) => {
