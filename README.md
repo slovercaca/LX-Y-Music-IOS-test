@@ -1,15 +1,19 @@
-<h1 align="center">LX-Y Music 移动版</h1>
+<h1 align="center">LX-Y Music 移动版（修改版）</h1>
 
 <p align="center">
   <img src="doc/images/app-icon.png" width="160" alt="LX-Y Music 图标">
 </p>
 
 <p align="center">
-  <a href="https://github.com/1970905901/LX-Y-Music-IOS/releases"><img src="https://img.shields.io/github/release/1970905901/LX-Y-Music-IOS" alt="Release version"></a>
-  <a href="https://github.com/1970905901/LX-Y-Music-IOS/actions/workflows/ios-ipa.yml"><img src="https://github.com/1970905901/LX-Y-Music-IOS/workflows/Build%20iOS%20IPA/badge.svg" alt="Build status"></a>
+  <a href="https://github.com/slovercaca/LX-Y-Music-IOS-test/releases"><img src="https://img.shields.io/github/release/slovercaca/LX-Y-Music-IOS-test" alt="Release version"></a>
+  <a href="https://github.com/slovercaca/LX-Y-Music-IOS-test/actions/workflows/ios-ipa.yml"><img src="https://github.com/slovercaca/LX-Y-Music-IOS-test/workflows/Build%20iOS%20IPA/badge.svg" alt="Build status"></a>
 </p>
 
 <p align="center">一个基于 React Native 开发的音乐软件（LX-Y Music）</p>
+
+> **本仓库说明**：本项目是 [1970905901/LX-Y-Music-IOS](https://github.com/1970905901/LX-Y-Music-IOS)（`ios-adaptation` 分支）的部分功能修改版，在原项目基础上修复了一批 bug 并新增了若干功能（详见下方「本分支修改内容」）。原项目本身基于 [Q-1515/lx-music-mobile](https://github.com/Q-1515/lx-music-mobile) 的 `ios-adaptation` 分支，重点支持 iOS 平台。
+>
+> **本项目不做维护**：这是一次性的个人修改存档，不接受 Issue / PR，不会跟进上游更新、不修复新出现的 bug、不回答使用问题。如需持续维护的版本，请使用原项目或自行 fork 修改。
 
 <p align="center">
   <img src="doc/images/screenshot-home.jpg" width="300" alt="LX-Y Music 首页（推荐）界面预览">
@@ -24,7 +28,27 @@
 - React Native
 - Redux
 
-本项目是 [lx-music-mobile](https://github.com/lyswhut/lx-music-mobile) 的一个分支（fork），在 [@WalnutBai/lx-lxwalnut-music-mobile](https://github.com/WalnutBai/lx-lxwalnut-music-mobile/tree/main-debug) 的基础上适配并构建，**重点支持 iOS 平台**，并发布未签名（unsigned）IPA 供自签安装使用。
+本分支基于 [1970905901/LX-Y-Music-IOS](https://github.com/1970905901/LX-Y-Music-IOS) 的 `ios-adaptation` 分支修改（原项目基于 [@Q-1515/lx-music-mobile](https://github.com/Q-1515/lx-music-mobile/tree/ios-adaptation)，**重点支持 iOS 平台**，并发布未签名（unsigned）IPA 供自签安装使用）。
+
+## 本分支修改内容（2026-10-04 起）
+
+### Bug 修复
+
+- **播放器**：播放初始化 try/finally 保护、失败遗留的 5 秒兜底切歌定时器清理、换歌装载代际令牌防串台、播放器生命周期事件抑制改为引用计数守卫
+- **页面**：评论页首屏失败卡死、每日推荐网络失败无限重试、批量删除二次确认、歌单重命名/新建分支反转、备份导入预校验与失败回滚、在线歌单移除二次确认、元数据编辑跨文件串台、歌单详情页 componentId 登记
+- **Cookie**：网易 Cookie 按域清理（不再误删其他站点登录态）、QQ 退出登录按域清理双存储 Cookie
+- **同步安全**：`sync.webdav.password`、`common.tx_cookie`、`common.kg_cookie` 不进入同步/备份数据
+
+### 功能移除
+
+- 移除 GitCode 音源相关功能（搜索、deeplink、设置项、语言包）
+
+### WebDAV 新增功能
+
+- **播放修复**：下载校验 `statusCode`/`bytesWritten`，清理毒化缓存（错误页面/截断文件），原子下载防并发污染
+- **多服务器配置**：保存/编辑/删除多套服务器配置，一键切换（听歌页与同步设置页共用）
+- **故障转移**（默认关闭）：备份/同步时当前服务器不可用，自动按配置顺序换一台重试，可选静默切换
+- **上传**：从下载列表多选或从文件 App 选择音频文件，上传到服务器当前目录（含冲突覆盖确认）
 
 软件基础信息：
 
@@ -40,9 +64,9 @@
 
 本项目的构建离不开以下上游项目的支持与启发，特此感谢：
 
+- [1970905901/LX-Y-Music-IOS](https://github.com/1970905901/LX-Y-Music-IOS)（ios-adaptation 分支）——本分支的直接上游
 - [@Q-1515/lx-music-mobile](https://github.com/Q-1515/lx-music-mobile/tree/ios-adaptation)（ios-adaptation 分支）
 - [@WalnutBai/lx-lxwalnut-music-mobile](https://github.com/WalnutBai/lx-lxwalnut-music-mobile/tree/main-debug)（main-debug 分支）
-- [@1970905901/LX-Y-Music-IOS](https://github.com/1970905901/LX-Y-Music-IOS) (ios-adaptation分支)
 
 ## 下载与构建
 
@@ -106,7 +130,7 @@ LX-Y-Music-IOS/
 │   ├── theme/themes/
 │   ├── types/
 │   └── utils/
-│       ├── musicSdk/            # 各平台 SDK（bd / kg / kw / mg / tx / wy / yt / bilibili / qishui / git）
+│       ├── musicSdk/            # 各平台 SDK（bd / kg / kw / mg / tx / wy / bilibili / qishui；本分支已移除 git）
 │       ├── nativeModules/       # 原生桥接封装（cache.ts / utils.ts / ...）
 │       └── data/ hooks/ simplify-chinese-main/
 ├── app.json  babel.config.js  metro.config.js  tsconfig.json
@@ -123,15 +147,11 @@ LX-Y-Music-IOS/
 
 ## 贡献代码
 
-本项目欢迎 PR，但为了 PR 能顺利合并，需要注意以下几点：
-
-- 对于添加新功能的 PR，建议在提交 PR 前先创建 Issue 进行说明，以确认该功能是否确实需要；
-- 对于修复 bug 的 PR，请提供修复前后的说明及重现方式；
-- 对于其他类型的 PR，则适当附上说明。
+本项目不做维护，不接受 PR。如需改进，请自行 fork 修改。
 
 ## 项目协议
 
-本项目基于 [Apache License 2.0](https://github.com/1970905901/LX-Y-Music-IOS/blob/master/LICENSE) 许可证发行，以下协议是对于 Apache License 2.0 的补充，如有冲突，以以下协议为准。
+本项目基于 [Apache License 2.0](https://github.com/slovercaca/LX-Y-Music-IOS-test/blob/ios-adaptation/LICENSE) 许可证发行，以下协议是对于 Apache License 2.0 的补充，如有冲突，以以下协议为准。
 
 ---
 
@@ -181,4 +201,4 @@ LX-Y-Music-IOS/
 
 ---
 
-若对此有疑问请加入 QQ 群：1013518794
+本项目不做维护，不接受 Issue / PR。如有问题请前往原项目 [1970905901/LX-Y-Music-IOS](https://github.com/1970905901/LX-Y-Music-IOS) 反馈，或自行 fork 修改。
