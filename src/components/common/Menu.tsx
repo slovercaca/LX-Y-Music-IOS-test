@@ -44,7 +44,9 @@ const styles = createStyle({
     // borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'lightgray',
     borderRadius: 2,
-    backgroundColor: 'white',
+    // 2026-10-04 bugfix：删除 backgroundColor: 'white'——纯色会盖住玻璃。
+    // 开关开时由 UtilityGlass/GlassSurface 提供玻璃背景；
+    // 开关关时由 fallbackBackgroundColor 恢复主题色。
     // iOS 浮层阴影（仅 iPhone/iPad）
     ...shadow(3),
   },

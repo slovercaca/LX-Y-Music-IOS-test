@@ -4,10 +4,9 @@ import ListItem, { ITEM_HEIGHT } from './ListItem'
 import { createStyle, getRowInfo, type RowInfoType } from '@/utils/tools'
 import { useHorizontalMode } from '@/utils/hooks'
 import type { Position } from './ListMenu'
-import type { SelectMode } from './MultipleModeBar'
+import type { SelectMode } from '@/components/common/MultiSelectTopBar'
 import { useTheme } from '@/store/theme/hook'
 import settingState from '@/store/setting/state'
-import { MULTI_SELECT_BAR_HEIGHT } from './MultipleModeBar'
 import { useI18n } from '@/lang'
 import Text from '@/components/common/Text'
 import { handlePlay } from './listAction'
@@ -177,7 +176,18 @@ const List = forwardRef<ListType, ListProps>(
         const list = listDataRef.current
         const index = list.findIndex(item => item.id === musicInfo.id)
         if (index < 0) return
+        const oldItem = list[index]
         list[index] = musicInfo as LX.Music.MusicInfoOnline
+        // 2026-10-05 fix（P1-3）：选中态靠对象引用比对，原地替换后若旧对象
+        // 仍在选中列表中，会导致视觉丢失/重复添加/下载重复。同步替换引用。
+        // （长度不变，不走 handleUpdateSelectedList，避免误触 onSelectAll 回调）
+        const selIdx = selectedListRef.current.indexOf(oldItem)
+        if (selIdx >= 0) {
+          const newSelected = [...selectedListRef.current]
+          newSelected[selIdx] = list[index]
+          selectedListRef.current = newSelected
+          setSelectedList(newSelected)
+        }
         setListVersion(version => version + 1)
         onListUpdate?.(list)
       }
@@ -338,13 +348,12 @@ const List = forwardRef<ListType, ListProps>(
           break
       }
       return (
-        <View
-          style={{ width: '100%', paddingBottom: visibleMultiSelect ? MULTI_SELECT_BAR_HEIGHT : 0 }}
-        >
+        // 2026-10-04 Bug7：多选栏已改到列表顶部，不再需要为底部悬浮窗预留 padding
+        <View style={{ width: '100%' }}>
           <Footer label={label} onLoadMore={onLoadMore} />
         </View>
       )
-    }, [onLoadMore, status, visibleMultiSelect, ListFooterComponent])
+    }, [onLoadMore, status, ListFooterComponent])
 
     const handleScrollBeginDrag = () => {
       if (listId !== 'search') Keyboard.dismiss()

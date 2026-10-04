@@ -1,5 +1,5 @@
-import { memo } from 'react'
-import { View, type StyleProp, type ViewProps, type ViewStyle } from 'react-native'
+import { memo, useMemo } from 'react'
+import { View, StyleSheet, type StyleProp, type ViewProps, type ViewStyle } from 'react-native'
 
 import { useSettingValue } from '@/store/setting/hook'
 import { useTheme } from '@/store/theme/hook'
@@ -40,8 +40,21 @@ const GlassSurface = memo(({ glassStyle, paused = false, style, children, ...pro
   const glassOpacity = useSettingValue('theme.glassOpacity') / 100
   const liquidGlassOn = useSettingValue('theme.liquidGlass') && !isIOS26_2OrAbove
 
+  // 2026-10-05 fix（P1-1）：用 StyleSheet.flatten 替代手动展平——
+  // createStyle 返回的是 StyleSheet.create() 的数字注册 ID，{...123} 会丢样式。
+  // flatten 能正确解析数字 ID、数组、嵌套数组。
+  const safeStyle = useMemo(() => {
+    if (!style) return style
+    const flat = StyleSheet.flatten(style)
+    if (flat && 'backgroundColor' in flat) {
+      const { backgroundColor, ...rest } = flat
+      return rest
+    }
+    return flat
+  }, [style])
+
   return (
-    <View style={style} {...props}>
+    <View style={safeStyle} {...props}>
       <LiquidGlass
         glassOpacity={glassOpacity}
         dark={theme.isDark}

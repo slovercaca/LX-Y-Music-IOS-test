@@ -8,6 +8,7 @@ import { useTheme } from '@/store/theme/hook'
 import Text from '../Text'
 import { Icon } from '../Icon'
 import { designRadius, designSpacing } from '@/theme/DesignTokens'
+import ContentGlass from '../ContentGlass'
 
 export interface CheckBoxProps {
   check: boolean
@@ -103,37 +104,54 @@ export default ({
   // 统一行样式（对齐推荐页「排行榜」按钮）：圆角 designRadius.md + 1px 边框 +
   // 半透明主题色底。整行（block）时卡片铺满可用宽度、不预留右外边距；
   // 并排的小选项（非 block）保留右外边距，充当相邻选项之间的间隙。
+  // 2026-10-04：card 变体改用 ContentGlass（内容区玻璃开关控制），
+  // 此处不再设 backgroundColor（由 ContentGlass 的 fallback 提供）。
+  // 2026-10-05 fix（P1-2）：styles.* 是 StyleSheet.create() 的数字 ID，
+  // {...数字} 会丢样式。改用数组形式，让 RN 原生解析。
   const contentStyle = useMemo(() => {
-    const base = { ...styles.content, marginBottom: scaleSizeH(marginBottom) }
+    const base = [styles.content, { marginBottom: scaleSizeH(marginBottom) }]
     if (variant !== 'card') return base
-    return {
+    return [
       ...base,
-      borderRadius: designRadius.md,
-      borderWidth: 1,
-      borderColor: theme['c-border-background'],
-      backgroundColor: theme['c-primary-light-900-alpha-200'],
-      paddingHorizontal: designSpacing.sm,
-      minHeight: block ? 52 : 40,
-      marginRight: block ? 0 : designSpacing.sm,
-      // 卡片之间保证至少 8pt 行距（调用方传了更大的 marginBottom 时以调用方为准）
-      marginBottom: Math.max(scaleSizeH(marginBottom), designSpacing.xs),
-    }
+      {
+        borderRadius: designRadius.md,
+        borderWidth: 1,
+        borderColor: theme['c-border-background'],
+        paddingHorizontal: designSpacing.sm,
+        minHeight: block ? 52 : 40,
+        marginRight: block ? 0 : designSpacing.sm,
+        // 卡片之间保证至少 8pt 行距（调用方传了更大的 marginBottom 时以调用方为准）
+        marginBottom: Math.max(scaleSizeH(marginBottom), designSpacing.xs),
+      },
+    ]
   }, [theme, marginBottom, variant, block])
 
-  const labelStyle = useMemo(() => ({
-    ...styles.label,
-    marginRight: scaleSizeW(marginRight),
-    // 整行卡片：标签撑满剩余宽度，帮助按钮被顶到卡片右端
-    ...(variant === 'card' && block ? { flexGrow: 1 } : null),
-  }), [marginRight, variant, block])
+  const labelStyle = useMemo(() => ([
+    styles.label,
+    {
+      marginRight: scaleSizeW(marginRight),
+      // 整行卡片：标签撑满剩余宽度，帮助按钮被顶到卡片右端
+      ...(variant === 'card' && block ? { flexGrow: 1 } : null),
+    },
+  ]), [marginRight, variant, block])
 
   const nameStyle = useMemo(
-    () => (variant === 'card' ? { ...styles.name, fontWeight: '600' as const } : styles.name),
+    () => (variant === 'card' ? [styles.name, { fontWeight: '600' as const }] : styles.name),
     [variant],
   )
 
+  // 2026-10-04：card 变体用 ContentGlass 包装（内容区玻璃开关控制）
+  const Container = variant === 'card' ? ContentGlass : View
+  const containerProps = variant === 'card'
+    ? {
+        glassStyle: { borderRadius: designRadius.md },
+        fallbackBackgroundColor: theme['c-primary-light-900-alpha-200'],
+        style: contentStyle,
+      }
+    : { style: contentStyle }
+
   return disabled ? (
-    <View style={contentStyle}>
+    <Container {...containerProps}>
       <CheckBox
         status={check ? 'checked' : 'unchecked'}
         disabled={true}
@@ -150,9 +168,9 @@ export default ({
         )}
       </View>
       {helpComponent}
-    </View>
+    </Container>
   ) : (
-    <View style={contentStyle}>
+    <Container {...containerProps}>
       <CheckBox
         status={check ? 'checked' : 'unchecked'}
         disabled={isDisabled}
@@ -170,7 +188,7 @@ export default ({
         )}
       </TouchableOpacity>
       {helpComponent}
-    </View>
+    </Container>
   )
 }
 

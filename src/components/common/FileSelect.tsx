@@ -25,5 +25,7 @@ export default forwardRef<FileSelectType, {}>((props, ref) => {
     },
   }))
 
-  return visible ? <ChoosePath ref={choosePathRef} onConfirm={onSelectRef.current} /> : null
+  // 2026-10-05 fix（P1-1）：包一层闭包，调用时再读 ref——visible 已为 true 时
+  // 再次 show() 不触发重渲染，直接传 onSelectRef.current 会拿到旧回调
+  return visible ? <ChoosePath ref={choosePathRef} onConfirm={(path) => onSelectRef.current(path)} /> : null
 })

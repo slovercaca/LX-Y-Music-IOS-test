@@ -32,7 +32,8 @@ export default ({ url, width, height, maxWidth, maxHeight, style }: ScaledImageP
             h = maxHeight
           }
         } else if (maxHeight && realHeight > maxHeight) {
-          w = realWidth * (h / realHeight)
+          // 2026-10-05 fix（P1-2）：用 maxHeight 而非 h（h 此时为 0），否则宽度回退 realWidth 被横向拉伸
+          w = realWidth * (maxHeight / realHeight)
           h = maxHeight
         }
       }

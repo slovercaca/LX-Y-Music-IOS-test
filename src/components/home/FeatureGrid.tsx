@@ -12,6 +12,7 @@ import { scaleSizeH } from '@/utils/pixelRatio'
 import { Icon } from '@/components/common/Icon'
 import { SvgIcon } from '@/components/common/SvgIcon'
 import Text from '@/components/common/Text'
+import ContentGlass from '@/components/common/ContentGlass'
 
 type FeatureId = NAV_ID_Type | 'back_home' | 'nav_exit'
 
@@ -84,7 +85,7 @@ const FeatureGrid = memo(() => {
 
   const rowStyle = useMemo(
     () => ({
-      backgroundColor: theme['c-primary-light-900-alpha-300'],
+      // 2026-10-04：背景改由内层 ContentGlass 提供（内容区玻璃）
     }),
     [theme],
   )
@@ -112,7 +113,7 @@ const FeatureGrid = memo(() => {
       {features.map(item => (
         <Pressable
           key={item.id}
-          style={({ pressed }) => [styles.row, rowStyle, pressed ? rowPressedStyle : null]}
+          style={({ pressed }) => [styles.row, pressed ? rowPressedStyle : null]}
           onPress={() => {
             if (item.id === 'back_home') {
               backHome()
@@ -131,6 +132,11 @@ const FeatureGrid = memo(() => {
             setNavActiveId(item.id)
           }}
         >
+          <ContentGlass
+            glassStyle={{ borderRadius: designRadius.md }}
+            fallbackBackgroundColor={theme['c-primary-light-900-alpha-300']}
+            style={styles.glassRow}
+          >
           <View style={iconBoxStyle}>
             {renderIcon(item.icon, theme['c-primary'])}
           </View>
@@ -143,6 +149,7 @@ const FeatureGrid = memo(() => {
             {t(item.id)}
           </Text>
           <Icon name="chevron-right" size={14} color={theme['c-350']} />
+          </ContentGlass>
         </Pressable>
       ))}
     </View>
@@ -160,9 +167,15 @@ const styles = createStyle({
     flexDirection: 'row',
     alignItems: 'center',
     height: scaleSizeH(64),
-    paddingHorizontal: designSpacing.md,
     marginBottom: designSpacing.sm,
     borderRadius: designRadius.md,
+  },
+  // 2026-10-04：内层玻璃（内容区玻璃），承载行内容
+  glassRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: designSpacing.md,
   },
   label: {
     flex: 1,

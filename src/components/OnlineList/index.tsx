@@ -1,4 +1,4 @@
-import { useRef, forwardRef, useImperativeHandle, useCallback } from 'react'
+import { useRef, useState, forwardRef, useImperativeHandle, useCallback } from 'react'
 import { View } from 'react-native'
 import List, { type ListProps, type ListType, type Status, type RowInfoType } from './List'
 import ListMenu, { type ListMenuType, type Position, type SelectInfo } from './ListMenu'
@@ -8,7 +8,7 @@ import ListMusicMultiAdd, {
 import ListMusicAdd, {
   type MusicAddModalType as ListMusicAddType,
 } from '@/components/MusicAddModal'
-import MultipleModeBar, { type MultipleModeBarType, type SelectMode } from './MultipleModeBar'
+import MultiSelectTopBar, { type SelectMode } from '@/components/common/MultiSelectTopBar'
 import {
   handleDislikeMusic,
   handlePlay,
@@ -80,10 +80,15 @@ export default forwardRef<OnlineListType, OnlineListProps>(
     ref,
   ) => {
     const listRef = useRef<ListType>(null)
-    const multipleModeBarRef = useRef<MultipleModeBarType>(null)
     const listMusicAddRef = useRef<ListMusicAddType>(null)
     const listMusicMultiAddRef = useRef<ListAddMultiType>(null)
     const listMenuRef = useRef<ListMenuType>(null)
+
+    // 2026-10-04 Bug7：多选状态改由 state 驱动（原 MultipleModeBar 悬浮窗已移除，
+    // 改为顶部 MultiSelectTopBar）
+    const [isMultiSelect, setIsMultiSelect] = useState(false)
+    const [selectMode, setSelectMode] = useState<SelectMode>('single')
+    const [isSelectAll, setIsSelectAll] = useState(false)
 
     const similarSongsModalRef = useRef<SimilarSongsModalType>(null)
     const t = useI18n()
@@ -93,7 +98,7 @@ export default forwardRef<OnlineListType, OnlineListProps>(
     useImperativeHandle(ref, () => ({
       setList(list, isAppend = false, showSource = false) {
         listRef.current?.setList(list, isAppend, showSource)
-        multipleModeBarRef.current?.setIsSelectAll(false)
+        setIsSelectAll(false)
       },
       setStatus(val) {
         listRef.current?.setStatus(val)
@@ -107,18 +112,26 @@ export default forwardRef<OnlineListType, OnlineListProps>(
     }))
 
     const hancelMultiSelect = () => {
-      multipleModeBarRef.current?.show()
+      setIsMultiSelect(true)
+      setSelectMode('single')
+      setIsSelectAll(false)
       listRef.current?.setIsMultiSelectMode(true)
+      listRef.current?.setSelectMode('single')
     }
 
     const hancelSwitchSelectMode = (mode: SelectMode) => {
-      multipleModeBarRef.current?.setSwitchMode(mode)
+      setSelectMode(mode)
       listRef.current?.setSelectMode(mode)
     }
 
     const hancelExitSelect = useCallback(() => {
-      multipleModeBarRef.current?.exitSelectMode()
+      setIsMultiSelect(false)
       listRef.current?.setIsMultiSelectMode(false)
+    }, [])
+
+    const handleTopBarSelectAll = useCallback((isAll: boolean) => {
+      setIsSelectAll(isAll)
+      listRef.current?.selectAll(isAll)
     }, [])
 
     const handleBatchDownload = useCallback(() => {
@@ -281,12 +294,22 @@ export default forwardRef<OnlineListType, OnlineListProps>(
     return (
       <View style={styles.container}>
         <View style={{ flex: 1 }}>
+          {/* 2026-10-04 Bug7：多选操作栏改到列表顶部（原悬浮窗已移除） */}
+          <MultiSelectTopBar
+            visible={isMultiSelect}
+            selectMode={selectMode}
+            isSelectAll={isSelectAll}
+            onSwitchMode={hancelSwitchSelectMode}
+            onSelectAll={handleTopBarSelectAll}
+            onExitSelectMode={hancelExitSelect}
+            onDownload={handleBatchDownload}
+          />
           <List
             ref={listRef}
             listId={listId}
             onShowMenu={showMenu}
             onMuiltSelectMode={hancelMultiSelect}
-            onSelectAll={(isAll) => multipleModeBarRef.current?.setIsSelectAll(isAll)}
+            onSelectAll={(isAll) => setIsSelectAll(isAll)}
             onRefresh={onRefresh}
             onLoadMore={onLoadMore}
             onPlayList={onPlayList}
@@ -298,13 +321,6 @@ export default forwardRef<OnlineListType, OnlineListProps>(
             playingId={playingId}
             forcePlayList={forcePlayList}
             onListUpdate={onListUpdate}
-          />
-          <MultipleModeBar
-            ref={multipleModeBarRef}
-            onSwitchMode={hancelSwitchSelectMode}
-            onSelectAll={(isAll) => listRef.current?.selectAll(isAll)}
-            onExitSelectMode={hancelExitSelect}
-            onDownload={handleBatchDownload}
           />
 
         </View>
