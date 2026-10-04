@@ -4,7 +4,6 @@ import tx from './tx'
 import wy from './wy'
 import mg from './mg'
 import bilibili from './bilibili'
-import git from './git'
 import qishui from './qishui'
 // import yt from './yt'
 import { supportQuality } from './api-source'
@@ -36,10 +35,6 @@ const sources = {
       id: 'bilibili',
     },
     {
-      name: 'Gitcode',
-      id: 'git',
-    },
-    {
       name: '汽水音乐',
       id: 'qs',
     },
@@ -54,7 +49,6 @@ const sources = {
   wy,
   mg,
   bilibili,
-  git,
   qs: qishui,
   // yt,
 }
@@ -92,7 +86,7 @@ export const searchMusic = async({ name, singer, source: s, limit = 25 }) => {
   const trimStr = (str) => (typeof str == 'string' ? str.trim() : str)
   const musicName = trimStr(name)
   const tasks = []
-  const excludeSource = ['xm', 'git', 'bilibili']
+  const excludeSource = ['xm', 'bilibili']
   for (const source of sources.sources) {
     if (!sources[source.id].musicSearch || source.id == s || excludeSource.includes(source.id)) { continue }
     tasks.push(
