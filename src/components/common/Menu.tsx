@@ -1,1 +1,312 @@
-aW1wb3J0IHR5cGUgUmVhY3QgZnJvbSAncmVhY3QnCmltcG9ydCB7IHVzZUltcGVyYXRpdmVIYW5kbGUsIGZvcndhcmRSZWYsIHVzZU1lbW8sIHVzZVJlZiwgdXNlU3RhdGUsIHVzZUVmZmVjdCwgdHlwZSBSZWYgfSBmcm9tICdyZWFjdCcKaW1wb3J0IHsgVmlldywgQW5pbWF0ZWQsIFRvdWNoYWJsZUhpZ2hsaWdodCB9IGZyb20gJ3JlYWN0LW5hdGl2ZScKaW1wb3J0IHsgdXNlV2luZG93U2l6ZSB9IGZyb20gJ0AvdXRpbHMvaG9va3MnCgppbXBvcnQgTW9kYWwsIHsgdHlwZSBNb2RhbFR5cGUgfSBmcm9tICcuL01vZGFsJwppbXBvcnQgR2xhc3NTdXJmYWNlIGZyb20gJy4vR2xhc3NTdXJmYWNlJwoKaW1wb3J0IHsgY3JlYXRlU3R5bGUgfSBmcm9tICdAL3V0aWxzL3Rvb2xzJwppbXBvcnQgeyBzaGFkb3cgfSBmcm9tICdAL3V0aWxzL3NoYWRvdycKaW1wb3J0IHsgdXNlVGhlbWUgfSBmcm9tICdAL3N0b3JlL3RoZW1lL2hvb2snCmltcG9ydCBUZXh0IGZyb20gJy4vVGV4dCcKaW1wb3J0IHsgc2NhbGVTaXplSCwgc2NhbGVTaXplVyB9IGZyb20gJ0AvdXRpbHMvcGl4ZWxSYXRpbycKCmNvbnN0IG1lbnVJdGVtSGVpZ2h0ID0gc2NhbGVTaXplSCg0MCkKY29uc3QgbWVudUl0ZW1XaWR0aCA9IHNjYWxlU2l6ZVcoMTAwKQoKZXhwb3J0IGludGVyZmFjZSBQb3NpdGlvbiB7CiAgdzogbnVtYmVyCiAgaDogbnVtYmVyCiAgeDogbnVtYmVyCiAgeTogbnVtYmVyCiAgbWVudVdpZHRoPzogbnVtYmVyCiAgbWVudUhlaWdodD86IG51bWJlcgp9CmV4cG9ydCBpbnRlcmZhY2UgTWVudVNpemUgewogIHdpZHRoPzogbnVtYmVyCiAgaGVpZ2h0PzogbnVtYmVyCn0KZXhwb3J0IHR5cGUgTWVudXMgPSBSZWFkb25seTxBcnJheTx7IGFjdGlvbjogc3RyaW5nLCBsYWJlbDogc3RyaW5nIHwgUmVhY3QuUmVhY3ROb2RlLCBkaXNhYmxlZD86IGJvb2xlYW4gfT4+Cgpjb25zdCBzdHlsZXMgPSBjcmVhdGVTdHlsZSh7CiAgbWFzazogewogICAgcG9zaXRpb246ICdhYnNvbHV0ZScsCiAgICB0b3A6IDAsCiAgICBib3R0b206IDAsCiAgICBsZWZ0OiAwLAogICAgcmlnaHQ6IDAsCiAgICBvcGFjaXR5OiAwLAogICAgYmFja2dyb3VuZENvbG9yOiAnYmxhY2snLAogIH0sCiAgbWVudTogewogICAgcG9zaXRpb246ICdhYnNvbHV0ZScsCiAgICAvLyBib3JkZXJXaWR0aDogU3R5bGVTaGVldC5oYWlybGluZVdpZHRoLAogICAgYm9yZGVyQ29sb3I6ICdsaWdodGdyYXknLAogICAgYm9yZGVyUmFkaXVzOiAyLAogICAgYmFja2dyb3VuZENvbG9yOiAnd2hpdGUnLAogICAgLy8gaU9TIOa1ruWxgumYtOW9se+8iOS7hSBpUGhvbmUvaVBhZO+8iQogICAgLi4uc2hhZG93KDMpLAogIH0sCiAgbWVudUl0ZW06IHsKICAgIHBhZGRpbmdMZWZ0OiAxMCwKICAgIHBhZGRpbmdSaWdodDogMTAsCiAgICAvLyBoZWlnaHQ6IG1lbnVJdGVtSGVpZ2h0LAogICAgLy8gd2lkdGg6IG1lbnVJdGVtV2lkdGgsCiAgICAvLyBhbGlnbkl0ZW1zOiAnY2VudGVyJywKICAgIGp1c3RpZnlDb250ZW50OiAnY2VudGVyJywKICAgIC8vIGJhY2tncm91bmRDb2xvcjogJyNjY2MnLAogIH0sCiAgLy8gbWVudVRleHQ6IHsKICAvLyAgIC8vIHRleHRBbGlnbjogJ2NlbnRlcicsCiAgLy8gICBmb250U2l6ZTogMTQsCiAgLy8gfSwKfSkKCmludGVyZmFjZSBQcm9wczxNIGV4dGVuZHMgTWVudXMgPSBNZW51cz4gewogIG1lbnVzOiBSZWFkb25seTxNPgogIG9uUHJlc3M/OiAobWVudTogTVtudW1iZXJdKSA9PiB2b2lkCiAgYnV0dG9uUG9zaXRpb246IFBvc2l0aW9uCiAgbWVudVNpemU6IE1lbnVTaXplCiAgb25IaWRlOiAoKSA9PiB2b2lkCiAgd2lkdGg/OiBudW1iZXIKICBoZWlnaHQ/OiBudW1iZXIKICBmb250U2l6ZT86IG51bWJlcgogIGNlbnRlcj86IGJvb2xlYW4KICBhY3RpdmVJZD86IE1bbnVtYmVyXVsnYWN0aW9uJ10gfCBudWxsCn0KCmNvbnN0IE1lbnUgPSAoewogIGJ1dHRvblBvc2l0aW9uLAogIG1lbnVTaXplLAogIG1lbnVzLAogIHdpZHRoLAogIGhlaWdodCwKICBvblByZXNzID0gKCkgPT4ge30sCiAgb25IaWRlLAogIGFjdGl2ZUlkLAogIGZvbnRTaXplID0gMTUsCiAgY2VudGVyID0gZmFsc2UsCn06IFByb3BzKSA9PiB7CiAgY29uc3QgdGhlbWUgPSB1c2VUaGVtZSgpCiAgY29uc3Qgd2luZG93U2l6ZSA9IHVzZVdpbmRvd1NpemUoKQogIC8vIGNvbnN0IGZhZGVBbmltID0gdXNlUmVmKG5ldyBBbmltYXRlZC5WYWx1ZSgwKSkuY3VycmVudAogIC8vIGNvbnNvbGUubG9nKGJ1dHRvblBvc2l0aW9uKQoKICBjb25zdCBtZW51SXRlbVN0eWxlID0gdXNlTWVtbygoKSA9PiB7CiAgICByZXR1cm4gewogICAgICB3aWR0aDogd2lkdGggPz8gbWVudVNpemUud2lkdGggPz8gbWVudUl0ZW1XaWR0aCwKICAgICAgaGVpZ2h0OiBoZWlnaHQgPz8gbWVudVNpemUuaGVpZ2h0ID8/IG1lbnVJdGVtSGVpZ2h0LAogICAgfQogIH0sIFttZW51U2l6ZSwgd2lkdGgsIGhlaWdodF0pCgogIGNvbnN0IG1lbnVTdHlsZSA9IHVzZU1lbW8oKCkgPT4gewogICAgaWYgKGJ1dHRvblBvc2l0aW9uPy55ID09PSB1bmRlZmluZWQpIHsKICAgICAgcmV0dXJuIHsgaGVpZ2h0OiAwLCB3aWR0aDogMCwgdG9wOiAwIH0KICAgIH0KCiAgICBsZXQgbWVudUhlaWdodCA9IG1lbnVzLmxlbmd0aCAqIG1lbnVJdGVtU3R5bGUuaGVpZ2h0CiAgICBjb25zdCB0b3BIZWlnaHQgPSBidXR0b25Qb3NpdGlvbi55IC0gMjAKICAgIGNvbnN0IGJvdHRvbUhlaWdodCA9IHdpbmRvd1NpemUuaGVpZ2h0IC0gYnV0dG9uUG9zaXRpb24ueSAtIGJ1dHRvblBvc2l0aW9uLmggLSAyMAogICAgaWYgKG1lbnVIZWlnaHQgPiB0b3BIZWlnaHQgJiYgbWVudUhlaWdodCA+IGJvdHRvbUhlaWdodCkgeyBtZW51SGVpZ2h0ID0gTWF0aC5tYXgodG9wSGVpZ2h0LCBib3R0b21IZWlnaHQpIH0KCiAgICBjb25zdCBtZW51V2lkdGggPSBtZW51SXRlbVN0eWxlLndpZHRoCiAgICBjb25zdCBib3R0b21TcGFjZSA9IHdpbmRvd1NpemUuaGVpZ2h0IC0gYnV0dG9uUG9zaXRpb24ueSAtIGJ1dHRvblBvc2l0aW9uLmggLSAyMAogICAgY29uc3QgcmlnaHRTcGFjZSA9IHdpbmRvd1NpemUud2lkdGggLSBidXR0b25Qb3NpdGlvbi54IC0gbWVudVdpZHRoCiAgICBjb25zdCBzaG93SW5Cb3R0b20gPSBib3R0b21TcGFjZSA+PSBtZW51SGVpZ2h0CiAgICBjb25zdCBzaG93SW5SaWdodCA9IHJpZ2h0U3BhY2UgPj0gMAogICAgY29uc3QgZnJhbWVTdHlsZTogewogICAgICBoZWlnaHQ6IG51bWJlcgogICAgICB3aWR0aDogbnVtYmVyCiAgICAgIHRvcDogbnVtYmVyCiAgICAgIGxlZnQ/OiBudW1iZXIKICAgICAgcmlnaHQ/OiBudW1iZXIKICAgIH0gPSB7CiAgICAgIGhlaWdodDogbWVudUhlaWdodCwKICAgICAgdG9wOiBzaG93SW5Cb3R0b20gPyBidXR0b25Qb3NpdGlvbi55ICsgYnV0dG9uUG9zaXRpb24uaCA6IGJ1dHRvblBvc2l0aW9uLnkgLSBtZW51SGVpZ2h0LAogICAgICB3aWR0aDogbWVudVdpZHRoLAogICAgfQogICAgaWYgKHNob3dJblJpZ2h0KSB7CiAgICAgIGZyYW1lU3R5bGUubGVmdCA9IGJ1dHRvblBvc2l0aW9uLngKICAgIH0gZWxzZSB7CiAgICAgIGZyYW1lU3R5bGUucmlnaHQgPSB3aW5kb3dTaXplLndpZHRoIC0gYnV0dG9uUG9zaXRpb24ueCAtIGJ1dHRvblBvc2l0aW9uLncKICAgIH0KICAgIHJldHVybiBmcmFtZVN0eWxlCiAgfSwgW21lbnVzLmxlbmd0aCwgbWVudUl0ZW1TdHlsZSwgYnV0dG9uUG9zaXRpb24sIHdpbmRvd1NpemVdKQoKICBjb25zdCBtZW51UHJlc3MgPSAobWVudTogTWVudXNbbnVtYmVyXSkgPT4gewogICAgLy8gaWYgKG1lbnUuZGlzYWJsZWQpIHJldHVybgogICAgb25QcmVzcyhtZW51KQogICAgb25IaWRlKCkKICB9CgogIC8vIGNvbnNvbGUubG9nKCdyZW5kZXIgbWVudScpCiAgLy8gY29uc29sZS5sb2coYWN0aXZlSWQpCiAgLy8gY29uc29sZS5sb2cobWVudVN0eWxlKQogIC8vIGNvbnNvbGUubG9nKG1lbnVJdGVtU3R5bGUpCiAgcmV0dXJuICgKICAgIDxHbGFzc1N1cmZhY2UKICAgICAgZ2xhc3NTdHlsZT17eyBib3JkZXJSYWRpdXM6IDIgfX0KICAgICAgc3R5bGU9e3sgLi4uc3R5bGVzLm1lbnUsIC4uLm1lbnVTdHlsZSB9fQogICAgICBwb2ludGVyRXZlbnRzPSJhdXRvIgogICAgPgogICAgICA8QW5pbWF0ZWQuU2Nyb2xsVmlldyBrZXlib2FyZFNob3VsZFBlcnNpc3RUYXBzPXsnYWx3YXlzJ30+CiAgICAgICAge21lbnVzLm1hcCgobWVudSwgX2luZGV4KSA9PgogICAgICAgICAgbWVudS5kaXNhYmxlZCA/ICgKICAgICAgICAgICAgPFZpZXcKICAgICAgICAgICAgICBrZXk9e21lbnUuYWN0aW9ufQogICAgICAgICAgICAgIHN0eWxlPXt7CiAgICAgICAgICAgICAgICAuLi5zdHlsZXMubWVudUl0ZW0sCiAgICAgICAgICAgICAgICB3aWR0aDogbWVudUl0ZW1TdHlsZS53aWR0aCwKICAgICAgICAgICAgICAgIGhlaWdodDogbWVudUl0ZW1TdHlsZS5oZWlnaHQsCiAgICAgICAgICAgICAgICBvcGFjaXR5OiAwLjQsCiAgICAgICAgICAgICAgfX0KICAgICAgICAgICAgPgogICAgICAgICAgICAgIHt0eXBlb2YgbWVudS5sYWJlbCA9PT0gJ3N0cmluZycgPyAoCiAgICAgICAgICAgICAgICA8VGV4dAogICAgICAgICAgICAgICAgICBzdHlsZT17eyB0ZXh0QWxpZ246IGNlbnRlciA/ICdjZW50ZXInIDogJ2xlZnQnIH19CiAgICAgICAgICAgICAgICAgIHNpemU9e2ZvbnRTaXplfQogICAgICAgICAgICAgICAgICBudW1iZXJPZkxpbmVzPXsxfQogICAgICAgICAgICAgICAgPgogICAgICAgICAgICAgICAgICB7bWVudS5sYWJlbH0KICAgICAgICAgICAgICAgIDwvVGV4dD4KICAgICAgICAgICAgICApIDogKAogICAgICAgICAgICAgICAgPFZpZXcgc3R5bGU9e3sgZmxleERpcmVjdGlvbjogJ3JvdycsIGFsaWduSXRlbXM6ICdjZW50ZXInLCBqdXN0aWZ5Q29udGVudDogY2VudGVyID8gJ2NlbnRlcicgOiAnZmxleC1zdGFydCcgfX0+CiAgICAgICAgICAgICAgICAgIHttZW51LmxhYmVsfQogICAgICAgICAgICAgICAgPC9WaWV3PgogICAgICAgICAgICAgICl9CiAgICAgICAgICAgIDwvVmlldz4KICAgICAgICAgICkgOiBtZW51LmFjdGlvbiA9PSBhY3RpdmVJZCA/ICgKICAgICAgICAgICAgPFZpZXcKICAgICAgICAgICAgICBrZXk9e21lbnUuYWN0aW9ufQogICAgICAgICAgICAgIHN0eWxlPXt7CiAgICAgICAgICAgICAgICAuLi5zdHlsZXMubWVudUl0ZW0sCiAgICAgICAgICAgICAgICB3aWR0aDogbWVudUl0ZW1TdHlsZS53aWR0aCwKICAgICAgICAgICAgICAgIGhlaWdodDogbWVudUl0ZW1TdHlsZS5oZWlnaHQsCiAgICAgICAgICAgICAgfX0KICAgICAgICAgICAgPgogICAgICAgICAgICAgIHt0eXBlb2YgbWVudS5sYWJlbCA9PT0gJ3N0cmluZycgPyAoCiAgICAgICAgICAgICAgICA8VGV4dAogICAgICAgICAgICAgICAgICBzdHlsZT17eyB0ZXh0QWxpZ246IGNlbnRlciA/ICdjZW50ZXInIDogJ2xlZnQnIH19CiAgICAgICAgICAgICAgICAgIGNvbG9yPXt0aGVtZVsnYy1wcmltYXJ5LWZvbnQtYWN0aXZlJ119CiAgICAgICAgICAgICAgICAgIHNpemU9e2ZvbnRTaXplfQogICAgICAgICAgICAgICAgICBudW1iZXJPZkxpbmVzPXsxfQogICAgICAgICAgICAgICAgPgogICAgICAgICAgICAgICAgICB7bWVudS5sYWJlbH0KICAgICAgICAgICAgICAgIDwvVGV4dD4KICAgICAgICAgICAgICApIDogKAogICAgICAgICAgICAgICAgPFZpZXcgc3R5bGU9e3sgZmxleERpcmVjdGlvbjogJ3JvdycsIGFsaWduSXRlbXM6ICdjZW50ZXInLCBqdXN0aWZ5Q29udGVudDogY2VudGVyID8gJ2NlbnRlcicgOiAnZmxleC1zdGFydCcgfX0+CiAgICAgICAgICAgICAgICAgIHttZW51LmxhYmVsfQogICAgICAgICAgICAgICAgPC9WaWV3PgogICAgICAgICAgICAgICl9CiAgICAgICAgICAgIDwvVmlldz4KICAgICAgICAgICkgOiAoCiAgICAgICAgICAgIDxUb3VjaGFibGVIaWdobGlnaHQKICAgICAgICAgICAgICBrZXk9e21lbnUuYWN0aW9ufQogICAgICAgICAgICAgIHN0eWxlPXt7CiAgICAgICAgICAgICAgICAuLi5zdHlsZXMubWVudUl0ZW0sCiAgICAgICAgICAgICAgICB3aWR0aDogbWVudUl0ZW1TdHlsZS53aWR0aCwKICAgICAgICAgICAgICAgIGhlaWdodDogbWVudUl0ZW1TdHlsZS5oZWlnaHQsCiAgICAgICAgICAgICAgfX0KICAgICAgICAgICAgICB1bmRlcmxheUNvbG9yPXt0aGVtZVsnYy1wcmltYXJ5LWJhY2tncm91bmQtYWN0aXZlJ119CiAgICAgICAgICAgICAgb25QcmVzcz17KCkgPT4gewogICAgICAgICAgICAgICAgbWVudVByZXNzKG1lbnUpCiAgICAgICAgICAgICAgfX0KICAgICAgICAgICAgPgogICAgICAgICAgICAgIHt0eXBlb2YgbWVudS5sYWJlbCA9PT0gJ3N0cmluZycgPyAoCiAgICAgICAgICAgICAgICA8VGV4dAogICAgICAgICAgICAgICAgICBzdHlsZT17eyB0ZXh0QWxpZ246IGNlbnRlciA/ICdjZW50ZXInIDogJ2xlZnQnIH19CiAgICAgICAgICAgICAgICAgIHNpemU9e2ZvbnRTaXplfQogICAgICAgICAgICAgICAgICBudW1iZXJPZkxpbmVzPXsxfQogICAgICAgICAgICAgICAgPgogICAgICAgICAgICAgICAgICB7bWVudS5sYWJlbH0KICAgICAgICAgICAgICAgIDwvVGV4dD4KICAgICAgICAgICAgICApIDogKAogICAgICAgICAgICAgICAgPFZpZXcgc3R5bGU9e3sgZmxleERpcmVjdGlvbjogJ3JvdycsIGFsaWduSXRlbXM6ICdjZW50ZXInLCBqdXN0aWZ5Q29udGVudDogY2VudGVyID8gJ2NlbnRlcicgOiAnZmxleC1zdGFydCcgfX0+CiAgICAgICAgICAgICAgICAgIHttZW51LmxhYmVsfQogICAgICAgICAgICAgICAgPC9WaWV3PgogICAgICAgICAgICAgICl9CiAgICAgICAgICAgIDwvVG91Y2hhYmxlSGlnaGxpZ2h0PgogICAgICAgICAgKSwKICAgICAgICApfQogICAgICA8L0FuaW1hdGVkLlNjcm9sbFZpZXc+CiAgICA8L0dsYXNzU3VyZmFjZT4KICApCn0KCmV4cG9ydCBpbnRlcmZhY2UgTWVudVByb3BzPE0gZXh0ZW5kcyBNZW51cyA9IE1lbnVzPiB7CiAgbWVudXM6IE0KICBvblByZXNzOiAobWVudTogTVtudW1iZXJdKSA9PiB2b2lkCiAgb25IaWRlPzogKCkgPT4gdm9pZAogIHdpZHRoPzogbnVtYmVyCiAgaGVpZ2h0PzogbnVtYmVyCiAgZm9udFNpemU/OiBudW1iZXIKICBjZW50ZXI/OiBib29sZWFuCiAgYWN0aXZlSWQ/OiBNW251bWJlcl1bJ2FjdGlvbiddIHwgbnVsbAp9CgpleHBvcnQgaW50ZXJmYWNlIE1lbnVUeXBlIHsKICBzaG93OiAocG9zaXRpb246IFBvc2l0aW9uLCBtZW51U2l6ZT86IE1lbnVTaXplKSA9PiB2b2lkCiAgaGlkZTogKCkgPT4gdm9pZAp9Cgpjb25zdCBDb21wb25lbnQgPSA8TSBleHRlbmRzIE1lbnVzPigKICB7IG1lbnVzLCB3aWR0aCwgaGVpZ2h0LCBhY3RpdmVJZCwgb25IaWRlLCBvblByZXNzLCBmb250U2l6ZSwgY2VudGVyIH06IE1lbnVQcm9wczxNPiwKICByZWY6IFJlZjxNZW51VHlwZT4sCikgPT4gewogIC8vIGNvbnNvbGUubG9nKHZpc2libGUpCiAgY29uc3QgbW9kYWxSZWYgPSB1c2VSZWY8TW9kYWxUeXBlPihudWxsKQogIGNvbnN0IFtwb3NpdGlvbiwgc2V0UG9zaXRpb25dID0gdXNlU3RhdGU8UG9zaXRpb24+KHsgdzogMCwgaDogMCwgeDogMCwgeTogMCB9KQogIGNvbnN0IHBvc2l0aW9uUmVmID0gdXNlUmVmPFBvc2l0aW9uPih7IHc6IDAsIGg6IDAsIHg6IDAsIHk6IDAgfSkKICBjb25zdCBbbWVudVNpemUsIHNldE1lbnVTaXplXSA9IHVzZVN0YXRlPE1lbnVTaXplPih7fSkKICBjb25zdCBoaWRlID0gKCkgPT4gewogICAgbW9kYWxSZWYuY3VycmVudD8uc2V0VmlzaWJsZShmYWxzZSkKICB9CiAgdXNlSW1wZXJhdGl2ZUhhbmRsZShyZWYsICgpID0+ICh7CiAgICBzaG93KG5ld1Bvc2l0aW9uLCBtZW51U2l6ZSkgewogICAgICBwb3NpdGlvblJlZi5jdXJyZW50ID0gbmV3UG9zaXRpb24KICAgICAgc2V0UG9zaXRpb24obmV3UG9zaXRpb24pCiAgICAgIGlmIChtZW51U2l6ZSkgc2V0TWVudVNpemUobWVudVNpemUpCiAgICAgIHJlcXVlc3RBbmltYXRpb25GcmFtZSgoKSA9PiB7CiAgICAgICAgbW9kYWxSZWYuY3VycmVudD8uc2V0VmlzaWJsZSh0cnVlKQogICAgICB9KQogICAgfSwKICAgIGhpZGUoKSB7CiAgICAgIGhpZGUoKQogICAgfSwKICB9KSkKCiAgY29uc3Qgd2luZG93U2l6ZSA9IHVzZVdpbmRvd1NpemUoKQogIGNvbnN0IHByZXZXaW5kb3dTaXplUmVmID0gdXNlUmVmKHdpbmRvd1NpemUpCiAgdXNlRWZmZWN0KCgpID0+IHsKICAgIC8vIGlQYWQg5peL6L2sL+WIhuWxj+WQjueql+WPo+WwuuWvuOWPmOWMlu+8jOaJk+W8gOaXtuW/q+eFp+eahOmUmueCueWdkOagh+W3suWkseaViO+8mgogICAgLy8g6I+c5Y2V6Iul57un57ut5bGV5byA5Lya5a6a5L2N6ZSZ5Lmx44CC5bC65a+45Y+Y5YyW5pe255u05o6l5YWz6Zet77yM6YG/5YWN6ZSZ5L2N44CCCiAgICBjb25zdCBwcmV2ID0gcHJldldpbmRvd1NpemVSZWYuY3VycmVudAogICAgaWYgKHByZXYud2lkdGggIT09IHdpbmRvd1NpemUud2lkdGggfHwgcHJldi5oZWlnaHQgIT09IHdpbmRvd1NpemUuaGVpZ2h0KSB7CiAgICAgIHByZXZXaW5kb3dTaXplUmVmLmN1cnJlbnQgPSB3aW5kb3dTaXplCiAgICAgIG1vZGFsUmVmLmN1cnJlbnQ/LnNldFZpc2libGUoZmFsc2UpCiAgICB9CiAgfSwgW3dpbmRvd1NpemVdKQoKICByZXR1cm4gKAogICAgPE1vZGFsIG9uSGlkZT17b25IaWRlfSByZWY9e21vZGFsUmVmfT4KICAgICAgPE1lbnUKICAgICAgICBtZW51cz17bWVudXN9CiAgICAgICAgd2lkdGg9e3dpZHRofQogICAgICAgIGhlaWdodD17aGVpZ2h0fQogICAgICAgIGFjdGl2ZUlkPXthY3RpdmVJZH0KICAgICAgICBidXR0b25Qb3NpdGlvbj17cG9zaXRpb259CiAgICAgICAgbWVudVNpemU9e21lbnVTaXplfQogICAgICAgIG9uUHJlc3M9e29uUHJlc3N9CiAgICAgICAgb25IaWRlPXtoaWRlfQogICAgICAgIGZvbnRTaXplPXtmb250U2l6ZX0KICAgICAgICBjZW50ZXI9e2NlbnRlcn0KICAgICAgLz4KICAgIDwvTW9kYWw+CiAgKQp9CgovLyBleHBvcnQgZGVmYXVsdCBmb3J3YXJkUmVmKENvbXBvbmVudCkgYXMgRm9yd2FyZFJlZkZuPE1lbnVUeXBlPgpleHBvcnQgZGVmYXVsdCBmb3J3YXJkUmVmKENvbXBvbmVudCkgYXMgPE0gZXh0ZW5kcyBNZW51cz4oCiAgcDogTWVudVByb3BzPE0+ICYgeyByZWY/OiBSZWY8TWVudVR5cGU+IH0KKSA9PiBKU1guRWxlbWVudCB8IG51bGwK
+import type React from 'react'
+import { useImperativeHandle, forwardRef, useMemo, useRef, useState, useEffect, type Ref } from 'react'
+import { View, Animated, TouchableHighlight } from 'react-native'
+import { useWindowSize } from '@/utils/hooks'
+
+import Modal, { type ModalType } from './Modal'
+import GlassSurface from './GlassSurface'
+
+import { createStyle } from '@/utils/tools'
+import { shadow } from '@/utils/shadow'
+import { useTheme } from '@/store/theme/hook'
+import Text from './Text'
+import { scaleSizeH, scaleSizeW } from '@/utils/pixelRatio'
+
+const menuItemHeight = scaleSizeH(40)
+const menuItemWidth = scaleSizeW(100)
+
+export interface Position {
+  w: number
+  h: number
+  x: number
+  y: number
+  menuWidth?: number
+  menuHeight?: number
+}
+export interface MenuSize {
+  width?: number
+  height?: number
+}
+export type Menus = Readonly<Array<{ action: string, label: string | React.ReactNode, disabled?: boolean }>>
+
+const styles = createStyle({
+  mask: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    opacity: 0,
+    backgroundColor: 'black',
+  },
+  menu: {
+    position: 'absolute',
+    // borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'lightgray',
+    borderRadius: 2,
+    backgroundColor: 'white',
+    // iOS 浮层阴影（仅 iPhone/iPad）
+    ...shadow(3),
+  },
+  menuItem: {
+    paddingLeft: 10,
+    paddingRight: 10,
+    // height: menuItemHeight,
+    // width: menuItemWidth,
+    // alignItems: 'center',
+    justifyContent: 'center',
+    // backgroundColor: '#ccc',
+  },
+  // menuText: {
+  //   // textAlign: 'center',
+  //   fontSize: 14,
+  // },
+})
+
+interface Props<M extends Menus = Menus> {
+  menus: Readonly<M>
+  onPress?: (menu: M[number]) => void
+  buttonPosition: Position
+  menuSize: MenuSize
+  onHide: () => void
+  width?: number
+  height?: number
+  fontSize?: number
+  center?: boolean
+  activeId?: M[number]['action'] | null
+}
+
+const Menu = ({
+  buttonPosition,
+  menuSize,
+  menus,
+  width,
+  height,
+  onPress = () => {},
+  onHide,
+  activeId,
+  fontSize = 15,
+  center = false,
+}: Props) => {
+  const theme = useTheme()
+  const windowSize = useWindowSize()
+  // const fadeAnim = useRef(new Animated.Value(0)).current
+  // console.log(buttonPosition)
+
+  const menuItemStyle = useMemo(() => {
+    return {
+      width: width ?? menuSize.width ?? menuItemWidth,
+      height: height ?? menuSize.height ?? menuItemHeight,
+    }
+  }, [menuSize, width, height])
+
+  const menuStyle = useMemo(() => {
+    if (buttonPosition?.y === undefined) {
+      return { height: 0, width: 0, top: 0 }
+    }
+
+    let menuHeight = menus.length * menuItemStyle.height
+    const topHeight = buttonPosition.y - 20
+    const bottomHeight = windowSize.height - buttonPosition.y - buttonPosition.h - 20
+    if (menuHeight > topHeight && menuHeight > bottomHeight) { menuHeight = Math.max(topHeight, bottomHeight) }
+
+    const menuWidth = menuItemStyle.width
+    const bottomSpace = windowSize.height - buttonPosition.y - buttonPosition.h - 20
+    const rightSpace = windowSize.width - buttonPosition.x - menuWidth
+    const showInBottom = bottomSpace >= menuHeight
+    const showInRight = rightSpace >= 0
+    const frameStyle: {
+      height: number
+      width: number
+      top: number
+      left?: number
+      right?: number
+    } = {
+      height: menuHeight,
+      top: showInBottom ? buttonPosition.y + buttonPosition.h : buttonPosition.y - menuHeight,
+      width: menuWidth,
+    }
+    if (showInRight) {
+      frameStyle.left = buttonPosition.x
+    } else {
+      frameStyle.right = windowSize.width - buttonPosition.x - buttonPosition.w
+    }
+    return frameStyle
+  }, [menus.length, menuItemStyle, buttonPosition, windowSize])
+
+  const menuPress = (menu: Menus[number]) => {
+    // if (menu.disabled) return
+    onPress(menu)
+    onHide()
+  }
+
+  // console.log('render menu')
+  // console.log(activeId)
+  // console.log(menuStyle)
+  // console.log(menuItemStyle)
+  return (
+    <GlassSurface
+      glassStyle={{ borderRadius: 2 }}
+      style={{ ...styles.menu, ...menuStyle }}
+      pointerEvents="auto"
+    >
+      <Animated.ScrollView keyboardShouldPersistTaps={'always'}>
+        {menus.map((menu, _index) =>
+          menu.disabled ? (
+            <View
+              key={menu.action}
+              style={{
+                ...styles.menuItem,
+                width: menuItemStyle.width,
+                height: menuItemStyle.height,
+                opacity: 0.4,
+              }}
+            >
+              {typeof menu.label === 'string' ? (
+                <Text
+                  style={{ textAlign: center ? 'center' : 'left' }}
+                  size={fontSize}
+                  numberOfLines={1}
+                >
+                  {menu.label}
+                </Text>
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: center ? 'center' : 'flex-start' }}>
+                  {menu.label}
+                </View>
+              )}
+            </View>
+          ) : menu.action == activeId ? (
+            <View
+              key={menu.action}
+              style={{
+                ...styles.menuItem,
+                width: menuItemStyle.width,
+                height: menuItemStyle.height,
+              }}
+            >
+              {typeof menu.label === 'string' ? (
+                <Text
+                  style={{ textAlign: center ? 'center' : 'left' }}
+                  color={theme['c-primary-font-active']}
+                  size={fontSize}
+                  numberOfLines={1}
+                >
+                  {menu.label}
+                </Text>
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: center ? 'center' : 'flex-start' }}>
+                  {menu.label}
+                </View>
+              )}
+            </View>
+          ) : (
+            <TouchableHighlight
+              key={menu.action}
+              style={{
+                ...styles.menuItem,
+                width: menuItemStyle.width,
+                height: menuItemStyle.height,
+              }}
+              underlayColor={theme['c-primary-background-active']}
+              onPress={() => {
+                menuPress(menu)
+              }}
+            >
+              {typeof menu.label === 'string' ? (
+                <Text
+                  style={{ textAlign: center ? 'center' : 'left' }}
+                  size={fontSize}
+                  numberOfLines={1}
+                >
+                  {menu.label}
+                </Text>
+              ) : (
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: center ? 'center' : 'flex-start' }}>
+                  {menu.label}
+                </View>
+              )}
+            </TouchableHighlight>
+          ),
+        )}
+      </Animated.ScrollView>
+    </GlassSurface>
+  )
+}
+
+export interface MenuProps<M extends Menus = Menus> {
+  menus: M
+  onPress: (menu: M[number]) => void
+  onHide?: () => void
+  width?: number
+  height?: number
+  fontSize?: number
+  center?: boolean
+  activeId?: M[number]['action'] | null
+}
+
+export interface MenuType {
+  show: (position: Position, menuSize?: MenuSize) => void
+  hide: () => void
+}
+
+const Component = <M extends Menus>(
+  { menus, width, height, activeId, onHide, onPress, fontSize, center }: MenuProps<M>,
+  ref: Ref<MenuType>,
+) => {
+  // console.log(visible)
+  const modalRef = useRef<ModalType>(null)
+  const [position, setPosition] = useState<Position>({ w: 0, h: 0, x: 0, y: 0 })
+  const positionRef = useRef<Position>({ w: 0, h: 0, x: 0, y: 0 })
+  const [menuSize, setMenuSize] = useState<MenuSize>({})
+  const hide = () => {
+    modalRef.current?.setVisible(false)
+  }
+  useImperativeHandle(ref, () => ({
+    show(newPosition, menuSize) {
+      positionRef.current = newPosition
+      setPosition(newPosition)
+      if (menuSize) setMenuSize(menuSize)
+      requestAnimationFrame(() => {
+        modalRef.current?.setVisible(true)
+      })
+    },
+    hide() {
+      hide()
+    },
+  }))
+
+  const windowSize = useWindowSize()
+  const prevWindowSizeRef = useRef(windowSize)
+  useEffect(() => {
+    // iPad 旋转/分屏后窗口尺寸变化，打开时快照的锚点坐标已失效：
+    // 菜单若继续展开会定位错乱。尺寸变化时直接关闭，避免错位。
+    const prev = prevWindowSizeRef.current
+    if (prev.width !== windowSize.width || prev.height !== windowSize.height) {
+      prevWindowSizeRef.current = windowSize
+      modalRef.current?.setVisible(false)
+    }
+  }, [windowSize])
+
+  return (
+    <Modal onHide={onHide} ref={modalRef}>
+      <Menu
+        menus={menus}
+        width={width}
+        height={height}
+        activeId={activeId}
+        buttonPosition={position}
+        menuSize={menuSize}
+        onPress={onPress}
+        onHide={hide}
+        fontSize={fontSize}
+        center={center}
+      />
+    </Modal>
+  )
+}
+
+// export default forwardRef(Component) as ForwardRefFn<MenuType>
+export default forwardRef(Component) as <M extends Menus>(
+  p: MenuProps<M> & { ref?: Ref<MenuType> }
+) => JSX.Element | null

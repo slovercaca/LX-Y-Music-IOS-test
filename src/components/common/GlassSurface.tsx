@@ -1,1 +1,59 @@
-aW1wb3J0IHsgbWVtbyB9IGZyb20gJ3JlYWN0JwppbXBvcnQgeyBWaWV3LCB0eXBlIFN0eWxlUHJvcCwgdHlwZSBWaWV3UHJvcHMsIHR5cGUgVmlld1N0eWxlIH0gZnJvbSAncmVhY3QtbmF0aXZlJwoKaW1wb3J0IHsgdXNlU2V0dGluZ1ZhbHVlIH0gZnJvbSAnQC9zdG9yZS9zZXR0aW5nL2hvb2snCmltcG9ydCB7IHVzZVRoZW1lIH0gZnJvbSAnQC9zdG9yZS90aGVtZS9ob29rJwppbXBvcnQgeyBpc0lPUzI2XzJPckFib3ZlIH0gZnJvbSAnQC91dGlscy90b29scycKCmltcG9ydCBMaXF1aWRHbGFzcyBmcm9tICcuL0xpcXVpZEdsYXNzJwoKZXhwb3J0IGludGVyZmFjZSBHbGFzc1N1cmZhY2VQcm9wcyBleHRlbmRzIFZpZXdQcm9wcyB7CiAgLyoqCiAgICog6YCP5Lyg57uZIExpcXVpZEdsYXNzIOeahOagt+W8j++8iOmAmuW4uOWPquaUvuWchuinku+8ieOAggogICAqIExpcXVpZEdsYXNzIOWGhemDqOaYryBhYnNvbHV0ZUZpbGwgKyBjb21wb3Nl77ya5Y+v6KaG55uWIGJvdHRvbSDnrYnlrprkvY3lgLzigJTigJQKICAgKiDkvKAgYGJvdHRvbTogLXNhZmVBcmVhQm90dG9tYCDog73orqnnjrvnkoPlu7bkvLjlh7rlrrnlmajlupXpg6jvvIhQb3B1cCDlupXpg6jlronlhajljLrljbPnlKjmraTms5XvvIwKICAgKiDkuIDlnZfnjrvnkoPml6DnvJ3opobnm5bpnaLmnb8gKyDlronlhajljLrvvIzml6DpnIDnrKzkuozkuKrnjrvnkoPop4blm77mi7znvJ3vvInjgIIKICAgKi8KICBnbGFzc1N0eWxlPzogU3R5bGVQcm9wPFZpZXdTdHlsZT4KICAvKioKICAgKiDnnIHnlLXpl6jvvJrmiYDlnKjlsY/luZXooqvljovmoIjpobXlrozlhajopobnm5bml7bmmoLlgZwgTWV0YWwg6YCQ5bin5riy5p+T44CCCiAgICogRGlhbG9nIC8gUG9wdXAgLyBNZW51IOi/meexu+a1ruWxguaYvuekuuWNs+WPr+ingeOAgemakOiXj+WNs+WNuOi9ve+8jOm7mOiupCBmYWxzZSDljbPlj6/vvJsKICAgKiDluLjpqbvnu4Tku7bvvIh0YWIg5qCP562J77yJ5oyJ6ZyA5Lyg5YWlIHVzZUhvbWVDb3ZlcmVkIC8gdXNlU2NyZWVuQ292ZXJlZCDnmoTliKTlrprnu5PmnpzjgIIKICAgKi8KICBwYXVzZWQ/OiBib29sZWFuCn0KCi8qKgogKiDlhajlsYDnjrvnkoPmta7lsYLlrrnlmajvvIgyMDI2LTEwLTA077ya5ray5oCB546755KD5L2c55So6Iez5YWo5bGA77yJ44CCCiAqCiAqIOiDjOaZr+eUqCBMaXF1aWRHbGFzc++8iOa2suaAgS/no6jnoILlj4zlvaLmgIHvvJoyNi4yKyDlhZzlupXjgIHmt7HoibLlj6/or7vmgKfkv53lupXpg73lnKjlhbblhoXpg6jvvInvvIwKICog5YaF5a6555uW5Zyo5LiK5bGC44CC5Li76aKY5Y+C5pWw77yIdGhlbWUuZ2xhc3NPcGFjaXR5IC8gdGhlbWUubGlxdWlkR2xhc3MgLyB0aGVtZS5pc0RhcmvvvIkKICog5YaF6YOo6Ieq6KGM6K+75Y+W77yM6LCD55So5pa55Y+q566h5biD5bGAICsg5ZyG6KeS44CCCiAqCiAqIOKaoO+4jyDkuI3opoHlho3nu5nlrrnlmajorr4gYmFja2dyb3VuZENvbG9y4oCU4oCU57qv6Imy6IOM5pmv5Lya5oyh5L2P546755KD55qE5oqY5bCEL+aooeeziu+8jAogKiDnjrvnkoPmnKzouqvlsLHmmK/og4zmma/jgILnjrvnkoPlnIbop5LotbAgZ2xhc3NTdHlsZe+8iOebtOaOpeijgeWOn+eUn+inhuWbvu+8ie+8jOWuueWZqOiHqui6q+eahAogKiBib3JkZXJSYWRpdXMg5Y+q5b2x5ZON6L655qGG5LiO5a2Q5YaF5a656KOB5Ymq44CCCiAqLwpjb25zdCBHbGFzc1N1cmZhY2UgPSBtZW1vKCh7IGdsYXNzU3R5bGUsIHBhdXNlZCA9IGZhbHNlLCBzdHlsZSwgY2hpbGRyZW4sIC4uLnByb3BzIH06IEdsYXNzU3VyZmFjZVByb3BzKSA9PiB7CiAgY29uc3QgdGhlbWUgPSB1c2VUaGVtZSgpCiAgLy8g5LiOIE1vZGVyblRhYkJhciAvIFBsYXllckJhciDlkIzkuIDlpZflj4LmlbDlj6PlvoTvvIgyMDI2LTA5LTI4IOWumuahiO+8ieOAggogIGNvbnN0IGdsYXNzT3BhY2l0eSA9IHVzZVNldHRpbmdWYWx1ZSgndGhlbWUuZ2xhc3NPcGFjaXR5JykgLyAxMDAKICBjb25zdCBsaXF1aWRHbGFzc09uID0gdXNlU2V0dGluZ1ZhbHVlKCd0aGVtZS5saXF1aWRHbGFzcycpICYmICFpc0lPUzI2XzJPckFib3ZlCgogIHJldHVybiAoCiAgICA8VmlldyBzdHlsZT17c3R5bGV9IHsuLi5wcm9wc30+CiAgICAgIDxMaXF1aWRHbGFzcwogICAgICAgIGdsYXNzT3BhY2l0eT17Z2xhc3NPcGFjaXR5fQogICAgICAgIGRhcms9e3RoZW1lLmlzRGFya30KICAgICAgICBsaXF1aWQ9e2xpcXVpZEdsYXNzT259CiAgICAgICAgcGF1c2VkPXtwYXVzZWR9CiAgICAgICAgc3R5bGU9e2dsYXNzU3R5bGV9CiAgICAgIC8+CiAgICAgIHtjaGlsZHJlbn0KICAgIDwvVmlldz4KICApCn0pCgpHbGFzc1N1cmZhY2UuZGlzcGxheU5hbWUgPSAnR2xhc3NTdXJmYWNlJwoKZXhwb3J0IGRlZmF1bHQgR2xhc3NTdXJmYWNlCg==
+import { memo } from 'react'
+import { View, type StyleProp, type ViewProps, type ViewStyle } from 'react-native'
+
+import { useSettingValue } from '@/store/setting/hook'
+import { useTheme } from '@/store/theme/hook'
+import { isIOS26_2OrAbove } from '@/utils/tools'
+
+import LiquidGlass from './LiquidGlass'
+
+export interface GlassSurfaceProps extends ViewProps {
+  /**
+   * 透传给 LiquidGlass 的样式（通常只放圆角）。
+   * LiquidGlass 内部是 absoluteFill + compose：可覆盖 bottom 等定位值——
+   * 传 `bottom: -safeAreaBottom` 能让玻璃延伸出容器底部（Popup 底部安全区即用此法，
+   * 一块玻璃无缝覆盖面板 + 安全区，无需第二个玻璃视图拼缝）。
+   */
+  glassStyle?: StyleProp<ViewStyle>
+  /**
+   * 省电门：所在屏幕被压栈页完全覆盖时暂停 Metal 逐帧渲染。
+   * Dialog / Popup / Menu 这类浮层显示即可见、隐藏即卸载，默认 false 即可；
+   * 常驻组件（tab 栏等）按需传入 useHomeCovered / useScreenCovered 的判定结果。
+   */
+  paused?: boolean
+}
+
+/**
+ * 全局玻璃浮层容器（2026-10-04：液态玻璃作用至全局）。
+ *
+ * 背景用 LiquidGlass（液态/磨砂双形态：26.2+ 兜底、深色可读性保底都在其内部），
+ * 内容盖在上层。主题参数（theme.glassOpacity / theme.liquidGlass / theme.isDark）
+ * 内部自行读取，调用方只管布局 + 圆角。
+ *
+ * ⚠️ 不要再给容器设 backgroundColor——纯色背景会挡住玻璃的折射/模糊，
+ * 玻璃本身就是背景。玻璃圆角走 glassStyle（直接裁原生视图），容器自身的
+ * borderRadius 只影响边框与子内容裁剪。
+ */
+const GlassSurface = memo(({ glassStyle, paused = false, style, children, ...props }: GlassSurfaceProps) => {
+  const theme = useTheme()
+  // 与 ModernTabBar / PlayerBar 同一套参数口径（2026-09-28 定案）。
+  const glassOpacity = useSettingValue('theme.glassOpacity') / 100
+  const liquidGlassOn = useSettingValue('theme.liquidGlass') && !isIOS26_2OrAbove
+
+  return (
+    <View style={style} {...props}>
+      <LiquidGlass
+        glassOpacity={glassOpacity}
+        dark={theme.isDark}
+        liquid={liquidGlassOn}
+        paused={paused}
+        style={glassStyle}
+      />
+      {children}
+    </View>
+  )
+})
+
+GlassSurface.displayName = 'GlassSurface'
+
+export default GlassSurface

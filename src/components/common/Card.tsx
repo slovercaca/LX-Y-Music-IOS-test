@@ -1,1 +1,45 @@
-aW1wb3J0IHsgbWVtbywgdXNlTWVtbyB9IGZyb20gJ3JlYWN0JwppbXBvcnQgeyBTdHlsZVNoZWV0LCB0eXBlIFZpZXdQcm9wcyB9IGZyb20gJ3JlYWN0LW5hdGl2ZScKaW1wb3J0IHsgdXNlVGhlbWUgfSBmcm9tICdAL3N0b3JlL3RoZW1lL2hvb2snCmltcG9ydCB7IGNyZWF0ZVN0eWxlIH0gZnJvbSAnQC91dGlscy90b29scycKaW1wb3J0IHsgZGVzaWduUmFkaXVzLCBkZXNpZ25TcGFjaW5nLCB0eXBlIERlc2lnblNwYWNpbmdUb2tlbiB9IGZyb20gJ0AvdGhlbWUvRGVzaWduVG9rZW5zJwppbXBvcnQgQ29udGVudEdsYXNzIGZyb20gJy4vQ29udGVudEdsYXNzJwoKY29uc3Qgc3R5bGVzID0gY3JlYXRlU3R5bGUoewogIGJhc2U6IHsKICAgIGJvcmRlclJhZGl1czogZGVzaWduUmFkaXVzLmxnLAogICAgYm9yZGVyV2lkdGg6IDEsCiAgICBvdmVyZmxvdzogJ2hpZGRlbicsCiAgfSwKfSkKCmV4cG9ydCBpbnRlcmZhY2UgQ2FyZFByb3BzIGV4dGVuZHMgVmlld1Byb3BzIHsKICBwYWRkaW5nPzogRGVzaWduU3BhY2luZ1Rva2VuCn0KCmV4cG9ydCBkZWZhdWx0IG1lbW8oKHsgcGFkZGluZyA9ICdtZCcsIHN0eWxlLCAuLi5wcm9wcyB9OiBDYXJkUHJvcHMpID0+IHsKICBjb25zdCB0aGVtZSA9IHVzZVRoZW1lKCkKCiAgY29uc3QgY2FyZFN0eWxlID0gdXNlTWVtbygKICAgICgpID0+IFN0eWxlU2hlZXQuY29tcG9zZSgKICAgICAgewogICAgICAgIC4uLnN0eWxlcy5iYXNlLAogICAgICAgIHBhZGRpbmc6IGRlc2lnblNwYWNpbmdbcGFkZGluZ10sCiAgICAgICAgLy8g6IOM5pmv5pS555SxIENvbnRlbnRHbGFzcyDmj5DkvpvvvIgyMDI2LTEwLTA0IOWGheWuueeOu+eSg++8ie+8muW8gOWFs+W8gCA9IOeOu+eSg++8jAogICAgICAgIC8vIOW8gOWFs+WFsyA9IGZhbGxiYWNrQmFja2dyb3VuZENvbG9yIOWbnumAgOWIsOWOn+adpeeahOe6r+iJsuOAggogICAgICAgIGJvcmRlckNvbG9yOiB0aGVtZVsnYy1ib3JkZXItYmFja2dyb3VuZCddLAogICAgICB9LAogICAgICBzdHlsZSwKICAgICksCiAgICBbcGFkZGluZywgc3R5bGUsIHRoZW1lXSwKICApCgogIHJldHVybiAoCiAgICA8Q29udGVudEdsYXNzCiAgICAgIGdsYXNzU3R5bGU9e3sgYm9yZGVyUmFkaXVzOiBkZXNpZ25SYWRpdXMubGcgfX0KICAgICAgZmFsbGJhY2tCYWNrZ3JvdW5kQ29sb3I9e3RoZW1lWydjLWNvbnRlbnQtYmFja2dyb3VuZCddfQogICAgICBzdHlsZT17Y2FyZFN0eWxlfQogICAgICB7Li4ucHJvcHN9CiAgICAvPgogICkKfSkK
+import { memo, useMemo } from 'react'
+import { StyleSheet, type ViewProps } from 'react-native'
+import { useTheme } from '@/store/theme/hook'
+import { createStyle } from '@/utils/tools'
+import { designRadius, designSpacing, type DesignSpacingToken } from '@/theme/DesignTokens'
+import ContentGlass from './ContentGlass'
+
+const styles = createStyle({
+  base: {
+    borderRadius: designRadius.lg,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+})
+
+export interface CardProps extends ViewProps {
+  padding?: DesignSpacingToken
+}
+
+export default memo(({ padding = 'md', style, ...props }: CardProps) => {
+  const theme = useTheme()
+
+  const cardStyle = useMemo(
+    () => StyleSheet.compose(
+      {
+        ...styles.base,
+        padding: designSpacing[padding],
+        // 背景改由 ContentGlass 提供（2026-10-04 内容玻璃）：开关开 = 玻璃，
+        // 开关关 = fallbackBackgroundColor 回退到原来的纯色。
+        borderColor: theme['c-border-background'],
+      },
+      style,
+    ),
+    [padding, style, theme],
+  )
+
+  return (
+    <ContentGlass
+      glassStyle={{ borderRadius: designRadius.lg }}
+      fallbackBackgroundColor={theme['c-content-background']}
+      style={cardStyle}
+      {...props}
+    />
+  )
+})
