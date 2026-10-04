@@ -75,17 +75,17 @@ export default {
     if (state.playedList.some((m) => m.musicInfo.id == info.musicInfo.id)) return
     state.playedList.push(info)
 
-    global.state_event.playPlayedListChanged({ ...state.playedList })
+    global.state_event.playPlayedListChanged([...state.playedList])
   },
   removePlayedList(index: number) {
     state.playedList.splice(index, 1)
 
-    global.state_event.playPlayedListChanged({ ...state.playedList })
+    global.state_event.playPlayedListChanged([...state.playedList])
   },
   clearPlayedList() {
     state.playedList = []
 
-    global.state_event.playPlayedListChanged({ ...state.playedList })
+    global.state_event.playPlayedListChanged([...state.playedList])
   },
   addTempPlayList(list: LX.Player.TempPlayListItem[]) {
     const topList: Array<{

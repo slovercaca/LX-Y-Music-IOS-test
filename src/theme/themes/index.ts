@@ -65,10 +65,12 @@ const withAlpha = (color: string, alpha: number): string => {
 export const buildActiveThemeColors = (theme: LX.Theme): LX.ActiveTheme => {
   let bgImg: ImageSourcePropType | undefined
   if (theme.isCustom) {
-    if (theme.config.extInfo['bg-image']) {
-      theme.config.extInfo['bg-image'] = isUrl(theme.config.extInfo['bg-image'])
-        ? theme.config.extInfo['bg-image']
-        : `${privateStorageDirectoryPath}/theme_images/${theme.config.extInfo['bg-image']}`
+    const bgImage = theme.config.extInfo['bg-image']
+    // 2026-10-05 fix（P1-6）：幂等守卫——getTheme() 返回 userThemes 数组里的同一对象
+    // 引用，直接 mutation 会导致反复调用时逐层嵌套拼接路径（isUrl 只认 http(s)://）。
+    // 已含前缀的不再拼接。
+    if (bgImage && !isUrl(bgImage) && !bgImage.startsWith(privateStorageDirectoryPath)) {
+      theme.config.extInfo['bg-image'] = `${privateStorageDirectoryPath}/theme_images/${bgImage}`
     }
   } else {
     const extInfo = (theme as LocalTheme).config.extInfo

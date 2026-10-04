@@ -12,7 +12,10 @@ let userConvolutionPresetList: LX.SoundEffect.ConvolutionPreset[] | null = null
 
 const getCachedList = async<T>(key: string, cache: T[] | null) => {
   if (cache != null) return cache
-  return (await getData<T[]>(key)) ?? []
+  // 2026-10-05 fix（P1-11）：getData 抛错时直接抛出，不回退到 []——
+  // 否则 save 路径会把空列表写回，永久清空用户预设
+  const data = await getData<T[]>(key)
+  return data ?? []
 }
 
 const savePresetList = async<T>(key: string, list: T[]) => {

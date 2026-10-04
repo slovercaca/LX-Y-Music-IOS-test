@@ -248,13 +248,22 @@ export default memo(() => {
   // 2026-10-04 bugfix：文件 App 选的临时文件（/tmp/）若用户未上传就离开 tab，
   // 需要清理，避免 tmp 堆积。用 ref 跟踪，避免闭包过期。
   const uploadTempFilesRef = useRef<Set<string>>(new Set())
+  // 2026-10-04：上传进度（进度条用）
+  const [uploadProgress, setUploadProgress] = useState<{ current: number, total: number, fileName: string } | null>(null)
+  // 2026-10-04：上传时是否同时上传歌词（.lrc）
+  const [uploadWithLyrics, setUploadWithLyrics] = useState(true)
   useEffect(() => {
-    // 离开上传 tab 或组件卸载时，清理未上传的临时文件
+    // 2026-10-05 fix（P1-6）：离开上传 tab 时，删除临时文件并同步清理队列，
+    // 避免返回后队列指向已删除的文件
     if (activeTab !== 'upload') {
-      for (const p of uploadTempFilesRef.current) {
+      const deletedPaths = new Set(uploadTempFilesRef.current)
+      for (const p of deletedPaths) {
         void unlink(p).catch(() => {})
       }
       uploadTempFilesRef.current.clear()
+      if (deletedPaths.size > 0) {
+        setUploadFiles(prev => prev.filter(f => !deletedPaths.has(f.localPath)))
+      }
     }
   }, [activeTab])
   const metadataEditTypeRef = useRef<any>(null)
@@ -584,7 +593,9 @@ export default memo(() => {
 
   // 2026-10-04：清除手动指定的封面/歌词，恢复自动获取
   const handleClearCustomMedia = useCallback((info: WebDAVSelectInfo) => {
-    void updateWebDAVMusicMeta(info.musicInfo.id, { customPicPath: undefined, customLrcPath: undefined })
+    // 2026-10-05 fix（P1-2）：传 '' 而非 undefined——drive.ts 里 undefined 会被跳过，
+    // '' 才会走 delete 分支真正持久化清除
+    void updateWebDAVMusicMeta(info.musicInfo.id, { customPicPath: '', customLrcPath: '' })
       .then(() => {
         setSongs(prevSongs => prevSongs.map(song => {
           if (song.id !== info.musicInfo.id) return song
@@ -629,7 +640,7 @@ export default memo(() => {
 
   const handleBatchDownload = useCallback(() => {
     if (!hasConfig) {
-      toast('请先在「配置」里填写 WebDAV 地址与账号')
+      toast(global.i18n.t('webdav_upload_config_first'))
       setActiveTab('config')
       return
     }
@@ -681,8 +692,13 @@ export default memo(() => {
    * - 逐个上传，失败的记下来继续传下一个，最后如实报告
    * - 全部完成后重新扫描当前目录，让新歌出现在列表里
    */
-  const runWebDAVUpload = useCallback(async(items: WebDAVUploadItem[]) => {
-    if (items.length === 0) return
+  const runWebDAVUpload = useCallback(async(
+    items: WebDAVUploadItem[],
+    onProgress?: (current: number, total: number, fileName: string) => void,
+    withLyrics?: boolean,
+  ): Promise<boolean> => {
+    // 2026-10-05 fix（P1-5）：返回是否真正开始上传，供调用方决定是否清理队列
+    if (items.length === 0) return false
     const totalSize = items.reduce((sum, it) => sum + (it.size || 0), 0)
     // 超大文件走 base64 中转内存，100MB 以上先提醒
     if (totalSize > 100 * 1024 * 1024) {
@@ -691,7 +707,7 @@ export default memo(() => {
         message: `本次共 ${items.length} 个文件，约 ${(totalSize / 1024 / 1024).toFixed(0)}MB。上传大文件较慢且耗内存，确定继续吗？`,
         confirmButtonText: '继续上传',
       })
-      if (!confirmed) return
+      if (!confirmed) return false
     }
 
     // 先预检连通性：服务器不通/账号不对时直接报错，不走到后面逐个失败
@@ -701,13 +717,15 @@ export default memo(() => {
     } catch (err: any) {
       setBatchLoadingText('')
       toast(`无法连接 WebDAV 服务器：${err?.message ?? err}`, 'long')
-      return
+      return false
     }
 
     setBatchLoadingText('正在检查服务器文件...')
     const conflicts: string[] = []
     for (const item of items) {
-      const remotePath = joinWebDAVRemotePath(uploadTargetDir, item.fileName)
+      // 2026-10-05 fix（P1-3）：实际上传目标是 <target>/music/<fileName>，
+      // 预检路径也要加上 music/，否则冲突永远检查不出来
+      const remotePath = joinWebDAVRemotePath(joinWebDAVRemotePath(uploadTargetDir, 'music'), item.fileName)
       if (await checkWebDAVRemoteExists(remotePath).catch(() => false)) {
         conflicts.push(item.fileName)
       }
@@ -719,7 +737,7 @@ export default memo(() => {
         message: `服务器上已有 ${conflicts.length} 个同名文件${conflicts.length <= 3 ? `：${conflicts.join('、')}` : ''}，上传将覆盖它们。继续吗？`,
         confirmButtonText: '覆盖并上传',
       })
-      if (!confirmed) return
+      if (!confirmed) return false
     }
 
     let success = 0
@@ -727,14 +745,17 @@ export default memo(() => {
     for (let i = 0; i < items.length; i++) {
       const item = items[i]
       setBatchLoadingText(`正在上传 ${i + 1}/${items.length}：${item.fileName}`)
+      // 2026-10-04：进度回调（上传 tab 的进度条用）
+      onProgress?.(i + 1, items.length, item.fileName)
       try {
-        await uploadWebDAVMusicFile(item, uploadTargetDir)
+        await uploadWebDAVMusicFile(item, uploadTargetDir, withLyrics)
         success++
       } catch (err: any) {
         failed.push(`${item.fileName}（${err?.message ?? err}）`)
       }
     }
     setBatchLoadingText('')
+    onProgress?.(items.length, items.length, '')
 
     if (failed.length > 0) {
       // 失败明细直接拼进 toast（long 时长），避免再弹一个对话框打断流程
@@ -761,6 +782,8 @@ export default memo(() => {
         setLoading(false)
       }
     }
+    // 2026-10-05 fix（P1-5）：返回 true 表示真正开始了上传
+    return true
   }, [uploadTargetDir, selectedFolder])
 
   // ===== 上传 tab（2026-10-04）：独立界面，不再用悬浮窗 =====
@@ -848,21 +871,32 @@ export default memo(() => {
   /** 开始上传队列中的文件 */
   const handleStartUpload = useCallback(async() => {
     if (uploadFiles.length === 0) {
-      toast('请先添加要上传的文件')
+      toast(global.i18n.t('webdav_upload_need_files'))
       return
     }
-    await runWebDAVUpload(uploadFiles)
-    // 上传完成后清理：删掉文件 App 选的临时文件，清空队列
-    for (const p of uploadTempFilesRef.current) {
-      void unlink(p).catch(() => {})
+    setUploadProgress({ current: 0, total: uploadFiles.length, fileName: '' })
+    let started = false
+    try {
+      started = await runWebDAVUpload(uploadFiles, (current, total, fileName) => {
+        setUploadProgress({ current, total, fileName })
+      }, uploadWithLyrics)
+    } finally {
+      setUploadProgress(null)
     }
-    uploadTempFilesRef.current.clear()
-    setUploadFiles([])
-  }, [uploadFiles, runWebDAVUpload])
+    // 2026-10-05 fix（P1-5）：仅真正开始上传后才清理队列；
+    // 取消/连接失败时保留队列，用户可手动清空或重试
+    if (started) {
+      for (const p of uploadTempFilesRef.current) {
+        void unlink(p).catch(() => {})
+      }
+      uploadTempFilesRef.current.clear()
+      setUploadFiles([])
+    }
+  }, [uploadFiles, runWebDAVUpload, uploadWithLyrics])
 
   const handleUpload = useCallback(() => {
     if (!hasConfig) {
-      toast('请先在「配置」里填写 WebDAV 地址与账号')
+      toast(global.i18n.t('webdav_upload_config_first'))
       setActiveTab('config')
       return
     }
@@ -909,7 +943,7 @@ export default memo(() => {
 
   const handleScan = useCallback(() => {
     if (!hasConfig) {
-      toast('请先在「配置」里填写 WebDAV 地址与账号')
+      toast(global.i18n.t('webdav_upload_config_first'))
       setActiveTab('config')
       return
     }
@@ -1071,7 +1105,15 @@ export default memo(() => {
       <View style={{ ...styles.tabs, borderBottomColor: theme['c-border-background'] }}>
         <TabButton label="列表" tab="list" activeTab={activeTab} onPress={() => { setActiveTab('list') }} />
         <TabButton label="目录" tab="folders" activeTab={activeTab} onPress={() => { setActiveTab('folders') }} />
-        <TabButton label="上传" tab="upload" activeTab={activeTab} onPress={() => { setActiveTab('upload') }} />
+        <TabButton label={global.i18n.t('webdav_upload_tab')} tab="upload" activeTab={activeTab} onPress={() => {
+          // 2026-10-04 bugfix：未配置时跳配置页，避免上传 tab 内操作失败
+          if (!hasConfig) {
+            toast(global.i18n.t('webdav_upload_config_first'))
+            setActiveTab('config')
+            return
+          }
+          setActiveTab('upload')
+        }} />
         <TabButton label="配置" tab="config" activeTab={activeTab} onPress={() => { setActiveTab('config') }} />
       </View>
     </>
@@ -1315,13 +1357,13 @@ export default memo(() => {
               style={[styles.uploadSourceButton, { backgroundColor: theme['c-button-background'] }]}
               onPress={() => { setUploadPickerExpanded(v => !v) }}
             >
-              <Text color={theme['c-button-font']}>从下载列表选择</Text>
+              <Text color={theme['c-button-font']}>{global.i18n.t('webdav_upload_from_downloads')}</Text>
             </Button>
             <Button
               style={[styles.uploadSourceButton, { backgroundColor: theme['c-button-background'], marginLeft: designSpacing.md }]}
               onPress={handleAddUploadFromFilePicker}
             >
-              <Text color={theme['c-button-font']}>从文件 App 选择</Text>
+              <Text color={theme['c-button-font']}>{global.i18n.t('webdav_upload_from_files')}</Text>
             </Button>
           </View>
 
@@ -1329,7 +1371,7 @@ export default memo(() => {
           {uploadPickerExpanded ? (
             <View style={styles.uploadSection}>
               <View style={styles.uploadRowHeader}>
-                <Text size={designTypography.body} color={theme['c-font']}>已下载文件</Text>
+                <Text size={designTypography.body} color={theme['c-font']}>{global.i18n.t('webdav_upload_downloaded_files')}</Text>
                 <TouchableOpacity onPress={toggleUploadCheckAll} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <Text size={designTypography.caption} color={theme['c-primary']}>
                     {uploadCheckedIds.size === uploadableTasks.length && uploadableTasks.length > 0 ? '取消全选' : '全选'}
@@ -1350,7 +1392,7 @@ export default memo(() => {
                       activeOpacity={0.7}
                       onPress={() => { toggleUploadCheck(task.id) }}
                     >
-                      <CheckBox checked={checked} onChange={() => { toggleUploadCheck(task.id) }} />
+                      <CheckBox check={checked} onChange={() => { toggleUploadCheck(task.id) }} />
                       <View style={styles.uploadTaskInfo}>
                         <Text size={designTypography.body} color={theme['c-font']} numberOfLines={1}>
                           {task.fileName}
@@ -1374,8 +1416,40 @@ export default memo(() => {
 
           {/* 待上传队列 */}
           <View style={styles.uploadSection}>
-            <Text size={designTypography.body} color={theme['c-font']} style={styles.uploadSectionTitle}>
-              待上传（{uploadFiles.length}）
+            <View style={styles.uploadQueueHeader}>
+              <Text size={designTypography.body} color={theme['c-font']} style={styles.uploadSectionTitle}>
+                待上传（{uploadFiles.length}）
+              </Text>
+              {uploadFiles.length > 0 ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    // 2026-10-05（P1-5）：手动清空队列（含临时文件清理）
+                    for (const p of uploadTempFilesRef.current) {
+                      void unlink(p).catch(() => {})
+                    }
+                    uploadTempFilesRef.current.clear()
+                    setUploadFiles([])
+                    toast(global.i18n.t('webdav_upload_cleared'))
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text size={designTypography.caption} color={theme['c-primary']}>{global.i18n.t('webdav_upload_clear')}</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            {/* 2026-10-04：上传时是否同时上传歌词 */}
+            <TouchableOpacity
+              style={styles.uploadLyricsRow}
+              activeOpacity={0.7}
+              onPress={() => { setUploadWithLyrics(v => !v) }}
+            >
+              <CheckBox check={uploadWithLyrics} onChange={setUploadWithLyrics} />
+              <Text size={designTypography.body} color={theme['c-font']} style={styles.uploadLyricsLabel}>
+                同时上传歌词（.lrc）
+              </Text>
+            </TouchableOpacity>
+            <Text size={designTypography.caption} color={theme['c-font-label']} style={styles.uploadLyricsTip}>
+              勾选后，上传歌曲时会自动查找同名歌词文件，一并上传到 lrc/ 目录
             </Text>
             {uploadFiles.length === 0 ? (
               <Text size={designTypography.caption} color={theme['c-font-label']} style={styles.uploadEmptyText}>
@@ -1405,8 +1479,31 @@ export default memo(() => {
           </View>
         </ScrollView>
 
-        {/* 底部大上传按钮 */}
+        {/* 底部：进度条 + 大上传按钮 */}
         <View style={styles.uploadFooter}>
+          {uploadProgress ? (
+            <View style={styles.uploadProgressWrap}>
+              <View style={styles.uploadProgressHeader}>
+                <Text size={designTypography.caption} color={theme['c-font']} numberOfLines={1} style={styles.uploadProgressText}>
+                  {uploadProgress.fileName ? `正在上传：${uploadProgress.fileName}` : '上传完成'}
+                </Text>
+                <Text size={designTypography.caption} color={theme['c-font-label']}>
+                  {uploadProgress.current}/{uploadProgress.total}
+                </Text>
+              </View>
+              <View style={[styles.uploadProgressTrack, { backgroundColor: theme['c-primary-light-900-alpha-300'] }]}>
+                <View
+                  style={[
+                    styles.uploadProgressBar,
+                    {
+                      backgroundColor: theme['c-primary'],
+                      width: `${uploadProgress.total > 0 ? (uploadProgress.current / uploadProgress.total) * 100 : 0}%`,
+                    },
+                  ]}
+                />
+              </View>
+            </View>
+          ) : null}
           <Button
             style={[styles.uploadStartButton, { backgroundColor: theme['c-primary'] }]}
             disabled={uploadFiles.length === 0 || loading || !!batchLoadingText}
@@ -1626,6 +1723,25 @@ const styles = createStyle({
     marginBottom: designSpacing.sm,
     fontWeight: '600',
   },
+  // 2026-10-05（P1-5）：待上传队列标题行（含清空按钮）
+  uploadQueueHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: designSpacing.sm,
+  },
+  // 上传歌词选项（2026-10-04）
+  uploadLyricsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: designSpacing.sm,
+  },
+  uploadLyricsLabel: {
+    marginLeft: designSpacing.sm,
+  },
+  uploadLyricsTip: {
+    marginBottom: designSpacing.sm,
+  },
   uploadEmptyText: {
     paddingVertical: designSpacing.md,
   },
@@ -1646,6 +1762,29 @@ const styles = createStyle({
     borderRadius: designRadius.md,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // 上传进度条（2026-10-04）
+  uploadProgressWrap: {
+    marginBottom: designSpacing.md,
+  },
+  uploadProgressHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: designSpacing.xs,
+  },
+  uploadProgressText: {
+    flex: 1,
+    marginRight: designSpacing.sm,
+  },
+  uploadProgressTrack: {
+    height: 6,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  uploadProgressBar: {
+    height: 6,
+    borderRadius: 3,
   },
   // 封面歌词来源选择（2026-10-04）
   mediaSourceRow: {
