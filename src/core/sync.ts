@@ -32,9 +32,15 @@ export const selectSyncMode = async <T extends keyof LX.Sync.ModeTypes>(
     syncActions.setServerInfo(serverName, type)
     showSyncModeModal()
 
+    let removeListener: RemoveListener | null = null
+    let settled = false
+
     const removeListeners = () => {
-      removeListener!()
-      removeListener = null
+      settled = true
+      if (removeListener) {
+        removeListener()
+        removeListener = null
+      }
       removeEvent = null
       global.app_event.off('selectSyncMode', handleSelectMode)
     }
@@ -45,17 +51,28 @@ export const selectSyncMode = async <T extends keyof LX.Sync.ModeTypes>(
       resolve(mode as LX.Sync.ModeTypes[T])
     }
 
-    removeEvent = () => {
+    let removeEvent: (() => void) | null = () => {
       removeListeners()
       reject(new Error('cancel'))
     }
 
     global.app_event.on('selectSyncMode', handleSelectMode)
 
-    let removeListener: RemoveListener = onModalDismissed(syncState.syncModeComponentId, () => {
-      syncActions.setSyncModeComponentId('')
-      removeEvent?.()
-    })
+    // 2026-10-05 fix（P1-12）：componentId 在 modal 挂载后的 useEffect 才设置，
+    // 同步注册时还是空字符串。轮询等待 ID 就绪后再注册 dismiss 监听。
+    const waitForId = () => {
+      if (settled) return
+      const id = syncState.syncModeComponentId
+      if (id) {
+        removeListener = onModalDismissed(id, () => {
+          syncActions.setSyncModeComponentId('')
+          removeEvent?.()
+        })
+      } else {
+        setTimeout(waitForId, 50)
+      }
+    }
+    waitForId()
   })
 
 export const removeSyncModeEvent = () => {

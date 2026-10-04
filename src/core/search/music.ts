@@ -167,6 +167,13 @@ export const search = async(
 
       await Promise.all(results.map(async r => supplementQuality(r.list, r.source)))
 
+      // 2026-10-05 fix（P1-8）：supplementQuality 可能耗时数秒，await 后再查一次 key，
+      // 过期则丢弃，避免旧结果覆盖新搜索
+      if (key != listInfo.key) {
+        log.info('[Search Music] supplementQuality 后 key 已过期，丢弃结果')
+        return []
+      }
+
       const finalList = setListInfo(results, page, text)
       log.info('[Search Music] 最终列表长度: ' + finalList.length)
       log.info('========== [Search Music] 搜索完成 ==========')
@@ -207,6 +214,12 @@ export const search = async(
 
           await supplementQuality(data.list, sourceId)
 
+          // 2026-10-05 fix（P1-8）：同上，await 后再查 key
+          if (key != listInfo.key) {
+            log.info('[Search Music] supplementQuality 后 key 已过期，丢弃结果')
+            return []
+          }
+
           const finalList = setListInfo(data, page, text)
           log.info('[Search Music] 最终列表长度: ' + finalList.length)
           log.info('========== [Search Music] 搜索完成 ==========')
@@ -215,6 +228,8 @@ export const search = async(
     ).catch((err: any) => {
       log.error('[Search Music] 源 "' + sourceId + '" 搜索失败: ' + err.message)
       log.error('========== [Search Music] 搜索错误 ==========')
+      // 2026-10-05 fix（P1-9）：过期请求的 catch 不清空当前结果
+      if (key != listInfo.key) throw err
       if (listInfo.list.length && page == 1) clearListInfo(sourceId)
       throw err
     })

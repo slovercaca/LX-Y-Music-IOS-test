@@ -71,6 +71,8 @@ export const search = async(
         return setListInfo(data, page, text)
       }) ?? Promise.reject(new Error('source not found: ' + sourceId))
     ).catch((err: any) => {
+      // 2026-10-05 fix（P1-9）：过期请求的 catch 不清空当前结果
+      if (key != listInfo.key) throw err
       if (listInfo.list.length && page == 1) clearListInfo(sourceId)
       throw err
     })
