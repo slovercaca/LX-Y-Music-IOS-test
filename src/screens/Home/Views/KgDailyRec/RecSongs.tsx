@@ -80,7 +80,8 @@ export default memo(({ header, type }: Props) => {
         playingId={playerMusicInfo.id}
         onPlayList={handlePlayList}
         onRefresh={handleRefresh}
-        onLoadMore={() => {}}
+        // 2026-10-05 fix（P1-9）：重试按钮传入真实重载函数，而非空函数
+        onLoadMore={handleRefresh}
         checkHomePagerIdle
       />
     </View>

@@ -263,7 +263,8 @@ export default memo(({ header, isStylized, stylizedSelection }: RecSongsProps) =
         toast(t('load_failed'), 'long')
         listRef.current?.setStatus('error')
       }).finally(() => {
-        listRef.current?.setStatus('idle')
+        // 2026-10-05 fix（P1-7）：finally 只关 loading，不覆盖 error 状态
+        setIsLoading(false)
       })
       return
     }
@@ -280,7 +281,8 @@ export default memo(({ header, isStylized, stylizedSelection }: RecSongsProps) =
       toast(t('load_failed'), 'long')
       listRef.current?.setStatus('error')
     }).finally(() => {
-      listRef.current?.setStatus('idle')
+      // 2026-10-05 fix（P1-7）：finally 只关 loading，不覆盖 error 状态
+      setIsLoading(false)
     })
   }, [cookie, t, isStylized, stylizedSelection])
 

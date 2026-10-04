@@ -109,9 +109,9 @@ export default memo(({ header, type, onOpenDetail }: Props) => {
       console.error(`获取QQ${type === 'radar' ? '雷达推荐' : '推荐新歌'}失败:`, error)
       toast('加载失败', 'long')
       listRef.current?.setStatus('error')
-    } finally {
-      listRef.current?.setStatus('idle')
     }
+    // 2026-10-05 fix（P1-8）：删除 finally 里的 setStatus('idle')，
+    // 它会把 catch 里设置的 error 状态覆盖掉
   }, [type])
 
   useEffect(() => {

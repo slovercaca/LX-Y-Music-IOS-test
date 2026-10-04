@@ -24,6 +24,8 @@ export default forwardRef<MusicListType, { header?: ReactElement }>((props, ref)
   const { header } = props
   const listRef = useRef<OnlineListType>(null)
   const isUnmountedRef = useRef(false)
+  // 2026-10-05 fix（P1-6）：请求序号，快速切榜时丢弃过期结果
+  const loadIdRef = useRef(0)
   const handleListUpdate = useCallback((newList: LX.Music.MusicInfoOnline[]) => {
     if (isUnmountedRef.current) return
     boardState.listDetailInfo.list = newList
@@ -33,6 +35,7 @@ export default forwardRef<MusicListType, { header?: ReactElement }>((props, ref)
     ref,
     () => ({
       async loadList(source, id) {
+        const loadId = ++loadIdRef.current
         const listDetailInfo = boardState.listDetailInfo
         // 切换榜单前先快照缓存列表：setList([]) 会经 onListUpdate 回写
         // boardState.listDetailInfo.list = []，不快照的话：
@@ -50,6 +53,7 @@ export default forwardRef<MusicListType, { header?: ReactElement }>((props, ref)
           void getListDetail(id, 1, true)
             .then((listDetail) => {
               if (isUnmountedRef.current) return
+              if (loadId !== loadIdRef.current) return
               const result = setListDetail(listDetail, id, 1)
               listRef.current?.setList(result.list)
               listRef.current?.setStatus(boardState.listDetailInfo.maxPage <= 1 ? 'end' : 'idle')
@@ -72,6 +76,7 @@ export default forwardRef<MusicListType, { header?: ReactElement }>((props, ref)
             .then((listDetail) => {
               const result = setListDetail(listDetail, id, page)
               if (isUnmountedRef.current) return
+              if (loadId !== loadIdRef.current) return
               requestAnimationFrame(() => {
                 listRef.current?.setList(result.list)
                 listRef.current?.setStatus(
@@ -80,6 +85,7 @@ export default forwardRef<MusicListType, { header?: ReactElement }>((props, ref)
               })
             })
             .catch(() => {
+              if (loadId !== loadIdRef.current) return
               if (boardState.listDetailInfo.list.length && page == 1) clearListDetail()
               listRef.current?.setStatus('error')
             })
