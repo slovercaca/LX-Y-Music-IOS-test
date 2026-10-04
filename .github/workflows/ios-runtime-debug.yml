@@ -6,6 +6,11 @@ on:
       - ios-adaptation
   workflow_dispatch:
 
+# 同一分支有新 push 时，自动取消排队中/运行中的旧构建
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   launch-simulator:
     name: Launch iOS Simulator

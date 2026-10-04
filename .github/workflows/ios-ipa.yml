@@ -9,6 +9,11 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# 同一分支有新 push 时，自动取消排队中/运行中的旧构建，避免连续 push 堆积过时构建浪费 macOS runner 时间
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
