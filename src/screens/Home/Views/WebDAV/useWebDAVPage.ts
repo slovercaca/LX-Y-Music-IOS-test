@@ -7,7 +7,6 @@ import { playList } from '@/core/player/player'
 import { addTempPlayList } from '@/core/player/tempPlayList'
 import { useHorizontalMode } from '@/utils/hooks'
 import { usePlayMusicInfo } from '@/store/player/hook'
-import { useDownloadTasks } from '@/store/download/hook'
 import playerState from '@/store/player/state'
 import {
   fetchWebDAVPic,
@@ -18,13 +17,9 @@ import {
   scanWebDAVSongs,
   updateWebDAVMusicMeta,
   checkWebDAVRemoteExists,
-  joinWebDAVRemotePath,
-  getWebDAVMusicDir,
-  uploadWebDAVMusicFile,
-  type WebDAVUploadItem,
 } from '@/core/webdavMusic/drive'
 import { testConnection, resetClient } from '@/utils/webdav'
-import { existsFile, selectFile, stat, unlink } from '@/utils/fs'
+import { existsFile, selectFile } from '@/utils/fs'
 import { readMetadata, readPic } from '@/utils/localMediaMetadata'
 import { useSettingValue } from '@/store/setting/hook'
 import { updateSetting } from '@/core/common'
@@ -35,17 +30,9 @@ import {
   handleWebDAVDownloadAndImport,
 } from './WebDAVListAction'
 import type { WebDAVListMenuType, SelectInfo as WebDAVSelectInfo } from './WebDAVListMenu'
+import { useUploadManager } from './useUploadManager'
 
 export type ActiveTab = 'config' | 'list' | 'folders' | 'upload'
-
-export interface UploadProgress {
-  current: number
-  total: number
-  fileName: string
-  fileSize: number
-  uploadedSize: number
-  totalSize: number
-}
 
 /**
  * WebDAV 页面状态与逻辑（从旧 index.tsx 提取）。
@@ -92,12 +79,8 @@ export function useWebDAVPage() {
   const currentFolder = folderStack.at(-1) ?? null
 
   // ---------------- 上传 ----------------
-  const [uploadFiles, setUploadFiles] = useState<WebDAVUploadItem[]>([])
-  const [uploadPickerExpanded, setUploadPickerExpanded] = useState(false)
-  const [uploadCheckedIds, setUploadCheckedIds] = useState<Set<string>>(new Set())
-  const uploadTempFilesRef = useRef<Set<string>>(new Set())
-  const uploadingRef = useRef(false)
-  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null)
+  // 上传队列由 useUploadManager 管理（显式状态机：idle/uploading/paused）。
+  // 这里只保留"同时上传歌词"开关与目标目录派生。
   const [uploadWithLyrics, setUploadWithLyrics] = useState(true)
 
   // ---------------- 配置 ----------------
@@ -162,6 +145,41 @@ export function useWebDAVPage() {
     () => selectedFolder?.path || '/',
     [selectedFolder],
   )
+
+  // 上传队列排空后的重扫：让刚上传的歌曲出现在列表里（旧 runWebDAVUpload 尾部逻辑）
+  const handleUploadDrainedRescan = useCallback(async(summary: { completed: number; failed: number }) => {
+    const { completed, failed } = summary
+    if (failed > 0) {
+      toast(`上传结束：${completed} 成功，${failed} 失败（可在队列中重试）`, 'long')
+    } else if (completed > 0) {
+      toast(`上传完成：${completed} 个文件`)
+    }
+    if (completed > 0) {
+      setLoading(true)
+      setScanText('正在刷新列表...')
+      try {
+        const config = await scanWebDAVSongs(selectedFolder, (count, path) => {
+          setScanText(`已找到 ${count} 首，正在扫描：${path}`)
+        })
+        setSongs(config.songs ?? [])
+        setScannedAt(config.scannedAt)
+      } catch (err: any) {
+        toast(err?.message ?? String(err), 'long')
+      } finally {
+        setScanText('')
+        setLoading(false)
+      }
+    }
+  }, [selectedFolder])
+
+  // 上传管理器：队列 + 并发 + 真实进度 + 历史（显式状态机）
+  const uploadManager = useUploadManager({
+    getTargetDir: () => uploadTargetDir,
+    getWithLyrics: () => uploadWithLyrics,
+    testConnection,
+    checkRemoteExists: checkWebDAVRemoteExists,
+    onQueueDrained: (summary) => { void handleUploadDrainedRescan(summary) },
+  })
 
   // 列数响应式（对齐 OnlineList）：iPad 横屏/分屏时双列，避免歌曲行在超宽屏上
   // 被拉得过长、左右留白；竖屏保持单列零回归。
@@ -545,254 +563,6 @@ export function useWebDAVPage() {
     })
   }, [])
 
-  // ================= 批量上传 =================
-
-  /**
-   * 批量上传：将本地音频文件逐个 PUT 到服务器目标目录。
-   * - 先校验本地文件真实可读且大小 > 0（stat 失败/大小为 0 直接跳过）
-   * - 超 100MB 先提醒（base64 中转内存）
-   * - 先预检连通性：服务器不通/账号不对时直接报错，不走到后面逐个失败
-   * - 先预检冲突（服务器已存在同名文件），有冲突时一次问清：覆盖全部 / 取消
-   * - 逐个上传，失败的记下来继续传下一个，最后如实报告
-   * - 全部完成后重新扫描当前目录，让新歌出现在列表里
-   * 返回是否真正开始上传（供调用方决定是否清理队列）
-   */
-  const runWebDAVUpload = useCallback(async(
-    items: WebDAVUploadItem[],
-    onProgress?: (current: number, total: number, fileName: string) => void,
-    withLyrics?: boolean,
-  ): Promise<boolean> => {
-    const validItems: WebDAVUploadItem[] = []
-    const invalidNames: string[] = []
-    for (const item of items) {
-      try {
-        const info = await stat(item.localPath)
-        if (info && !info.isDirectory && info.size > 0) {
-          validItems.push({ ...item, size: info.size })
-        } else {
-          invalidNames.push(item.fileName)
-        }
-      } catch {
-        invalidNames.push(item.fileName)
-      }
-    }
-    if (invalidNames.length > 0) {
-      toast(`以下文件本地不可读，已跳过：${invalidNames.slice(0, 3).join('、')}${invalidNames.length > 3 ? `（等共 ${invalidNames.length} 个）` : ''}`, 'long')
-    }
-    if (validItems.length === 0) return false
-    items = validItems
-    const totalSize = items.reduce((sum, it) => sum + (it.size || 0), 0)
-    // 超大文件走 base64 中转内存，100MB 以上先提醒
-    if (totalSize > 100 * 1024 * 1024) {
-      const confirmed = await confirmDialog({
-        title: '文件较大',
-        message: `本次共 ${items.length} 个文件，约 ${(totalSize / 1024 / 1024).toFixed(0)}MB。上传大文件较慢且耗内存，确定继续吗？`,
-        confirmButtonText: '继续上传',
-      })
-      if (!confirmed) return false
-    }
-
-    // 先预检连通性：服务器不通/账号不对时直接报错，不走到后面逐个失败
-    setBatchLoadingText('正在连接服务器...')
-    try {
-      await testConnection()
-    } catch (err: any) {
-      setBatchLoadingText('')
-      toast(`无法连接 WebDAV 服务器：${err?.message ?? err}`, 'long')
-      return false
-    }
-
-    setBatchLoadingText('正在检查服务器文件...')
-    const conflicts: string[] = []
-    for (const item of items) {
-      // 冲突预检必须走统一目录语义（与 uploadWebDAVMusicFile 实际目标一致）
-      const remotePath = joinWebDAVRemotePath(getWebDAVMusicDir(uploadTargetDir), item.fileName)
-      if (await checkWebDAVRemoteExists(remotePath).catch(() => false)) {
-        conflicts.push(item.fileName)
-      }
-    }
-    if (conflicts.length > 0) {
-      setBatchLoadingText('')
-      const confirmed = await confirmDialog({
-        title: '文件已存在',
-        message: `服务器上已有 ${conflicts.length} 个同名文件${conflicts.length <= 3 ? `：${conflicts.join('、')}` : ''}，上传将覆盖它们。继续吗？`,
-        confirmButtonText: '覆盖并上传',
-      })
-      if (!confirmed) return false
-    }
-
-    let success = 0
-    const failed: string[] = []
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i]
-      setBatchLoadingText(`正在上传 ${i + 1}/${items.length}：${item.fileName}`)
-      onProgress?.(i + 1, items.length, item.fileName)
-      try {
-        // 分阶段上报，卡在哪一步直接显示在按钮上
-        await uploadWebDAVMusicFile(item, uploadTargetDir, withLyrics, (stage) => {
-          setBatchLoadingText(`${stage} ${item.fileName}`)
-        })
-        success++
-      } catch (err: any) {
-        failed.push(`${item.fileName}（${err?.message ?? err}）`)
-      }
-    }
-    setBatchLoadingText('')
-    onProgress?.(items.length, items.length, '')
-
-    if (failed.length > 0) {
-      // 失败明细直接拼进 toast（long 时长），避免再弹一个对话框打断流程
-      const failDetail = failed.slice(0, 3).join('；') + (failed.length > 3 ? `；等共 ${failed.length} 个` : '')
-      toast(`上传完成：${success} 成功，${failed.length} 失败：${failDetail}`, 'long')
-    } else {
-      toast(`上传完成：${success} 个文件`)
-    }
-
-    // 重新扫描当前目录，让刚上传的歌曲出现在列表里
-    if (success > 0) {
-      setLoading(true)
-      setScanText('正在刷新列表...')
-      try {
-        const config = await scanWebDAVSongs(selectedFolder, (count, path) => {
-          setScanText(`已找到 ${count} 首，正在扫描：${path}`)
-        })
-        setSongs(config.songs ?? [])
-        setScannedAt(config.scannedAt)
-      } catch (err: any) {
-        toast(err?.message ?? String(err), 'long')
-      } finally {
-        setScanText('')
-        setLoading(false)
-      }
-    }
-    return true
-  }, [uploadTargetDir, selectedFolder])
-
-  // ===== 上传 tab：队列管理 =====
-  const downloadTasks = useDownloadTasks()
-  // 已完成且有本地文件的下载任务才可加入上传队列
-  const uploadableTasks = useMemo(
-    () => downloadTasks.filter(t => t.status === 'completed' && t.filePath && t.fileName),
-    [downloadTasks],
-  )
-
-  const toggleUploadCheck = useCallback((id: string) => {
-    setUploadCheckedIds(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
-
-  const toggleUploadCheckAll = useCallback(() => {
-    setUploadCheckedIds(prev => {
-      if (prev.size === uploadableTasks.length) return new Set<string>()
-      return new Set(uploadableTasks.map(t => t.id))
-    })
-  }, [uploadableTasks])
-
-  /** 从下载列表把勾选的文件加入上传队列 */
-  const handleAddUploadFromDownloads = useCallback(() => {
-    const items: WebDAVUploadItem[] = uploadableTasks
-      .filter(t => uploadCheckedIds.has(t.id))
-      .map(t => ({
-        localPath: t.filePath!,
-        fileName: t.fileName!,
-        size: t.progress?.total || 0,
-      }))
-    if (items.length === 0) {
-      toast('请先勾选要上传的文件')
-      return
-    }
-    setUploadFiles(prev => {
-      const existing = new Set(prev.map(f => f.localPath))
-      const newItems = items.filter(it => !existing.has(it.localPath))
-      return [...prev, ...newItems]
-    })
-    setUploadCheckedIds(new Set())
-    setUploadPickerExpanded(false)
-    toast(`已添加 ${items.length} 个文件到上传队列`)
-  }, [uploadableTasks, uploadCheckedIds])
-
-  /** 从文件 App 选择文件，加入上传队列（不立即上传） */
-  const handleAddUploadFromFilePicker = useCallback(() => {
-    void selectFile({ extTypes: ['mp3', 'flac', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'wma', 'ape'] })
-      .then((res) => {
-        if (!res?.path) return
-        const fileName = res.name || res.path.split('/').pop() || 'unknown'
-        // 注意：picker 复制的临时文件在上传完成后删除（见 handleStartUpload）；
-        // 若用户未上传就离开 tab，由 uploadTempFilesRef 的清理 effect 删除。
-        uploadTempFilesRef.current.add(res.path)
-        setUploadFiles(prev => {
-          if (prev.some(f => f.localPath === res.path)) {
-            toast('该文件已在队列中')
-            return prev
-          }
-          return [...prev, { localPath: res.path!, fileName, size: res.size || 0 }]
-        })
-      })
-      .catch((err: any) => {
-        if (err?.code === 'picker_cancelled') return
-        toast(`无法打开文件选择器：${err?.message ?? err}`, 'long')
-      })
-  }, [])
-
-  const handleRemoveUploadFile = useCallback((localPath: string) => {
-    setUploadFiles(prev => {
-      const target = prev.find(f => f.localPath === localPath)
-      // 如果是文件 App 选的临时文件，从队列移除时顺手删掉，避免 tmp 堆积
-      if (target && uploadTempFilesRef.current.has(target.localPath)) {
-        uploadTempFilesRef.current.delete(target.localPath)
-        void unlink(target.localPath).catch(() => {})
-      }
-      return prev.filter(f => f.localPath !== localPath)
-    })
-  }, [])
-
-  /** 手动清空上传队列（含临时文件清理） */
-  const handleClearUploadQueue = useCallback(() => {
-    for (const p of uploadTempFilesRef.current) {
-      void unlink(p).catch(() => {})
-    }
-    uploadTempFilesRef.current.clear()
-    setUploadFiles([])
-    toast(global.i18n.t('webdav_upload_cleared'))
-  }, [])
-
-  /** 开始上传队列中的文件 */
-  const handleStartUpload = useCallback(async() => {
-    if (uploadFiles.length === 0) {
-      toast(global.i18n.t('webdav_upload_need_files'))
-      return
-    }
-    const totalSize = uploadFiles.reduce((sum, f) => sum + (f.size || 0), 0)
-    setUploadProgress({ current: 0, total: uploadFiles.length, fileName: '', fileSize: 0, uploadedSize: 0, totalSize })
-    let started = false
-    uploadingRef.current = true
-    try {
-      started = await runWebDAVUpload(uploadFiles, (current, total, fileName) => {
-        // 找到当前文件的大小，累加已上传
-        const idx = current - 1
-        const fileSize = idx >= 0 && idx < uploadFiles.length ? (uploadFiles[idx].size || 0) : 0
-        // uploadedSize 是之前所有文件的大小之和
-        const prevSize = uploadFiles.slice(0, idx).reduce((sum, f) => sum + (f.size || 0), 0)
-        setUploadProgress({ current, total, fileName, fileSize, uploadedSize: prevSize, totalSize })
-      }, uploadWithLyrics)
-    } finally {
-      uploadingRef.current = false
-      setUploadProgress(null)
-    }
-    // 仅真正开始上传后才清理队列；取消/连接失败时保留队列，用户可手动清空或重试
-    if (started) {
-      for (const p of uploadTempFilesRef.current) {
-        void unlink(p).catch(() => {})
-      }
-      uploadTempFilesRef.current.clear()
-      setUploadFiles([])
-    }
-  }, [uploadFiles, runWebDAVUpload, uploadWithLyrics])
-
   const handleBatchDownload = useCallback(() => {
     if (!hasConfig) {
       toast(global.i18n.t('webdav_upload_config_first'))
@@ -901,20 +671,8 @@ export function useWebDAVPage() {
     loadFolders(currentFolder)
   }, [hasConfig, currentFolder, loadFolders])
 
-  // 离开上传 tab 时，删除文件 App 选的临时文件并同步清理队列，
-  // 避免返回后队列指向已删除的文件；上传进行中时跳过清理
-  useEffect(() => {
-    if (activeTab !== 'upload' && !uploadingRef.current) {
-      const deletedPaths = new Set(uploadTempFilesRef.current)
-      for (const p of deletedPaths) {
-        void unlink(p).catch(() => {})
-      }
-      uploadTempFilesRef.current.clear()
-      if (deletedPaths.size > 0) {
-        setUploadFiles(prev => prev.filter(f => !deletedPaths.has(f.localPath)))
-      }
-    }
-  }, [activeTab])
+  // 文件 App 选的临时文件由 useUploadManager 在终态/移除/清空时删除，
+  // 不再需要页面级的"离开 tab 清理"（旧逻辑，新管理器已接管）。
 
   useEffect(() => {
     const handleWebdavPicUpdated = (musicId: string, picUrl: string) => {
@@ -974,13 +732,9 @@ export function useWebDAVPage() {
     listRef, searchInputRef,
     numColumns, rowWidth: rowInfo.rowWidth,
     headerText,
-    // 上传
-    uploadFiles, uploadPickerExpanded, setUploadPickerExpanded,
-    uploadCheckedIds, toggleUploadCheck, toggleUploadCheckAll,
-    uploadableTasks, uploadTargetDir,
-    handleAddUploadFromDownloads, handleAddUploadFromFilePicker,
-    handleRemoveUploadFile, handleClearUploadQueue, handleStartUpload,
-    uploadProgress, uploadWithLyrics, setUploadWithLyrics,
+    // 上传（新管理器：队列/并发/真实进度/历史；旧的零散 state 已移除）
+    uploadTargetDir, uploadWithLyrics, setUploadWithLyrics,
+    uploadManager,
     // 菜单 / 弹窗
     webDAVListMenuRef, metadataEditTypeRef, handleUpdateMetadata,
     menuHandlers: {
