@@ -38,6 +38,20 @@ const userApiLog = {
 
 const getOtherSourcePromises = new Map()
 export const existTimeExp = /\[\d{1,2}:.*\d{1,4}\]/
+
+/**
+ * 2026-10-05：'local' 没有在线 API（WebDAV 歌曲的 source 也是 'local'）。
+ * apis('local') 可能抛错或返回 undefined，直接调 getLyric/getPic 会抛 TypeError
+ * （Cannot read property 'getLyric' of undefined）。统一判空，缺失时调用方安全跳过。
+ */
+const getLocalOnlineApi = (): any | null => {
+  try {
+    const api = apis('local')
+    return api ?? null
+  } catch {
+    return null
+  }
+}
 const otherSourceCache = new Map<
 LX.Music.MusicInfo | LX.Download.ListItem,
 LX.Music.MusicInfoOnline[]
@@ -298,9 +312,11 @@ export const getOnlineOtherSourceMusicUrlByLocal = async(
   const cachedUrl = await getStoreMusicUrl(musicInfo, quality)
   if (cachedUrl && !isRefresh) return { url: cachedUrl, quality, isFromCache: true }
 
+  const localApi = getLocalOnlineApi()
   let reqPromise
   try {
-    reqPromise = apis('local').getMusicUrl(toOldMusicInfo(musicInfo), null).promise
+    if (!localApi || typeof localApi.getMusicUrl !== 'function') throw new Error('local online api unavailable')
+    reqPromise = localApi.getMusicUrl(toOldMusicInfo(musicInfo), null).promise
   } catch (err: any) {
     reqPromise = Promise.reject(err)
   }
@@ -349,8 +365,13 @@ export const getOnlineOtherSourceLyricByLocal = async(
 
   let reqPromise
   try {
-    userApiLog.info('[在线匹配歌词] 调用 apis(\'local\').getLyric()')
-    reqPromise = apis('local').getLyric(oldMusicInfo).promise
+    const localApi = getLocalOnlineApi()
+    if (!localApi || typeof localApi.getLyric !== 'function') {
+      userApiLog.warn('[在线匹配歌词] local 在线 API 不可用，跳过在线匹配')
+      throw new Error('local online api unavailable')
+    }
+    userApiLog.info('[在线匹配歌词] 调用 local 在线 API.getLyric()')
+    reqPromise = localApi.getLyric(oldMusicInfo).promise
   } catch (err: any) {
     userApiLog.error(`[在线匹配歌词] API 调用失败 - 错误: ${err?.message || err}`)
     reqPromise = Promise.reject(err)
@@ -399,8 +420,13 @@ export const getOnlineOtherSourcePicByLocal = async(
 
   let reqPromise
   try {
-    userApiLog.info('[在线匹配封面] 调用 apis(\'local\').getPic()')
-    reqPromise = apis('local').getPic(oldMusicInfo).promise
+    const localApi = getLocalOnlineApi()
+    if (!localApi || typeof localApi.getPic !== 'function') {
+      userApiLog.warn('[在线匹配封面] local 在线 API 不可用，跳过在线匹配')
+      throw new Error('local online api unavailable')
+    }
+    userApiLog.info('[在线匹配封面] 调用 local 在线 API.getPic()')
+    reqPromise = localApi.getPic(oldMusicInfo).promise
   } catch (err: any) {
     userApiLog.error(`[在线匹配封面] API 调用失败 - 错误: ${err?.message || err}`)
     reqPromise = Promise.reject(err)

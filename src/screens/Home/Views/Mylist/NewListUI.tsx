@@ -874,7 +874,9 @@ const styles = createStyle({
   cardContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: designSpacing.md,
+    // 2026-10-05：只保留外层 margin（16pt，与 FeatureGrid 外边距对齐）；
+    // 之前的 paddingHorizontal 会让内层玻璃再缩进 16pt，导致卡片看起来比功能行窄。
+    // 内容所需的水平内边距下移到 glassInner。
     marginHorizontal: designSpacing.md,
     marginBottom: designSpacing.sm,
     borderRadius: designRadius.md,
@@ -889,6 +891,9 @@ const styles = createStyle({
     alignSelf: 'stretch',
     flexDirection: 'row',
     alignItems: 'center',
+    // 2026-10-05：内容水平内边距从 cardContainer 下移至此，
+    // 玻璃外框 16pt、内容 32pt，与 FeatureGrid 行观感一致
+    paddingHorizontal: designSpacing.md,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.18)',
     borderRadius: 18,
