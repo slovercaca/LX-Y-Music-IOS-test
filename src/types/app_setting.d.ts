@@ -196,6 +196,8 @@ declare global {
       'sync.webdav.username': string
       'sync.webdav.password': string
       'webdav.downloadPath': string
+      /** 上传并发线程数（1-6） */
+      'webdav.uploadConcurrency': number
 
       /**
        * 封面歌词来源（2026-10-04）：'file' = 从歌曲文件，'online' = 从云端插件在线匹配。

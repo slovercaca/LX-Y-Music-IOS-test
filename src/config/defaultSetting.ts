@@ -183,6 +183,8 @@ const defaultSetting: LX.AppSetting = {
   'sync.webdav.username': '',
   'sync.webdav.password': '',
   'webdav.downloadPath': '',
+  // 上传并发线程数（2026-10-05）：上传 tab 可调，1-6，默认 2
+  'webdav.uploadConcurrency': 2,
   // 封面歌词来源（2026-10-04）：'file' = 从歌曲文件（同目录同名/通用封面、内嵌标签），
   // 'online' = 从云端插件（按歌名/歌手在线匹配）。默认 file。
   'webdav.mediaSource': 'file',

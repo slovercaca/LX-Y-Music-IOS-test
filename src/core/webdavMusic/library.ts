@@ -479,7 +479,7 @@ export interface WebDAVUploadItem {
   size: number
 }
 
-const contentTypeForExt = (ext: string): string | undefined => {
+export const contentTypeForExt = (ext: string): string | undefined => {
   switch (ext) {
     case 'mp3': return 'audio/mpeg'
     case 'flac': return 'audio/flac'

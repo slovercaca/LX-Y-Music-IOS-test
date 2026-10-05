@@ -29,5 +29,23 @@ export const formatSize = (size?: number): string => {
   return `${(size / 1024 / 1024 / 1024).toFixed(1)} GB`
 }
 
+/** 上传速度：B/s → 合适单位 */
+export const formatSpeed = (bytesPerSec?: number): string => {
+  if (!bytesPerSec || bytesPerSec <= 0) return ''
+  if (bytesPerSec < 1024) return `${bytesPerSec.toFixed(0)} B/s`
+  if (bytesPerSec < 1024 * 1024) return `${(bytesPerSec / 1024).toFixed(1)} KB/s`
+  return `${(bytesPerSec / 1024 / 1024).toFixed(1)} MB/s`
+}
+
+/** 剩余时间：秒 → 人性化 */
+export const formatEta = (seconds?: number): string => {
+  if (seconds == null || !isFinite(seconds) || seconds < 0) return ''
+  if (seconds < 1) return '即将完成'
+  if (seconds < 60) return `剩余约 ${Math.ceil(seconds)} 秒`
+  const m = Math.floor(seconds / 60)
+  if (m < 60) return `剩余约 ${m} 分钟`
+  return `剩余约 ${Math.floor(m / 60)} 小时 ${m % 60} 分钟`
+}
+
 export const getFolderName = (folder?: LX.WebDAV.DriveFolder | null): string =>
   folder?.path || 'WebDAV 根目录'
