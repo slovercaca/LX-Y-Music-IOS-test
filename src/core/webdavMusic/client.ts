@@ -88,13 +88,24 @@ export const getWebDAVAuthHeaders = (): Record<string, string> => {
   // 之前 `username && password` 为空密码时省略整个头，若服务器要求认证，
   // 会按"未认证返回 404 隐藏文件存在"策略回 404，误导排查。
   if (username) {
+    // S-2：用户名/密码含换行符等控制字符会导致 HTTP 头非法。
+    // 先去除 \r \n 及其他控制字符（保留正常可打印字符，含中文）。
+    const sanitize = (s: string): string => String(s ?? '').replace(/[\r\n\x00-\x1f\x7f]/g, '')
+    const cleanUser = sanitize(username)
+    const cleanPass = sanitize(password ?? '')
+    if (cleanUser !== username || cleanPass !== (password ?? '')) {
+      webDAVLog.warn('getWebDAVAuthHeaders: 用户名/密码含控制字符，已去除', {
+        userLen: username?.length,
+        cleanUserLen: cleanUser.length,
+      })
+    }
     // P1-11：btoa 只支持 Latin1，用户名/密码含中文会抛 InvalidCharacterError 或生成错误 header。
     // 改用 Buffer（项目已依赖），按 UTF-8 编码。
     try {
-      headers.Authorization = 'Basic ' + Buffer.from(`${username}:${password ?? ''}`, 'utf8').toString('base64')
+      headers.Authorization = 'Basic ' + Buffer.from(`${cleanUser}:${cleanPass}`, 'utf8').toString('base64')
     } catch {
       // Buffer 不可用时回退到 btoa（旧行为）
-      headers.Authorization = 'Basic ' + btoa(`${username}:${password ?? ''}`)
+      headers.Authorization = 'Basic ' + btoa(`${cleanUser}:${cleanPass}`)
     }
   } else {
     webDAVLog.warn('getWebDAVAuthHeaders: 未配置用户名，不发送 Authorization 头')
@@ -146,7 +157,12 @@ export const getWebDAVRemoteUrl = (remoteFilePath: string): string => {
     const protoIdx = url.indexOf('://')
     if (protoIdx < 0) return url // 非法 URL，原样返回（xhr.open 前校验会拦截）
     const pathStart = url.indexOf('/', protoIdx + 3)
-    if (pathStart < 0) return url // 无 path，原样返回
+    if (pathStart < 0) {
+      // P1-A：无 path 时（如 http://host:port），不能直接返回 url，
+      // 否则文件名丢了，请求发到目录地址。拼上 / + 文件名。
+      // 注意：此时无 query/hash（否则 pathStart >= 0），直接拼接即可。
+      return url.replace(/\/+$/, '') + '/' + encodedFilePath
+    }
     // 找 query/hash 起始
     let pathEnd = url.length
     const qIdx = url.indexOf('?', pathStart)

@@ -281,8 +281,14 @@ export const scanWebDAVSongs = async(
       // 否则服务器上文件被替换后重扫仍显示旧大小/时间
       const localFields = ['filePath', 'picUrl', 'customPicPath', 'customLrcPath', 'albumName', 'name', 'singer'] as const
       for (const key of localFields) {
-        const oldVal = (existing.meta as any)[key]
-        if (oldVal !== undefined) (newSong.meta as any)[key] = oldVal
+        // P1-B：name/singer 在 MusicInfo 顶层，不在 meta 里。从 meta 取会得 undefined，
+        // 导致用户手动编辑的歌名/歌手在重扫时被覆盖（数据丢失）。
+        const isTopLevel = key === 'name' || key === 'singer'
+        const oldVal = isTopLevel ? (existing as any)[key] : (existing.meta as any)[key]
+        if (oldVal !== undefined) {
+          if (isTopLevel) (newSong as any)[key] = oldVal
+          else (newSong.meta as any)[key] = oldVal
+        }
       }
     }
     return newSong

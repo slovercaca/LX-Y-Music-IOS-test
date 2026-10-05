@@ -198,6 +198,12 @@ export function useUploadManager(deps: UploadManagerDeps) {
     let added = 0
     const now = Date.now()
     for (const r of raw) {
+      // P0-1：localPath 为空时跳过，否则后续 readFile(null) 直接触发原生 NSDictionary 崩溃。
+      // addFromTasks 用的 t.filePath! 只是 TS 编译时断言，运行时 null 照样传入。
+      if (!r.localPath || typeof r.localPath !== 'string' || !r.localPath.trim()) {
+        webDAVLog.warn('[upload] 跳过 localPath 为空的项', { fileName: r.fileName })
+        continue
+      }
       const fileName = r.fileName || fileNameOf(r.localPath)
       const kind = extOf(fileName) === 'lrc' ? 'lrc' : 'audio'
       const remotePath = buildUploadRemotePath(targetDir, fileName, kind)
@@ -481,7 +487,11 @@ export function useUploadManager(deps: UploadManagerDeps) {
       }
     }
     const ready = pending.filter(it => it.status === 'queued')
-    if (ready.length === 0) {
+    // P2-A：预检是长异步窗口，用户可能在此期间删除队列项。
+    // pending 是入口快照，仍持有已删除项的引用。用 itemsRef 重新过滤，排除已删除的，
+    // 避免对已删除项做无意义的 checkRemoteExists 请求和误导性弹窗。
+    const activeReady = ready.filter(it => itemsRef.current.has(it.id))
+    if (activeReady.length === 0) {
       bump(true)
       toast('所有文件本地校验失败，无法上传')
       return
@@ -500,7 +510,7 @@ export function useUploadManager(deps: UploadManagerDeps) {
 
     // 3. 冲突预检（一次问清）
     const conflicts: string[] = []
-    for (const it of ready) {
+    for (const it of activeReady) {
       if (await depsRef.current.checkRemoteExists(it.remotePath).catch(() => false)) {
         conflicts.push(it.fileName)
       }
@@ -515,11 +525,11 @@ export function useUploadManager(deps: UploadManagerDeps) {
     }
 
     // 4. 大文件提醒
-    const totalSize = ready.reduce((s, it) => s + (it.size || 0), 0)
+    const totalSize = activeReady.reduce((s, it) => s + (it.size || 0), 0)
     if (totalSize > 100 * 1024 * 1024) {
       const confirmed = await confirmDialog({
         title: '文件较大',
-        message: `本次共 ${ready.length} 个文件，约 ${(totalSize / 1024 / 1024).toFixed(0)}MB。上传大文件较慢且耗内存，确定继续吗？`,
+        message: `本次共 ${activeReady.length} 个文件，约 ${(totalSize / 1024 / 1024).toFixed(0)}MB。上传大文件较慢且耗内存，确定继续吗？`,
         confirmButtonText: '继续上传',
       })
       if (!confirmed) return
