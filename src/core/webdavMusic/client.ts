@@ -122,9 +122,29 @@ export const getWebDAVRemoteUrl = (remoteFilePath: string): string => {
     webDAVLog.warn('getWebDAVRemoteUrl: 远端路径里混入了本机路径', { remoteFilePath: remote })
   }
 
-  // Base URL 保持原样不编码：与 webdav 库的 getFileDownloadLink 行为一致
-  //（库只编码文件名部分，不编码 base URL 路径）。实测编码 base URL 会导致 404。
-  const baseUrl = creds.url.endsWith('/') ? creds.url.slice(0, -1) : creds.url
+  // Base URL 的路径部分必须编码：原生网络层（XHR/RNFS → iOS NSURL）要求严格编码的 URL，
+  // 未编码的中文/括号会导致 NSURL 解析失败（nil），XHR 直接崩溃，RNFS 则 404。
+  // 注意：webdav 库（JS 层）的 getFileDownloadLink 不编码 base 也能工作，但那是 JS 的 HTTP 客户端；
+  // getWebDAVRemoteUrl 专供原生请求使用，必须编码。
+  // 编码时用 decode-then-encode 保证幂等（防用户已手动编码导致的双重编码）。
+  let baseUrl = creds.url.endsWith('/') ? creds.url.slice(0, -1) : creds.url
+  try {
+    const urlObj = new URL(baseUrl)
+    const encodedPath = urlObj.pathname
+      .split('/')
+      .map(seg => {
+        try {
+          return encodeURIComponent(decodeURIComponent(seg))
+        } catch {
+          return encodeURIComponent(seg)
+        }
+      })
+      .join('/')
+    urlObj.pathname = encodedPath
+    baseUrl = urlObj.toString().replace(/\/$/, '')
+  } catch {
+    // URL 解析失败时用原始值（保持旧行为）
+  }
 
   const encodedFilePath = remote
     .substring(1)
