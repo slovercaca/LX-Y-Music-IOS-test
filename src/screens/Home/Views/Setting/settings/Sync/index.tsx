@@ -1,4 +1,4 @@
-import { memo, useState, useCallback, useMemo, useEffect } from 'react'
+import { memo, useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { View } from 'react-native'
 import Section from '../../components/Section'
 import SubTitle from '../../components/SubTitle'
@@ -48,9 +48,31 @@ export default memo(() => {
   const [isUploadingLists, setIsUploadingLists] = useState(false)
   const [isDownloadingLists, setIsDownloadingLists] = useState(false)
   const [host, setHost] = useState('')
+  /** 同步进度：{progress: 0-1, stage: 阶段文案}，null 表示无进行中的任务 */
+  const [syncProgress, setSyncProgress] = useState<{ progress: number; stage: string } | null>(null)
+  /** 进度条自动清除的定时器：新任务开始时先清掉旧的，防止提前清除新进度 */
+  const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clearProgressLater = useCallback(() => {
+    if (progressTimerRef.current) clearTimeout(progressTimerRef.current)
+    progressTimerRef.current = setTimeout(() => {
+      setSyncProgress(null)
+      progressTimerRef.current = null
+    }, 1500)
+  }, [])
+  const startProgress = useCallback((stage: string) => {
+    if (progressTimerRef.current) {
+      clearTimeout(progressTimerRef.current)
+      progressTimerRef.current = null
+    }
+    setSyncProgress({ progress: 0, stage })
+  }, [])
 
   useEffect(() => {
     void getSyncHost().then(setHost)
+    // 卸载时清理进度条定时器
+    return () => {
+      if (progressTimerRef.current) clearTimeout(progressTimerRef.current)
+    }
   }, [])
 
   const lastSyncTimeListsStr = useMemo(() => {
@@ -95,12 +117,12 @@ export default memo(() => {
   const handleTestConnection = useCallback(async() => {
     if (isTesting) return
     setIsTesting(true)
-    toast('正在测试连接...')
     try {
       await testConnection()
-      toast('连接成功！')
+      // 顶部弹窗，3.5 秒后自动消失
+      toast('WebDAV 连接成功！', 'long', 'top')
     } catch (error: any) {
-      toast(`连接失败: ${error.message}`, 'long')
+      toast(`WebDAV 连接失败: ${error.message}`, 'long', 'top')
     } finally {
       setIsTesting(false)
     }
@@ -119,30 +141,59 @@ export default memo(() => {
   const handleUpload = useCallback(async() => {
     if (isUploading) return
     setIsUploading(true)
-    await manualUploadSettingsAndApis()
-    setIsUploading(false)
-  }, [isUploading])
+    startProgress('准备上传…')
+    try {
+      await manualUploadSettingsAndApis((progress, stage) => {
+        setSyncProgress({ progress, stage })
+      })
+    } finally {
+      setIsUploading(false)
+      // 完成后延迟清除，让用户看到 100%
+      clearProgressLater()
+    }
+  }, [isUploading, startProgress, clearProgressLater])
 
   const handleDownload = useCallback(async() => {
     if (isDownloading) return
     setIsDownloading(true)
-    await manualDownloadSettingsAndApis()
-    setIsDownloading(false)
-  }, [isDownloading])
+    startProgress('准备下载…')
+    try {
+      await manualDownloadSettingsAndApis((progress, stage) => {
+        setSyncProgress({ progress, stage })
+      })
+    } finally {
+      setIsDownloading(false)
+      clearProgressLater()
+    }
+  }, [isDownloading, startProgress, clearProgressLater])
 
   const handleUploadLists = useCallback(async() => {
     if (isUploadingLists) return
     setIsUploadingLists(true)
-    await manualUploadLists()
-    setIsUploadingLists(false)
-  }, [isUploadingLists])
+    startProgress('准备上传歌单…')
+    try {
+      await manualUploadLists((progress, stage) => {
+        setSyncProgress({ progress, stage })
+      })
+    } finally {
+      setIsUploadingLists(false)
+      clearProgressLater()
+    }
+  }, [isUploadingLists, startProgress, clearProgressLater])
 
   const handleDownloadLists = useCallback(async() => {
     if (isDownloadingLists) return
     setIsDownloadingLists(true)
-    await manualDownloadLists()
-    setIsDownloadingLists(false)
-  }, [isDownloadingLists])
+    startProgress('准备下载歌单…')
+    try {
+      await manualDownloadLists((progress, stage) => {
+        setSyncProgress({ progress, stage })
+      })
+    } finally {
+      setIsDownloadingLists(false)
+      clearProgressLater()
+    }
+  }, [isDownloadingLists, startProgress, clearProgressLater])
 
 
   const handleWebdavSettingChanged = (key: keyof LX.AppSetting) => (text: string, callback: (value: string) => void) => {
@@ -264,6 +315,29 @@ export default memo(() => {
             </Button>
           </View>
 
+          {/* 同步进度条：上传/下载进行中显示步骤进度 */}
+          {syncProgress ? (
+            <View style={styles.progressContainer}>
+              <Text size={12} color={theme['c-font-label']} style={styles.progressText}>
+                {syncProgress.stage}
+              </Text>
+              <View style={[styles.progressTrack, { backgroundColor: theme['c-primary-light-900-alpha-300'] }]}>
+                <View
+                  style={[
+                    styles.progressBar,
+                    {
+                      backgroundColor: theme['c-primary'],
+                      width: `${Math.min(100, Math.max(0, syncProgress.progress * 100))}%`,
+                    },
+                  ]}
+                />
+              </View>
+              <Text size={12} color={theme['c-font-label']} style={styles.progressPercent}>
+                {`${Math.round(syncProgress.progress * 100)}%`}
+              </Text>
+            </View>
+          ) : null}
+
           <Text style={styles.lastSyncText} size={12} color={theme['c-font-label']}>
             上次歌单同步时间: {lastSyncTimeListsStr}
           </Text>
@@ -287,5 +361,26 @@ const styles = createStyle({
   },
   lastSyncText: {
     marginTop: designSpacing.xs,
+  },
+  progressContainer: {
+    marginTop: designSpacing.sm,
+    marginBottom: designSpacing.xs,
+    paddingHorizontal: designSpacing.sm,
+  },
+  progressText: {
+    marginBottom: 4,
+  },
+  progressTrack: {
+    height: 6,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: 6,
+    borderRadius: 3,
+  },
+  progressPercent: {
+    marginTop: 4,
+    textAlign: 'right',
   },
 })

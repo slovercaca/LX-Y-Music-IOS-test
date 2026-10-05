@@ -277,7 +277,10 @@ function checkSyncReady(): boolean {
 // 手动上传 / 下载
 // ---------------------------------------------------------------------------
 
-export async function manualUploadSettingsAndApis(): Promise<void> {
+/** 同步进度回调：0-1 之间的小数，UI 据此画进度条 */
+export type SyncProgressCallback = (progress: number, stage: string) => void
+
+export async function manualUploadSettingsAndApis(onProgress?: SyncProgressCallback): Promise<void> {
   if (!checkSyncReady()) return
   const confirm = await confirmDialog({
     title: '确认上传',
@@ -288,13 +291,16 @@ export async function manualUploadSettingsAndApis(): Promise<void> {
 
   toast('开始上传...')
   await runGuarded('上传', async() => {
+    onProgress?.(0.1, '正在上传设置…')
     await uploadSettings()
+    onProgress?.(0.5, '正在上传自定义音源…')
     await uploadUserApis()
+    onProgress?.(1, '上传完成')
     toast('上传成功！')
   })
 }
 
-export async function manualDownloadSettingsAndApis(): Promise<void> {
+export async function manualDownloadSettingsAndApis(onProgress?: SyncProgressCallback): Promise<void> {
   if (!checkSyncReady()) return
   const confirm = await confirmDialog({
     title: '确认下载',
@@ -305,6 +311,7 @@ export async function manualDownloadSettingsAndApis(): Promise<void> {
 
   toast('开始下载...')
   await runGuarded('下载', async() => {
+    onProgress?.(0.1, '正在下载设置…')
     const remoteSettingsContent = await webdav.downloadFile(remoteSettingsPath())
     if (remoteSettingsContent) {
       const remoteSettingsData = JSON.parse(remoteSettingsContent)
@@ -315,6 +322,7 @@ export async function manualDownloadSettingsAndApis(): Promise<void> {
       toast('云端未找到设置文件，跳过设置同步')
     }
 
+    onProgress?.(0.5, '正在下载自定义音源…')
     const remoteUserApisContent = await webdav.downloadFile(remoteUserApisPath())
     if (remoteUserApisContent) {
       const remoteApisData = JSON.parse(remoteUserApisContent)
@@ -322,12 +330,13 @@ export async function manualDownloadSettingsAndApis(): Promise<void> {
     } else {
       toast('云端未找到自定义音源文件，跳过音源同步')
     }
+    onProgress?.(1, '下载完成')
 
     toast('下载同步完成！')
   })
 }
 
-export async function manualUploadLists(): Promise<void> {
+export async function manualUploadLists(onProgress?: SyncProgressCallback): Promise<void> {
   if (!checkSyncReady()) return
   const confirm = await confirmDialog({
     title: '确认上传歌单',
@@ -338,14 +347,18 @@ export async function manualUploadLists(): Promise<void> {
 
   toast('开始上传歌单...')
   await runGuarded('上传', async() => {
+    onProgress?.(0.1, '正在准备歌单数据…')
     const { lists } = await getAllDataForSync()
+    onProgress?.(0.4, '正在上传歌单…')
     await uploadLists(lists)
+    onProgress?.(0.8, '正在清理同步队列…')
     await clearOperationQueue()
+    onProgress?.(1, '上传完成')
     toast('歌单上传成功！')
   })
 }
 
-export async function manualDownloadLists(): Promise<void> {
+export async function manualDownloadLists(onProgress?: SyncProgressCallback): Promise<void> {
   if (!checkSyncReady()) return
   const confirm = await confirmDialog({
     title: '确认下载歌单',
@@ -356,13 +369,17 @@ export async function manualDownloadLists(): Promise<void> {
 
   toast('开始下载歌单...')
   await runGuarded('下载', async() => {
+    onProgress?.(0.1, '正在下载歌单…')
     const remoteListsContent = await webdav.downloadFile(remoteListsPath())
     if (remoteListsContent) {
+      onProgress?.(0.4, '正在解析歌单数据…')
       const remoteData = normalizeRemoteListsData(JSON.parse(remoteListsContent))
+      onProgress?.(0.6, '正在覆盖本地歌单…')
       await overwriteListFull(remoteData.data)
       await applyRemoteExtraData(remoteData)
       await clearOperationQueue()
       updateSetting({ 'sync.webdav.lastSyncTimeLists': remoteData.lastModified })
+      onProgress?.(1, '下载完成')
       toast('歌单下载同步完成！')
     } else {
       toast('云端未找到歌单文件')

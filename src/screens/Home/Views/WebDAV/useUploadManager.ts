@@ -444,9 +444,15 @@ export function useUploadManager(deps: UploadManagerDeps) {
       return
     }
     // 1. 本地校验：stat 失败/目录/空文件直接标失败，不占用线程
+    // 加 10 秒超时：stat hang 住时不无限卡死（iOS 文件 App 临时文件可能不可访问）
+    const statWithTimeout = (p: string, ms = 10000): Promise<any> =>
+      Promise.race([
+        stat(p),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('stat 超时')), ms)),
+      ])
     for (const it of pending) {
       try {
-        const st: any = await stat(it.localPath)
+        const st: any = await statWithTimeout(it.localPath)
         if (!st || st.isDirectory || !st.size) {
           finishItem(it, 'failed', '本地文件不可读或为空')
         } else {
@@ -454,19 +460,24 @@ export function useUploadManager(deps: UploadManagerDeps) {
           // 校验通过：失败/暂停项回到排队（显式开始 = 全部跑起来）
           if (it.status === 'failed' || it.status === 'paused') it.status = 'queued'
         }
-      } catch {
-        finishItem(it, 'failed', '本地文件不可读')
+      } catch (err: any) {
+        const msg = err?.message === 'stat 超时' ? '本地文件读取超时' : '本地文件不可读'
+        finishItem(it, 'failed', msg)
       }
     }
     const ready = pending.filter(it => it.status === 'queued')
     if (ready.length === 0) {
       bump(true)
+      toast('所有文件本地校验失败，无法上传')
       return
     }
 
-    // 2. 连接预检
+    // 2. 连接预检（30 秒超时，防止 hang 住无反馈）
     try {
-      await depsRef.current.testConnection()
+      await Promise.race([
+        depsRef.current.testConnection(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('连接超时')), 30000)),
+      ])
     } catch (err: any) {
       toast(`无法连接 WebDAV 服务器：${err?.message ?? err}`, 'long')
       return

@@ -254,12 +254,12 @@ export function useWebDAVPage() {
   const handleTestConnection = useCallback(async() => {
     if (isTesting) return
     setIsTesting(true)
-    toast('正在测试连接...')
     try {
       await testConnection()
-      toast('连接成功！')
+      // 顶部弹窗，3.5 秒后自动消失
+      toast('WebDAV 连接成功！', 'long', 'top')
     } catch (error: any) {
-      toast(`连接失败：${error.message}`, 'long')
+      toast(`WebDAV 连接失败：${error.message}`, 'long', 'top')
     } finally {
       setIsTesting(false)
     }
