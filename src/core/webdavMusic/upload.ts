@@ -259,11 +259,15 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
     xhr.timeout = 600000
 
     try {
-      // 注意：RN 的 Blob polyfill 对 undefined options 处理不好，可能传 nil 给原生层导致崩溃。
+      // 注意：RN 的 Blob polyfill 对 Node.js Buffer（buffer 包）处理不好，
+      // 直接传 Buffer 会导致 blobId 为 nil，原生层 NSDictionary 崩溃。
+      // 必须先转成真正的 Uint8Array（取底层 ArrayBuffer 的视图，避免复制大内存）。
+      const uint8 = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+      // RN 的 Blob polyfill 对 undefined options 处理不好，可能传 nil 给原生层导致崩溃。
       // contentType 为空时直接不传第二个参数。
       const blob = contentType
-        ? new Blob([buffer as any], { type: contentType })
-        : new Blob([buffer as any])
+        ? new Blob([uint8 as any], { type: contentType })
+        : new Blob([uint8 as any])
       xhr.send(blob as any)
     } catch (e: any) {
       done(() => reject(new Error(`创建上传数据失败：${e?.message || e}`)))
