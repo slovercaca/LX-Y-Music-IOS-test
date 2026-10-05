@@ -223,6 +223,15 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
 
   // 用 webdav 库上传（JS 层，无原生桥接崩溃风险）
   const client = getClient()
+
+  // 心跳保活：webdav 库无进度回调，上传期间每 30s 上报一次 50% 进度，
+  // 防止 useUploadManager 的 90s 看门狗误判为 stall 而中断。
+  const heartbeat = setInterval(() => {
+    try {
+      report(actualSize * 0.5, actualSize)
+    } catch { /* 忽略 */ }
+  }, 30000)
+
   try {
     // putFileContents 的 data 支持 Buffer
     await client.putFileContents(remotePath, buffer as any, {
@@ -230,9 +239,11 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
       contentLength: buffer.length,
     })
   } catch (e: any) {
+    clearInterval(heartbeat)
     if (abortRequested) throw new UploadAbortedError()
     throw new Error(`上传失败：${e?.message || e}`)
   }
+  clearInterval(heartbeat)
 
   if (abortRequested) throw new UploadAbortedError()
   report(actualSize, actualSize)
