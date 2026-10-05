@@ -78,13 +78,14 @@
 
 ## 下载与构建
 
-- 未签名 IPA 由 GitHub Actions 自动构建，产物文件名格式为：
+- 未签名 IPA 由 GitHub Actions 自动构建。日常提交的构建产物（文件名 `LX-Y Music-v<YYYYMMDD>-ios-unsigned.ipa`）发布在仓库 **Releases** 的滚动 `latest` 预发布中，供测试使用。
+- **正式版**：打 tag 发布，tag 格式为 `<代号>-v<数字>`（例如 `Ocean-v1`），构建后产物改名为：
 
   ```
-  LX-Y Music-v<YYYYMMDD>-ios-unsigned.ipa
+  LX-Y-Test.Music-<代号>-v<数字>.ipa
   ```
 
-- 最新构建可在仓库的 **Releases**（滚动的 `latest` 预发布）或打 `v*` 标签时发布的 Release 中获取。
+  例如 `LX-Y-Test.Music-Ocean-v1.ipa`。工作流会自动创建 draft Release 并生成更新日志草稿，发布者在网页端写清楚本版更新内容后手动 Publish。
 - 使用说明与常见问题请参阅上游项目的移动版文档。
 
 > 注意：本分支**已移除软件内的「检查更新」功能**，不会在应用内提示版本更新。
