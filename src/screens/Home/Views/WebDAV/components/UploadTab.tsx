@@ -33,17 +33,23 @@ const statusText: Record<WebDAVUploadStatus, string> = {
   cancelled: '已取消',
 }
 
-/** 单项状态行：已上传/总大小 · 速度 · 剩余时间（真实进度） */
+/** 单项状态行：有字节进度时显示 已上传/总大小 · 速度 · 剩余时间；
+ * 无字节进度（webdav 库传输）时显示"正在上传到服务器…"，避免 0 B 假卡死观感 */
 const ItemStatusLine = ({ item }: { item: WebDAVUploadQueueItem }) => {
   const theme = useTheme()
   let text = statusText[item.status]
   if (item.status === 'uploading') {
-    const sizeText = `${formatUploadSize(item.uploadedBytes)} / ${formatUploadSize(item.size)}`
-    const speedText = formatSpeed(item.speed)
-    const etaText = item.speed > 0 && item.size > 0
-      ? formatEta((item.size - item.uploadedBytes) / item.speed)
-      : ''
-    text = [sizeText, speedText, etaText].filter(Boolean).join(' · ') || '正在连接…'
+    if (item.uploadedBytes > 0 && item.size > 0) {
+      const sizeText = `${formatUploadSize(item.uploadedBytes)} / ${formatUploadSize(item.size)}`
+      const speedText = formatSpeed(item.speed)
+      const etaText = item.speed > 0
+        ? formatEta((item.size - item.uploadedBytes) / item.speed)
+        : ''
+      text = [sizeText, speedText, etaText].filter(Boolean).join(' · ')
+    } else {
+      text = `正在上传到服务器…（${formatUploadSize(item.size)}）`
+    }
+    if (!text) text = '正在连接…'
   } else if (item.status === 'failed' && item.error) {
     text = `失败：${item.error}`
   } else if (item.status === 'completed') {
@@ -393,7 +399,7 @@ export default memo(({ page }: { page: UploadTabProps }) => {
                   <Text size={designTypography.caption} color={theme['c-font-label']} numberOfLines={1}>
                     → {item.remotePath}
                   </Text>
-                  {(item.status === 'uploading' || (item.uploadedBytes > 0 && item.status !== 'completed')) ? (
+                  {item.uploadedBytes > 0 && item.status !== 'completed' ? (
                     <View style={[styles.track, styles.itemTrack, { backgroundColor: theme['c-primary-light-900-alpha-300'] }]}>
                       <View
                         style={[
