@@ -103,12 +103,38 @@ export async function uploadBinaryFile(remotePath: string, localPath: string, co
   const size = fileInfo?.size ?? 0
   webDAVLog.info(`Uploading binary file to ${remotePath}...`, { size })
 
+  // 2026-10-05：webdav 库的 putFileContents(Buffer) 在 RN iOS 上可能挂起，
+  // 改用原生 fetch PUT，body 传 base64 解码后的二进制
+  const settings = settingState.setting
+  const baseUrl = settings['sync.webdav.url']?.replace(/\/$/, '')
+  const username = settings['sync.webdav.username']
+  const password = settings['sync.webdav.password']
+  if (!baseUrl) throw new Error('WebDAV 未配置')
+
+  const url = `${baseUrl}${remotePath.startsWith('/') ? remotePath : `/${remotePath}`}`
   const base64 = await readFile(localPath, 'base64')
+  // RN 的 fetch 支持 Blob body，用 Buffer 转 Blob 避免 webdav 库的兼容问题
   const buffer = Buffer.from(base64, 'base64')
-  await cli.putFileContents(remotePath, buffer, {
-    overwrite: true,
-    ...(contentType ? { headers: { 'Content-Type': contentType } } : {}),
+  const blob = new Blob([buffer as any], { type: contentType || 'application/octet-stream' })
+
+  const headers: Record<string, string> = {
+    'Content-Type': contentType || 'application/octet-stream',
+  }
+  if (username) {
+    const credentials = `${username}:${password || ''}`
+    headers['Authorization'] = `Basic ${Buffer.from(credentials).toString('base64')}`
+  }
+
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers,
+    body: blob,
   })
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw new Error(`上传失败（${response.status}）：${text.slice(0, 100)}`)
+  }
   webDAVLog.info(`Upload completed: ${remotePath}`)
 }
 

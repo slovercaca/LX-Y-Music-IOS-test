@@ -248,8 +248,15 @@ export default memo(() => {
   // 2026-10-04 bugfix：文件 App 选的临时文件（/tmp/）若用户未上传就离开 tab，
   // 需要清理，避免 tmp 堆积。用 ref 跟踪，避免闭包过期。
   const uploadTempFilesRef = useRef<Set<string>>(new Set())
-  // 2026-10-04：上传进度（进度条用）
-  const [uploadProgress, setUploadProgress] = useState<{ current: number, total: number, fileName: string } | null>(null)
+  // 2026-10-04：上传进度（进度条用，含文件大小）
+  const [uploadProgress, setUploadProgress] = useState<{
+    current: number
+    total: number
+    fileName: string
+    fileSize: number
+    uploadedSize: number
+    totalSize: number
+  } | null>(null)
   // 2026-10-04：上传时是否同时上传歌词（.lrc）
   const [uploadWithLyrics, setUploadWithLyrics] = useState(true)
   useEffect(() => {
@@ -874,11 +881,18 @@ export default memo(() => {
       toast(global.i18n.t('webdav_upload_need_files'))
       return
     }
-    setUploadProgress({ current: 0, total: uploadFiles.length, fileName: '' })
+    const totalSize = uploadFiles.reduce((sum, f) => sum + (f.size || 0), 0)
+    setUploadProgress({ current: 0, total: uploadFiles.length, fileName: '', fileSize: 0, uploadedSize: 0, totalSize })
     let started = false
+    let uploadedSize = 0
     try {
       started = await runWebDAVUpload(uploadFiles, (current, total, fileName) => {
-        setUploadProgress({ current, total, fileName })
+        // 找到当前文件的大小，累加已上传
+        const idx = current - 1
+        const fileSize = idx >= 0 && idx < uploadFiles.length ? (uploadFiles[idx].size || 0) : 0
+        // uploadedSize 是之前所有文件的大小之和
+        const prevSize = uploadFiles.slice(0, idx).reduce((sum, f) => sum + (f.size || 0), 0)
+        setUploadProgress({ current, total, fileName, fileSize, uploadedSize: prevSize, totalSize })
       }, uploadWithLyrics)
     } finally {
       setUploadProgress(null)
@@ -1479,16 +1493,18 @@ export default memo(() => {
           </View>
         </ScrollView>
 
-        {/* 底部：进度条 + 大上传按钮 */}
-        <View style={styles.uploadFooter}>
+        {/* 底部：进度条 + 大上传按钮（固定在内容区底部，不与 tab 栏重叠） */}
+        <View style={[styles.uploadFooter, { paddingBottom: 16 }]}>
           {uploadProgress ? (
             <View style={styles.uploadProgressWrap}>
               <View style={styles.uploadProgressHeader}>
                 <Text size={designTypography.caption} color={theme['c-font']} numberOfLines={1} style={styles.uploadProgressText}>
-                  {uploadProgress.fileName ? `正在上传：${uploadProgress.fileName}` : '上传完成'}
+                  {uploadProgress.fileName
+                    ? `正在上传：${uploadProgress.fileName}（${formatUploadSize(uploadProgress.fileSize)}）`
+                    : '上传完成'}
                 </Text>
                 <Text size={designTypography.caption} color={theme['c-font-label']}>
-                  {uploadProgress.current}/{uploadProgress.total}
+                  {uploadProgress.current}/{uploadProgress.total} · {formatUploadSize(uploadProgress.uploadedSize)}/{formatUploadSize(uploadProgress.totalSize)}
                 </Text>
               </View>
               <View style={[styles.uploadProgressTrack, { backgroundColor: theme['c-primary-light-900-alpha-300'] }]}>
