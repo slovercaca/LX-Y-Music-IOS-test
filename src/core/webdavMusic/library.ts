@@ -307,6 +307,13 @@ export const getWebDAVDownloadUrl = (musicInfo: LX.WebDAV.MusicInfo): string => 
     remoteFilePath = String(musicInfo.meta.songId || musicInfo.meta.filePath)
   }
 
+  // P0-1：空路径时直接抛错，不调 getWebDAVRemoteUrl。
+  // 空路径会拼出 baseUrl + "/"（目录地址），下载到 HTML 目录页并被当作音频缓存（毒缓存），永久播不出。
+  const trimmed = remoteFilePath.trim()
+  if (!trimmed || trimmed === '/' || trimmed === 'undefined' || trimmed === 'null') {
+    throw new Error(`无法下载：歌曲远端路径为空（fileName=${musicInfo.meta.fileName}）`)
+  }
+
   return getWebDAVRemoteUrl(remoteFilePath)
 }
 

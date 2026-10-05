@@ -209,6 +209,12 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
       // 句柄回调异常不影响上传本身
     }
 
+    // P0-2：xhr.open 前校验 URL 合法性。非法 URL（如用户误填）会导致 iOS NSURL 返回 nil，
+    // 原生层 NSDictionary 崩溃。必须在 JS 层拦截，抛可捕获的错误，绝不把可疑 URL 交给原生。
+    if (!url || typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
+      done(() => reject(new Error(`上传地址非法：${url}`)))
+      return
+    }
     xhr.open('PUT', url, true)
 
     // ---- 闪退修复核心：header 值必须非空 ----

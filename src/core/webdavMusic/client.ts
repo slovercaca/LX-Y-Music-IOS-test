@@ -84,15 +84,20 @@ export const getWebDAVAuthHeaders = (): Record<string, string> => {
   const headers: Record<string, string> = { 'User-Agent': USER_AGENT }
   const username = settingState.setting['sync.webdav.username']
   const password = settingState.setting['sync.webdav.password']
-  if (username && password) {
+  // P1-2：只要有用户名就发 Authorization 头（密码为空也发，符合 RFC 7617）。
+  // 之前 `username && password` 为空密码时省略整个头，若服务器要求认证，
+  // 会按"未认证返回 404 隐藏文件存在"策略回 404，误导排查。
+  if (username) {
     // P1-11：btoa 只支持 Latin1，用户名/密码含中文会抛 InvalidCharacterError 或生成错误 header。
     // 改用 Buffer（项目已依赖），按 UTF-8 编码。
     try {
-      headers.Authorization = 'Basic ' + Buffer.from(`${username}:${password}`, 'utf8').toString('base64')
+      headers.Authorization = 'Basic ' + Buffer.from(`${username}:${password ?? ''}`, 'utf8').toString('base64')
     } catch {
       // Buffer 不可用时回退到 btoa（旧行为）
-      headers.Authorization = 'Basic ' + btoa(`${username}:${password}`)
+      headers.Authorization = 'Basic ' + btoa(`${username}:${password ?? ''}`)
     }
+  } else {
+    webDAVLog.warn('getWebDAVAuthHeaders: 未配置用户名，不发送 Authorization 头')
   }
   return headers
 }
@@ -128,6 +133,11 @@ export const getWebDAVRemoteUrl = (remoteFilePath: string): string => {
   // getWebDAVRemoteUrl 专供原生请求使用，必须编码。
   // 编码时用 decode-then-encode 保证幂等（防用户已手动编码导致的双重编码）。
   let baseUrl = creds.url.endsWith('/') ? creds.url.slice(0, -1) : creds.url
+  const encodedFilePath = remote
+    .substring(1)
+    .split('/')
+    .map(encodeURIComponent)
+    .join('/')
   try {
     const urlObj = new URL(baseUrl)
     const encodedPath = urlObj.pathname
@@ -140,18 +150,16 @@ export const getWebDAVRemoteUrl = (remoteFilePath: string): string => {
         }
       })
       .join('/')
-    urlObj.pathname = encodedPath
-    baseUrl = urlObj.toString().replace(/\/$/, '')
+    // P1-1：把文件路径拼进 pathname 再 toString()，而不是在 toString() 后做字符串拼接。
+    // 否则 base URL 含 query（如 ?token=abc）时，路径会被拼到 query 后面导致 404。
+    // 同时去掉 pathname 末尾可能的多余斜杠，避免双斜杠。
+    const cleanPath = encodedPath.replace(/\/+$/, '')
+    urlObj.pathname = cleanPath + '/' + encodedFilePath
+    return urlObj.toString()
   } catch {
-    // URL 解析失败时用原始值（保持旧行为）
+    // URL 解析失败时用原始值拼接（保持旧行为）
+    return `${baseUrl}/${encodedFilePath}`
   }
-
-  const encodedFilePath = remote
-    .substring(1)
-    .split('/')
-    .map(encodeURIComponent)
-    .join('/')
-  return `${baseUrl}/${encodedFilePath}`
 }
 
 /** 拼接远端目录与文件名，保证单斜杠分隔 */
