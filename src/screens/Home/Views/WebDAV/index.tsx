@@ -1,8 +1,9 @@
-import { memo } from 'react'
+import { memo, useRef } from 'react'
 import { View } from 'react-native'
 import { createStyle } from '@/utils/tools'
 import WebDAVListMenu from './WebDAVListMenu'
 import MetadataEditModal from '@/components/MetadataEditModal'
+import MusicMultiAddModal, { type MusicMultiAddModalType } from '@/components/MusicMultiAddModal'
 import { useWebDAVPage } from './useWebDAVPage'
 import ConfigTab from './components/ConfigTab'
 import FoldersTab from './components/FoldersTab'
@@ -18,7 +19,7 @@ import ListTab from './components/ListTab'
  */
 export default memo(() => {
   const page = useWebDAVPage()
-  const { activeTab, webDAVListMenuRef, metadataEditTypeRef, handleUpdateMetadata, menuHandlers } = page
+  const { activeTab, webDAVListMenuRef, metadataEditTypeRef, handleUpdateMetadata, menuHandlers, musicMultiAddModalRef } = page
 
   return (
     <View style={styles.container}>
@@ -45,6 +46,7 @@ export default memo(() => {
         onLoadMetadata={menuHandlers.onLoadMetadata}
       />
       <MetadataEditModal ref={metadataEditTypeRef} onUpdate={handleUpdateMetadata} />
+      <MusicMultiAddModal ref={musicMultiAddModalRef} />
     </View>
   )
 })

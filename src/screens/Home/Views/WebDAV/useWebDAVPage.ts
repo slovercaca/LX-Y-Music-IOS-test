@@ -18,6 +18,7 @@ import {
   updateWebDAVMusicMeta,
   checkWebDAVRemoteExists,
 } from '@/core/webdavMusic/drive'
+import type { MusicMultiAddModalType } from '@/components/MusicMultiAddModal'
 import { webDAVLog } from '@/core/webdavMusic/logger'
 import { testConnection, resetClient } from '@/utils/webdav'
 import { existsFile, selectFile } from '@/utils/fs'
@@ -65,10 +66,14 @@ export function useWebDAVPage() {
   const [searchVisible, setSearchVisible] = useState(false)
   const [searchText, setSearchText] = useState('')
   const [batchLoadingText, setBatchLoadingText] = useState('')
+  // 多选模式
+  const [isSelecting, setIsSelecting] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const listRef = useRef<FlatList<LX.WebDAV.MusicInfo>>(null)
   const searchInputRef = useRef<TextInput>(null)
   const pendingJumpIdRef = useRef<string | null>(null)
   const webDAVListMenuRef = useRef<WebDAVListMenuType>(null)
+  const musicMultiAddModalRef = useRef<MusicMultiAddModalType>(null)
   const metadataEditTypeRef = useRef<any>(null)
   const selectedMusicInfoRef = useRef<LX.WebDAV.MusicInfo | null>(null)
 
@@ -281,6 +286,12 @@ export function useWebDAVPage() {
       })
   }, [])
 
+  // 下拉刷新目录：重新加载当前目录的子文件夹
+  const handleRefreshFolders = useCallback(() => {
+    if (!hasConfig) return
+    loadFolders(currentFolder)
+  }, [hasConfig, currentFolder, loadFolders])
+
   const handleSelectCurrentFolder = useCallback(() => {
     setLoading(true)
     void saveWebDAVSelectedFolder(currentFolder)
@@ -409,6 +420,16 @@ export function useWebDAVPage() {
 
   const handlePlay = useCallback(
     (musicInfo: LX.WebDAV.MusicInfo) => {
+      // 多选模式下点击切换选中，不播放
+      if (isSelecting) {
+        setSelectedIds(prev => {
+          const next = new Set(prev)
+          if (next.has(musicInfo.id)) next.delete(musicInfo.id)
+          else next.add(musicInfo.id)
+          return next
+        })
+        return
+      }
       const index = songs.findIndex(item => item.id === musicInfo.id)
       if (index < 0) return
       void overwriteListMusics(LIST_IDS.TEMP, songs).then(() => {
@@ -422,8 +443,55 @@ export function useWebDAVPage() {
         })
       })
     },
-    [songs, syncSongsCover],
+    [songs, syncSongsCover, isSelecting],
   )
+
+  // 长按进入多选模式
+  const handleLongPress = useCallback((musicInfo: LX.WebDAV.MusicInfo) => {
+    setIsSelecting(true)
+    setSelectedIds(new Set([musicInfo.id]))
+  }, [])
+
+  const exitSelectMode = useCallback(() => {
+    setIsSelecting(false)
+    setSelectedIds(new Set())
+  }, [])
+
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds(prev => {
+      // 如果已全选则清空，否则全选当前筛选列表
+      if (prev.size >= filteredSongs.length && filteredSongs.length > 0) return new Set<string>()
+      return new Set(filteredSongs.map(s => s.id))
+    })
+  }, [filteredSongs])
+
+  // 批量下载选中歌曲
+  const handleDownloadSelected = useCallback(() => {
+    const selected = filteredSongs.filter(s => selectedIds.has(s.id))
+    if (!selected.length) {
+      toast('请先选择歌曲')
+      return
+    }
+    exitSelectMode()
+    void handleWebDAVDownloadAndImport(selected, setBatchLoadingText)
+  }, [filteredSongs, selectedIds, exitSelectMode])
+
+  // 批量添加到歌单
+  const handleAddSelectedToPlaylist = useCallback(() => {
+    const selected = filteredSongs.filter(s => selectedIds.has(s.id))
+    if (!selected.length) {
+      toast('请先选择歌曲')
+      return
+    }
+    // WebDAV.MusicInfo 已继承 MusicInfoLocal，直接传扁平数组
+    //（MusicMultiAddModal 的 SelectInfo.selectedList 要求 LX.Music.MusicInfo[]）
+    musicMultiAddModalRef.current?.show({
+      selectedList: selected,
+      listId: '',
+      isMove: false,
+    })
+    exitSelectMode()
+  }, [filteredSongs, selectedIds, exitSelectMode])
 
   const patchSongInList = useCallback((musicId: string, patch: (song: LX.WebDAV.MusicInfo) => LX.WebDAV.MusicInfo) => {
     setSongs(prevSongs => prevSongs.map(song => (song.id === musicId ? patch(song) : song)))
@@ -731,14 +799,17 @@ export function useWebDAVPage() {
     handleWebdavSettingChanged, handleWebdavMediaSourceChanged, handleTestConnection,
     // 目录
     folderStack, folders, folderLoading, currentFolder, selectedFolder,
-    enterFolder, goBackFolder, handleSelectCurrentFolder,
+    enterFolder, goBackFolder, handleSelectCurrentFolder, handleRefreshFolders,
     songFolders, filterPath, handleSetFilterPath,
     // 列表
     loading, songs, filteredSongs, scannedAt, scanText, batchLoadingText,
     searchVisible, searchText, setSearchText,
     handleToggleSearch, handleClearSearch,
     handleScan, handleBatchDownload, handleRefresh, handleUpload,
-    handlePlay, showMenu,
+    handlePlay, handleLongPress, showMenu,
+    // 多选
+    isSelecting, selectedIds, exitSelectMode, toggleSelectAll, handleDownloadSelected,
+    handleAddSelectedToPlaylist, musicMultiAddModalRef,
     listRef, searchInputRef,
     numColumns, rowWidth: rowInfo.rowWidth,
     headerText,

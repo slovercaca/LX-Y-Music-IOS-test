@@ -99,6 +99,17 @@ export class UploadAbortedError extends Error {
   }
 }
 
+/** 远端父目录不存在（409）时抛出的错误，调用方可提示用户是否自动创建 */
+export class RemoteDirNotFoundError extends Error {
+  /** 缺失的远端目录路径 */
+  dirPath: string
+  constructor(dirPath: string, message?: string) {
+    super(message || `远端目录不存在：${dirPath}`)
+    this.name = 'RemoteDirNotFoundError'
+    this.dirPath = dirPath
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 远端路径：本地文件结构 → 服务器 music/ 与 lrc/ 目录语义
 // ---------------------------------------------------------------------------
@@ -168,7 +179,8 @@ export interface PutFileOptions {
  * 不计为失败。
  */
 export const putFileWithProgress = async(options: PutFileOptions): Promise<void> => {
-  const { remotePath, localPath, size, contentType, onProgress, onAbortHandle } = options
+  const { remotePath, localPath, size, onProgress, onAbortHandle } = options
+  // 注意：contentType 不再使用（webdav 库自动处理）；保留在接口中以兼容调用方
   const report = (loaded: number, total: number) => {
     try {
       onProgress?.(loaded, total)
@@ -192,6 +204,7 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
     webDAVLog.warn('[upload] 文件大小与入队时不一致', { remotePath, expected: size, actual: actualSize })
   }
 
+  // URL 合法性校验（仅校验，不实际使用：上传走 client.putFileContents(remotePath)）
   const url = getWebDAVRemoteUrl(remotePath)
   if (!url || typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
     throw new Error(`上传地址非法：${url}`)
@@ -243,6 +256,13 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
   } catch (e: any) {
     clearInterval(heartbeat)
     if (abortRequested) throw new UploadAbortedError()
+    // 409：父目录不存在。抛专用错误，调用方提示用户是否自动创建。
+    const status = e?.status ?? e?.response?.status
+    if (status === 409) {
+      const lastSlash = remotePath.lastIndexOf('/')
+      const dirPath = lastSlash > 0 ? remotePath.substring(0, lastSlash) : '/'
+      throw new RemoteDirNotFoundError(dirPath)
+    }
     throw new Error(`上传失败：${e?.message || e}`)
   }
   clearInterval(heartbeat)

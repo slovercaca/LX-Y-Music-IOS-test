@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native'
+import { RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native'
 import Text from '@/components/common/Text'
 import Button from '@/components/common/Button'
 import { SvgIcon } from '@/components/common/SvgIcon'
@@ -22,7 +22,8 @@ export default memo(({ page }: { page: WebDAVPage }) => {
     hasConfig, loading, folderLoading,
     folderStack, folders, currentFolder, selectedFolder,
     songs, songFolders,
-    goBackFolder, enterFolder, handleSelectCurrentFolder, handleSetFilterPath,
+    goBackFolder, enterFolder, handleSelectCurrentFolder, handleRefreshFolders,
+    handleSetFilterPath,
   } = page
 
   return (
@@ -30,6 +31,13 @@ export default memo(({ page }: { page: WebDAVPage }) => {
       keyboardShouldPersistTaps="handled"
       style={styles.scroll}
       contentContainerStyle={styles.content}
+      refreshControl={
+        <RefreshControl
+          colors={[theme['c-primary']]}
+          refreshing={folderLoading}
+          onRefresh={handleRefreshFolders}
+        />
+      }
     >
       <TabsHeader activeTab={activeTab} onSelect={selectTab} />
       <View style={{ ...styles.panel, borderColor: theme['c-border-background'] }}>
@@ -81,7 +89,7 @@ export default memo(({ page }: { page: WebDAVPage }) => {
         )}
       </View>
 
-      {/* 已扫描歌曲按目录分组：点一行就把歌曲列表筛到该目录 */}
+      {/* 已扫描歌曲按目录分组：点一行进入该目录浏览（不再跳列表） */}
       <View style={{ ...styles.panel, borderColor: theme['c-border-background'] }}>
         <Text style={styles.label}>已扫描歌曲的目录</Text>
         <TouchableOpacity
@@ -105,8 +113,12 @@ export default memo(({ page }: { page: WebDAVPage }) => {
               key={folder.path}
               style={{ ...styles.folderItem, borderBottomColor: theme['c-border-background'] }}
               onPress={() => {
-                handleSetFilterPath(folder.path)
-                selectTab('list')
+                // 进入目录浏览，而非跳列表筛歌
+                enterFolder({
+                  id: folder.path,
+                  name: folder.name,
+                  path: folder.path,
+                })
               }}
             >
               <View style={styles.folderItemInfo}>

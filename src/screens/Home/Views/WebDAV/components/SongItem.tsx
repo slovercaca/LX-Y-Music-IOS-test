@@ -23,6 +23,9 @@ export default memo(
     rowWidth = '100%',
     onPress,
     onShowMenu,
+    onLongPress,
+    selected = false,
+    isSelecting = false,
   }: {
     item: LX.WebDAV.MusicInfo
     index: number
@@ -30,6 +33,11 @@ export default memo(
     /** 横屏多列时每列宽度（如 '50%'），竖屏为 '100%' */
     rowWidth?: `${number}%`
     onPress: (musicInfo: LX.WebDAV.MusicInfo) => void
+    onLongPress?: (musicInfo: LX.WebDAV.MusicInfo) => void
+    /** 多选模式下是否被选中 */
+    selected?: boolean
+    /** 是否处于多选模式 */
+    isSelecting?: boolean
     onShowMenu: (
       item: LX.WebDAV.MusicInfo,
       index: number,
@@ -62,15 +70,32 @@ export default memo(
         style={{
           ...styles.songItem,
           width: rowWidth,
-          backgroundColor: isPlaying
+          backgroundColor: selected
             ? theme['c-primary-background-hover']
-            : theme['c-content-background'],
-          borderColor: isPlaying
+            : isPlaying
+              ? theme['c-primary-background-hover']
+              : theme['c-content-background'],
+          borderColor: selected || isPlaying
             ? theme['c-primary-background-active']
             : theme['c-border-background'],
         }}
       >
-        <TouchableOpacity style={styles.songItemLeft} onPress={() => { onPress(item) }}>
+        <TouchableOpacity
+          style={styles.songItemLeft}
+          onPress={() => { onPress(item) }}
+          onLongPress={() => { onLongPress?.(item) }}
+          delayLongPress={400}
+        >
+          {/* 多选模式：显示勾选框 */}
+          {isSelecting ? (
+            <View style={styles.checkbox}>
+              <Icon
+                name={selected ? 'checkbox-marked' : 'checkbox-blank-outline'}
+                size={22}
+                color={selected ? theme['c-primary-font'] : theme['c-font-label']}
+              />
+            </View>
+          ) : null}
           <View style={styles.sn}>
             {item.meta.picUrl ? (
               <Image url={item.meta.picUrl} style={styles.albumArt} cache={false} />
@@ -134,6 +159,11 @@ const styles = createStyle({
     flexShrink: 1,
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  checkbox: {
+    width: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sn: {
     width: 74,

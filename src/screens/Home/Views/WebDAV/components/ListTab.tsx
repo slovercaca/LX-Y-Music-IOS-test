@@ -30,7 +30,9 @@ export default memo(({ page }: { page: WebDAVPage }) => {
     filterPath, handleSetFilterPath, selectedFolder,
     scanText, headerText, batchLoadingText,
     handleScan, handleBatchDownload, handleUpload, handleRefresh,
-    handlePlay, showMenu,
+    handlePlay, handleLongPress, showMenu,
+    isSelecting, selectedIds, exitSelectMode, toggleSelectAll,
+    handleDownloadSelected, handleAddSelectedToPlaylist,
     listRef, searchInputRef,
     numColumns, rowWidth,
   } = page
@@ -43,14 +45,50 @@ export default memo(({ page }: { page: WebDAVPage }) => {
         isPlaying={playMusicInfo?.id === item.id}
         rowWidth={rowWidth}
         onPress={handlePlay}
+        onLongPress={handleLongPress}
+        selected={selectedIds.has(item.id)}
+        isSelecting={isSelecting}
         onShowMenu={showMenu}
       />
     ),
-    [handlePlay, showMenu, playMusicInfo?.id, rowWidth],
+    [handlePlay, handleLongPress, showMenu, playMusicInfo?.id, rowWidth, selectedIds, isSelecting],
   )
+
+  // 多选工具栏
+  const selectToolbar = isSelecting ? (
+    <View style={[styles.selectBar, { backgroundColor: theme['c-content-background'], borderBottomColor: theme['c-border-background'] }]}>
+      <TouchableOpacity onPress={toggleSelectAll} style={styles.selectBarBtn}>
+        <Text color={theme['c-primary-font']}>
+          {selectedIds.size >= filteredSongs.length && filteredSongs.length > 0 ? '反选' : '全选'}
+        </Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={handleDownloadSelected}
+        style={styles.selectBarBtn}
+        disabled={!selectedIds.size}
+      >
+        <Text color={selectedIds.size ? theme['c-primary-font'] : theme['c-font-label']}>
+          下载 ({selectedIds.size})
+        </Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        onPress={handleAddSelectedToPlaylist}
+        style={styles.selectBarBtn}
+        disabled={!selectedIds.size}
+      >
+        <Text color={selectedIds.size ? theme['c-primary-font'] : theme['c-font-label']}>
+          加到歌单
+        </Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={exitSelectMode} style={styles.selectBarBtn}>
+        <Text color={theme['c-font-label']}>取消</Text>
+      </TouchableOpacity>
+    </View>
+  ) : null
 
   return (
     <View style={styles.listPage}>
+      {selectToolbar}
       <FlatList
         key={`cols-${numColumns}`}
         ref={listRef}
@@ -175,6 +213,19 @@ export default memo(({ page }: { page: WebDAVPage }) => {
 const styles = createStyle({
   listPage: {
     flex: 1,
+  },
+  selectBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  selectBarBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    minWidth: 60,
+    alignItems: 'center',
   },
   listHeader: {
     flexDirection: 'row',

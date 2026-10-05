@@ -10,10 +10,12 @@ import {
   findLocalLyricFile,
   putFileWithProgress,
   UploadAbortedError,
+  RemoteDirNotFoundError,
   type WebDAVUploadQueueItem,
   type WebDAVUploadHistoryItem,
   type WebDAVUploadQueueState,
 } from '@/core/webdavMusic/upload'
+import { ensureRemoteDir } from '@/core/webdavMusic/files'
 import { contentTypeForExt } from '@/core/webdavMusic/library'
 import { webDAVLog } from '@/core/webdavMusic/logger'
 
@@ -404,6 +406,42 @@ export function useUploadManager(deps: UploadManagerDeps) {
         }
         return
       }
+      // 409：远端目录不存在，提示用户是否自动创建
+      if (err instanceof RemoteDirNotFoundError) {
+        const dirPath = err.dirPath
+        try {
+          const confirmed = await confirmDialog({
+            title: '文件夹不存在',
+            message: `远端文件夹不存在：\n${dirPath}\n\n是否自动创建？`,
+            confirmButtonText: '自动创建并上传',
+            cancelButtonText: '取消',
+          })
+          if (confirmed) {
+            // 用户确认：创建目录后重试本项（仅重试一次，避免死循环）
+            try {
+              await ensureRemoteDir(dirPath)
+              webDAVLog.info('[upload] 已自动创建远端目录，重试上传', { dirPath, fileName: item.fileName })
+              // 重置进度状态，重试
+              item.uploadedBytes = 0
+              item.lastProgressAt = Date.now()
+              // 递归重试：注意 uploadOne 已在作用域内，直接调用
+              // 为避免无限递归，用一个标记限制只重试一次
+              const retryKey = `__retry409_${item.id}`
+              if (!(item as any)[retryKey]) {
+                (item as any)[retryKey] = true
+                await uploadOne(item, gen)
+                return
+              }
+            } catch (retryErr: any) {
+              webDAVLog.error('[upload] 自动创建目录后重试失败', { dirPath, error: retryErr?.message ?? retryErr })
+            }
+          }
+        } catch (dialogErr) {
+          // 对话框异常：按取消处理
+        }
+        finishItem(item, 'failed', `远端目录不存在：${dirPath}`)
+        return
+      }
       webDAVLog.error('[upload] 失败', { fileName: item.fileName, error: err?.message ?? err })
       finishItem(item, 'failed', err?.message ?? String(err))
     }
@@ -598,6 +636,8 @@ export function useUploadManager(deps: UploadManagerDeps) {
     it.uploadedBytes = 0
     it.speed = 0
     it.error = undefined
+    // 清除 409 重试标记，允许再次弹窗询问是否创建目录
+    delete (it as any)[`__retry409_${it.id}`]
     bump(true)
     if (queueStateRef.current === 'idle') {
       void start()
