@@ -11,6 +11,24 @@ import { getStat } from './files'
 import { readFile } from '@/utils/fs'
 import { webDAVLog } from '@/utils/log'
 
+/**
+ * 上传后校验远端文件大小：PROPFIND 取远端 size，与本地比对。
+ * 服务器不返回大小时放行（避免误杀）；404/异常时返回 false。
+ */
+const verifyRemoteSize = async(remotePath: string, expectedSize: number): Promise<boolean> => {
+  try {
+    const stat: any = await getStat(remotePath)
+    if (!stat) return false
+    const remoteSize = Number(stat.size)
+    // 服务器不返回有效大小时放行
+    if (!Number.isFinite(remoteSize) || remoteSize < 0) return true
+    return remoteSize === expectedSize
+  } catch (e: any) {
+    webDAVLog.warn('[upload] 校验远端大小失败', { remotePath, error: e?.message ?? e })
+    return false
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 类型
 // ---------------------------------------------------------------------------
@@ -241,15 +259,20 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
     xhr.timeout = 600000
 
     try {
-      const blob = new Blob([buffer as any], contentType ? { type: contentType } : undefined)
+      // 注意：RN 的 Blob polyfill 对 undefined options 处理不好，可能传 nil 给原生层导致崩溃。
+      // contentType 为空时直接不传第二个参数。
+      const blob = contentType
+        ? new Blob([buffer as any], { type: contentType })
+        : new Blob([buffer as any])
       xhr.send(blob as any)
     } catch (e: any) {
       done(() => reject(new Error(`创建上传数据失败：${e?.message || e}`)))
     }
   })
 
-  // 成功后校验远端大小：2xx 不代表字节无损（如代理截断）；服务器不返回大小时放行
-  const ok = await verifyRemoteSize(remotePath, size)
+  // 成功后校验远端大小：用实际发送的字节数（buffer.length），而非入队时的 size
+  //（P1-1：文件在入队后被修改时，size 是陈旧的，会导致误判失败死循环）
+  const ok = await verifyRemoteSize(remotePath, buffer.length)
   if (!ok) {
     throw new Error('上传后校验失败：服务器文件大小与本地不一致')
   }

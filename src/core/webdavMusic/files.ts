@@ -38,7 +38,10 @@ export interface RemoteEntry {
 const toEntry = (item: any, parentPath?: string): RemoteEntry => ({
   id: item.filename,
   name: item.basename,
-  path: parentPath ? `${parentPath}/${item.basename}` : `/${item.basename}`,
+  // P1-5：path 直接用服务器返回的 filename（权威值），而非 parentPath+basename 拼接。
+  // 拼接在百分号编码差异、Unicode NFC/NFD 规范化差异（macOS/Linux NAS 常见）时
+  // 会与服务器真实路径对不上，导致后续请求 404。
+  path: item.filename || (parentPath ? `${parentPath}/${item.basename}` : `/${item.basename}`),
   type: item.type,
   size: item.size,
   lastmod: item.lastmod,

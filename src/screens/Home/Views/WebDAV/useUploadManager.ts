@@ -81,6 +81,8 @@ export function useUploadManager(deps: UploadManagerDeps) {
   const lastBumpRef = useRef(0)
   const historyRef = useRef<WebDAVUploadHistoryItem[]>([])
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** start() 预检阶段的重入锁：防双击导致队列永久卡 uploading（P0-1） */
+  const startingRef = useRef(false)
 
   const [version, setVersion] = useState(0)
   const [queueState, setQueueState] = useState<WebDAVUploadQueueState>('idle')
@@ -315,13 +317,21 @@ export function useUploadManager(deps: UploadManagerDeps) {
         return
       }
       if (item.status === 'uploading' && Date.now() - item.lastProgressAt > UPLOAD_STALL_MS) {
-        webDAVLog.warn('[upload] 90s 无进度，看门狗中断', { fileName: item.fileName })
-        clearInterval(stallTimer)
-        // 标记为看门狗中断：catch 里按失败处理（可重试），而非 cancelled
-        stallAbortedRef.current.add(item.id)
-        try {
-          abortHandlesRef.current.get(item.id)?.abort()
-        } catch { /* 忽略 */ }
+        webDAVLog.warn('[upload] 90s 无进度，看门狗检查', { fileName: item.fileName })
+        // P1-2：只有真正有 abort 句柄时才中断并加 stale 标记。读文件阶段（XHR 未启动、无句柄）
+        // 触发时，abort 是 no-op，若照样加标记，后续用户暂停会被误判为失败。
+        const handle = abortHandlesRef.current.get(item.id)
+        if (handle) {
+          clearInterval(stallTimer)
+          // 标记为看门狗中断：catch 里按失败处理（可重试），而非 cancelled
+          stallAbortedRef.current.add(item.id)
+          try {
+            handle.abort()
+          } catch { /* 忽略 */ }
+        } else {
+          // 无句柄（读文件阶段）：仅重置 lastProgressAt 给宽限，继续监控，不清除 timer
+          item.lastProgressAt = Date.now()
+        }
       }
     }, 15000)
     try {
@@ -437,6 +447,11 @@ export function useUploadManager(deps: UploadManagerDeps) {
   // ---------------- 对外控制 ----------------
   const start = useCallback(async() => {
     if (queueStateRef.current === 'uploading') return
+    // P0-1：预检是异步长耗时，防重入锁必须在入口立即置位，否则双击会跑两个流程，
+    // generation 错乱导致队列永久卡在 uploading。
+    if (startingRef.current) return
+    startingRef.current = true
+    try {
     const pending = Array.from(itemsRef.current.values())
       .filter(it => it.status === 'queued' || it.status === 'paused' || it.status === 'failed')
     if (pending.length === 0) {
@@ -516,6 +531,9 @@ export function useUploadManager(deps: UploadManagerDeps) {
     const n = concurrency
     await Promise.all(Array.from({ length: n }, () => workerLoop(gen)))
     // worker 全部退出后由 maybeDrain 收尾（idle 回调在那里触发）
+    } finally {
+      startingRef.current = false
+    }
   }, [bump, concurrency, finishItem, setState, workerLoop])
 
   const pause = useCallback(() => {

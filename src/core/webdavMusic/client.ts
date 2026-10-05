@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer'
 import settingState from '@/store/setting/state'
 import { btoa } from 'react-native-quick-base64'
 import { createClient } from 'webdav'
@@ -62,10 +63,13 @@ export const resetClient = (): void => {
   cachedKey = ''
 }
 
-/** 连通性测试：读根目录，成功返回 true，失败抛错 */
+/** 连通性测试：读根目录，成功返回 true，失败抛错（15 秒超时防 hang） */
 export const testConnection = async(): Promise<boolean> => {
   const client = getClient()
-  await client.getDirectoryContents('/')
+  await Promise.race([
+    client.getDirectoryContents('/'),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('连接超时（15秒无响应）')), 15000)),
+  ])
   return true
 }
 
@@ -81,7 +85,14 @@ export const getWebDAVAuthHeaders = (): Record<string, string> => {
   const username = settingState.setting['sync.webdav.username']
   const password = settingState.setting['sync.webdav.password']
   if (username && password) {
-    headers.Authorization = 'Basic ' + btoa(`${username}:${password}`)
+    // P1-11：btoa 只支持 Latin1，用户名/密码含中文会抛 InvalidCharacterError 或生成错误 header。
+    // 改用 Buffer（项目已依赖），按 UTF-8 编码。
+    try {
+      headers.Authorization = 'Basic ' + Buffer.from(`${username}:${password}`, 'utf8').toString('base64')
+    } catch {
+      // Buffer 不可用时回退到 btoa（旧行为）
+      headers.Authorization = 'Basic ' + btoa(`${username}:${password}`)
+    }
   }
   return headers
 }
@@ -111,7 +122,35 @@ export const getWebDAVRemoteUrl = (remoteFilePath: string): string => {
     webDAVLog.warn('getWebDAVRemoteUrl: 远端路径里混入了本机路径', { remoteFilePath: remote })
   }
 
-  const baseUrl = creds.url.endsWith('/') ? creds.url.slice(0, -1) : creds.url
+  // Base URL 的路径部分也需要一致编码：用户配置的服务器地址可能包含中文、括号等特殊字符
+  // （如 http://nas:9764/DRH(主)/备份/LX_Music），不编码会导致与已编码的文件名部分混合，
+  // 部分 WebDAV 服务器（NAS）对此处理不好而 404。
+  // 注意：不能对整个 baseUrl 做 encodeURIComponent（会把 :// 编掉），只编码 path 部分。
+  let baseUrl = creds.url.endsWith('/') ? creds.url.slice(0, -1) : creds.url
+  try {
+    const urlObj = new URL(baseUrl)
+    // 只对 pathname 的每一段做编码，保留 / 分隔符；已编码的 %XX 不会双重编码
+    // （encodeURIComponent 会把 % 编成 %25，所以先 decode 再 encode，保证幂等）
+    const encodedPath = urlObj.pathname
+      .split('/')
+      .map(seg => {
+        try {
+          // 先 decode（处理用户已手动编码的情况），再 encode，保证最终一致
+          const decoded = decodeURIComponent(seg)
+          return encodeURIComponent(decoded)
+        } catch {
+          // decode 失败（如孤立的 %），直接 encode
+          return encodeURIComponent(seg)
+        }
+      })
+      .join('/')
+    urlObj.pathname = encodedPath
+    baseUrl = urlObj.toString().replace(/\/$/, '')
+  } catch {
+    // URL 解析失败时用原始 baseUrl（保持旧行为）
+    webDAVLog.warn('getWebDAVRemoteUrl: baseUrl 解析失败，使用原始值', { baseUrl })
+  }
+
   const encodedFilePath = remote
     .substring(1)
     .split('/')

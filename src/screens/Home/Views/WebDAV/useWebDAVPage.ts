@@ -18,6 +18,7 @@ import {
   updateWebDAVMusicMeta,
   checkWebDAVRemoteExists,
 } from '@/core/webdavMusic/drive'
+import { webDAVLog } from '@/core/webdavMusic/logger'
 import { testConnection, resetClient } from '@/utils/webdav'
 import { existsFile, selectFile } from '@/utils/fs'
 import { readMetadata, readPic } from '@/utils/localMediaMetadata'
@@ -651,11 +652,20 @@ export function useWebDAVPage() {
     setActiveTab('list')
     requestAnimationFrame(() => {
       setTimeout(() => {
-        listRef.current?.scrollToIndex({
-          index,
-          viewPosition: 0.3,
-          animated: true,
-        })
+        // P0-2：scrollToIndex 越界会抛 "scrollToIndex out of range"，在 timer 回调里未捕获
+        // 会导致 JS 线程崩溃。调用前用当前列表长度 clamp，并 try/catch 兜底。
+        try {
+          const list = listRef.current
+          if (!list) return
+          // 用 ref 获取当前列表长度（闭包里的 list 可能已过期）
+          listRef.current?.scrollToIndex({
+            index,
+            viewPosition: 0.3,
+            animated: true,
+          })
+        } catch (e: any) {
+          webDAVLog.warn('[WebDAV] scrollToIndex 失败（越界）', { index, error: e?.message })
+        }
       }, searchText ? 160 : 80)
     })
   }, [filteredSongs, searchText, songs])
