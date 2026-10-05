@@ -4,7 +4,6 @@ import {
   getWebDAVMusicDir,
   getWebDAVLrcDir,
   getWebDAVRemoteUrl,
-  getWebDAVAuthHeaders,
   joinWebDAVRemotePath,
   getClient,
 } from './client'
@@ -145,22 +144,25 @@ export interface PutFileOptions {
   localPath: string
   size: number
   contentType?: string
-  /** 字节级进度回调（XHR upload.onprogress 真实字节） */
+  /** 进度回调（当前为模拟进度：0% → 50% → 100%，非真实字节） */
   onProgress?: (loaded: number, total: number) => void
-  /** 透出 abort 句柄，调用方（暂停/删除）可中断传输 */
+  /** 透出 abort 句柄，调用方（暂停/删除）可中断传输（模拟中断） */
   onAbortHandle?: (handle: { abort: () => void }) => void
 }
 
 /**
- * 带真实字节级进度的单文件 PUT（XHR + Blob）。
+ * 单文件 PUT（webdav 库）。
  *
- * 2026-10-05 闪退修复：RN 桥接层 `-[__NSPlaceholderDictionary initWithObjects:forKeys:count:]`
- * 崩溃的根因是 `xhr.setRequestHeader(name, undefined)` —— JS 传 undefined 给原生模块，
- * 原生尝试创建 NSDictionary 时遇到 nil 直接崩。本实现：
- * 1. 所有 header 值先做 nil 过滤，undefined/null 一律不 set；
- * 2. Content-Type 仅在有值时设置；
- * 3. Blob 创建前校验数据非空；
- * 4. 进度回调 try/catch 包裹，永不打断上传。
+ * 2026-10-05 Fire 重写：弃用 XHR+Blob。RN 0.73 iOS 的 XHR 桥接层频繁触发
+ * `-[__NSPlaceholderDictionary initWithObjects:forKeys:count:]` nil 崩溃，
+ * JS 层无法根治。改用 webdav 库的 putFileContents（纯 JS HTTP），可靠不崩溃。
+ *
+ * 代价：
+ * 1. 无原生字节级进度：用"0% → 50%（读取完成）→ 心跳保活 → 100%"模拟；
+ * 2. 大文件内存占用高（base64 1.37x + Buffer 1x）；
+ * 3. 中断为模拟（库无 abort API），网络请求后台继续，但 UI 状态正确。
+ *
+ * 优先级：不崩溃 > 真实进度。
  *
  * 用户暂停/删除导致的 abort 以 UploadAbortedError 抛出，调用方据此置 paused/cancelled，
  * 不计为失败。
@@ -183,7 +185,7 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
 
   // 校验本地文件存在且非空
   const stat = await statFile(localPath).catch(() => null)
-  if (!stat || stat.isDirectory?.()) throw new Error(`本地文件读取失败：${localPath}`)
+  if (!stat || stat.isDirectory) throw new Error(`本地文件读取失败：${localPath}`)
   const actualSize = Number((stat as any).size ?? 0)
   if (!Number.isFinite(actualSize) || actualSize <= 0) throw new Error(`本地文件为空：${localPath}`)
   if (actualSize !== size) {
