@@ -758,7 +758,10 @@ export default memo(() => {
       // 2026-10-04：进度回调（上传 tab 的进度条用）
       onProgress?.(i + 1, items.length, item.fileName)
       try {
-        await uploadWebDAVMusicFile(item, uploadTargetDir, withLyrics)
+        // 2026-10-05：分阶段上报，卡在哪一步直接显示在按钮上
+        await uploadWebDAVMusicFile(item, uploadTargetDir, withLyrics, (stage) => {
+          setBatchLoadingText(`${stage} ${item.fileName}`)
+        })
         success++
       } catch (err: any) {
         failed.push(`${item.fileName}（${err?.message ?? err}）`)
@@ -1498,7 +1501,8 @@ export default memo(() => {
         </ScrollView>
 
         {/* 底部：进度条 + 大上传按钮（固定在内容区底部，不与 tab 栏重叠） */}
-        <View style={[styles.uploadFooter, { paddingBottom: 16 }]}>
+        {/* 2026-10-05 fix：paddingBottom 加大到 100，确保按钮在悬浮 tab 栏上方 */}
+        <View style={[styles.uploadFooter, { paddingBottom: 100 }]}>
           {uploadProgress ? (
             <View style={styles.uploadProgressWrap}>
               <View style={styles.uploadProgressHeader}>
