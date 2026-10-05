@@ -164,6 +164,9 @@ export const normalizeWebDAVMusicInfo = (musicInfo: LX.WebDAV.MusicInfo) => {
 const scanFolder = async(
   folder: LX.WebDAV.DriveFolder | null,
   onProgress?: (count: number, folderPath: string) => void,
+  // 2026-10-05 fix（Bug-2）：父目录的歌词映射作为 fallback——
+  // 扫描 music/ 子目录时，兄弟目录 lrc/ 的歌词也要能匹配
+  parentLrcMap?: Map<string, string>,
 ) => {
   const client = await getClient()
   const result: LX.WebDAV.MusicInfo[] = []
@@ -203,6 +206,12 @@ const scanFolder = async(
       // lrc 目录读取失败不影响主流程
     }
   }
+  // 2026-10-05 fix（Bug-2）：合并父目录的歌词映射（父级优先度低，不覆盖本地）
+  if (parentLrcMap) {
+    for (const [base, path] of parentLrcMap) {
+      if (!lrcMap.has(base)) lrcMap.set(base, path)
+    }
+  }
   for (const item of contents) {
     if (item.type !== 'file') continue
     const ext = getExt(item.basename)
@@ -225,6 +234,8 @@ const scanFolder = async(
           ...(await scanFolder(
             { id: item.filename, name: item.basename, parentId: folder?.id, path },
             onProgress,
+            // 2026-10-05 fix（Bug-2）：把当前目录的歌词映射传给子目录
+            lrcMap,
           )),
         )
       } catch (error: any) {

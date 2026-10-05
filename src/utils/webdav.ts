@@ -111,7 +111,7 @@ export async function uploadBinaryFile(remotePath: string, localPath: string, co
   const password = settings['sync.webdav.password']
   if (!baseUrl) throw new Error('WebDAV 未配置')
 
-  const url = `${baseUrl}${remotePath.startsWith('/') ? remotePath : `/${remotePath}`}`
+  const url = `${baseUrl}${remotePath.split('/').map(seg => seg ? encodeURIComponent(seg) : '').join('/')}`
   const base64 = await readFile(localPath, 'base64')
   // RN 的 fetch 支持 Blob body，用 Buffer 转 Blob 避免 webdav 库的兼容问题
   const buffer = Buffer.from(base64, 'base64')

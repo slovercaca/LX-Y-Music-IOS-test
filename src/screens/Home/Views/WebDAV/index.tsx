@@ -248,6 +248,8 @@ export default memo(() => {
   // 2026-10-04 bugfix：文件 App 选的临时文件（/tmp/）若用户未上传就离开 tab，
   // 需要清理，避免 tmp 堆积。用 ref 跟踪，避免闭包过期。
   const uploadTempFilesRef = useRef<Set<string>>(new Set())
+  // 2026-10-05 fix（Bug-4）：上传进行中标记，tab 切换清理时跳过
+  const uploadingRef = useRef(false)
   // 2026-10-04：上传进度（进度条用，含文件大小）
   const [uploadProgress, setUploadProgress] = useState<{
     current: number
@@ -262,7 +264,8 @@ export default memo(() => {
   useEffect(() => {
     // 2026-10-05 fix（P1-6）：离开上传 tab 时，删除临时文件并同步清理队列，
     // 避免返回后队列指向已删除的文件
-    if (activeTab !== 'upload') {
+    // 2026-10-05 fix（Bug-4）：上传进行中时跳过清理，避免删掉正在传的文件
+    if (activeTab !== 'upload' && !uploadingRef.current) {
       const deletedPaths = new Set(uploadTempFilesRef.current)
       for (const p of deletedPaths) {
         void unlink(p).catch(() => {})
@@ -884,7 +887,7 @@ export default memo(() => {
     const totalSize = uploadFiles.reduce((sum, f) => sum + (f.size || 0), 0)
     setUploadProgress({ current: 0, total: uploadFiles.length, fileName: '', fileSize: 0, uploadedSize: 0, totalSize })
     let started = false
-    let uploadedSize = 0
+    uploadingRef.current = true
     try {
       started = await runWebDAVUpload(uploadFiles, (current, total, fileName) => {
         // 找到当前文件的大小，累加已上传
@@ -895,6 +898,7 @@ export default memo(() => {
         setUploadProgress({ current, total, fileName, fileSize, uploadedSize: prevSize, totalSize })
       }, uploadWithLyrics)
     } finally {
+      uploadingRef.current = false
       setUploadProgress(null)
     }
     // 2026-10-05 fix（P1-5）：仅真正开始上传后才清理队列；
