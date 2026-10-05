@@ -92,49 +92,47 @@ export async function uploadFile(path: string, content: string): Promise<void> {
  * 注意：通过 base64 中转读入内存再转 Buffer，大文件（>100MB）可能内存吃紧，
  * 调用方应对超大文件先提示用户。真机上的二进制 PUT 行为待验证。
  */
-export async function uploadBinaryFile(remotePath: string, localPath: string, contentType?: string): Promise<void> {
+export async function uploadBinaryFile(
+  remotePath: string,
+  localPath: string,
+  contentType?: string,
+  // 2026-10-05：分阶段上报，用于定位上传卡死位置
+  onStage?: (stage: string) => void,
+): Promise<void> {
   const cli = await getClient()
   if (!cli) throw new Error('WebDAV 未配置')
 
+  onStage?.('正在创建目录...')
   const dirPath = remotePath.substring(0, remotePath.lastIndexOf('/'))
   await ensureDirectoryExists(cli, dirPath)
 
+  onStage?.('正在读取文件...')
   const fileInfo = await stat(localPath).catch(() => null)
   const size = fileInfo?.size ?? 0
   webDAVLog.info(`Uploading binary file to ${remotePath}...`, { size })
 
-  // 2026-10-05：webdav 库的 putFileContents(Buffer) 在 RN iOS 上可能挂起，
-  // 改用原生 fetch PUT，body 传 base64 解码后的二进制
-  const settings = settingState.setting
-  const baseUrl = settings['sync.webdav.url']?.replace(/\/$/, '')
-  const username = settings['sync.webdav.username']
-  const password = settings['sync.webdav.password']
-  if (!baseUrl) throw new Error('WebDAV 未配置')
-
-  const url = `${baseUrl}${remotePath.split('/').map(seg => seg ? encodeURIComponent(seg) : '').join('/')}`
+  // 2026-10-05：用 webdav 库的 putFileContents（库内部处理 URL 编码和认证）
+  // 之前 fetch+Blob 在 RN iOS 上不可靠，改回库方法
   const base64 = await readFile(localPath, 'base64')
-  // RN 的 fetch 支持 Blob body，用 Buffer 转 Blob 避免 webdav 库的兼容问题
   const buffer = Buffer.from(base64, 'base64')
-  const blob = new Blob([buffer as any], { type: contentType || 'application/octet-stream' })
 
-  const headers: Record<string, string> = {
-    'Content-Type': contentType || 'application/octet-stream',
-  }
-  if (username) {
-    const credentials = `${username}:${password || ''}`
-    headers['Authorization'] = `Basic ${Buffer.from(credentials).toString('base64')}`
-  }
+  onStage?.('正在上传到服务器...')
 
-  const response = await fetch(url, {
-    method: 'PUT',
-    headers,
-    body: blob,
+  // 加超时保护，避免无限卡死
+  // 注意：超时后底层请求仍在后台继续，仅用于给用户反馈，实际上传可能稍后完成
+  const timeoutMs = 120000 // 2 分钟
+  let timeoutId: ReturnType<typeof setTimeout> | null = null
+  const uploadPromise = cli.putFileContents(remotePath, buffer, {
+    overwrite: true,
+    ...(contentType ? { headers: { 'Content-Type': contentType } } : {}),
+  }).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId)
   })
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('上传超时（2分钟），请检查网络后重试')), timeoutMs)
+  })
+  await Promise.race([uploadPromise, timeoutPromise])
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => '')
-    throw new Error(`上传失败（${response.status}）：${text.slice(0, 100)}`)
-  }
   webDAVLog.info(`Upload completed: ${remotePath}`)
 }
 

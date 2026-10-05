@@ -580,7 +580,13 @@ export const checkWebDAVRemoteExists = async(remotePath: string): Promise<boolea
  * @param withLyrics 是否同时上传歌词（2026-10-04）：查找同名 .lrc，上传到 lrc/ 子目录
  * @returns 服务器上的完整路径（歌曲）
  */
-export const uploadWebDAVMusicFile = async(item: WebDAVUploadItem, remoteDir: string, withLyrics = false): Promise<string> => {
+export const uploadWebDAVMusicFile = async(
+  item: WebDAVUploadItem,
+  remoteDir: string,
+  withLyrics = false,
+  // 2026-10-05：分阶段上报，用于定位上传卡死位置
+  onStage?: (stage: string) => void,
+): Promise<string> => {
   // 2026-10-04 bugfix：文件名可能带 URL 编码（%20 等）或丢失后缀。
   // 1. 先 decodeURIComponent 还原；2. 若无后缀，从 localPath 补后缀。
   let fileName = item.fileName
@@ -613,7 +619,7 @@ export const uploadWebDAVMusicFile = async(item: WebDAVUploadItem, remoteDir: st
     : ext === 'wma' ? 'audio/x-ms-wma'
     : ext === 'ape' ? 'audio/ape'
     : undefined
-  await uploadBinaryFile(remotePath, item.localPath, contentType)
+  await uploadBinaryFile(remotePath, item.localPath, contentType, onStage)
 
   // 2026-10-04：同时上传歌词（如果勾选）：查找同名 .lrc，上传到 lrc/ 子目录
   if (withLyrics) {
