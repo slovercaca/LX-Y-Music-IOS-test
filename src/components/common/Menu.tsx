@@ -150,7 +150,9 @@ const Menu = ({
     <UtilityGlass
       glassStyle={{ borderRadius: 2 }}
       fallbackBackgroundColor={theme['c-content-background']}
-      style={{ ...styles.menu, ...menuStyle }}
+      // 2026-10-05 fix（M2）：styles.menu 是 StyleSheet.create 的数字 ID，
+      // {...} 展开会丢失，改用数组形式
+      style={[styles.menu, menuStyle]}
       pointerEvents="auto"
     >
       <Animated.ScrollView keyboardShouldPersistTaps={'always'}>
@@ -158,12 +160,9 @@ const Menu = ({
           menu.disabled ? (
             <View
               key={menu.action}
-              style={{
-                ...styles.menuItem,
-                width: menuItemStyle.width,
+              style={[styles.menuItem, {width: menuItemStyle.width,
                 height: menuItemStyle.height,
-                opacity: 0.4,
-              }}
+                opacity: 0.4,}]}
             >
               {typeof menu.label === 'string' ? (
                 <Text
@@ -182,11 +181,8 @@ const Menu = ({
           ) : menu.action == activeId ? (
             <View
               key={menu.action}
-              style={{
-                ...styles.menuItem,
-                width: menuItemStyle.width,
-                height: menuItemStyle.height,
-              }}
+              style={[styles.menuItem, {width: menuItemStyle.width,
+                height: menuItemStyle.height,}]}
             >
               {typeof menu.label === 'string' ? (
                 <Text
@@ -206,11 +202,8 @@ const Menu = ({
           ) : (
             <TouchableHighlight
               key={menu.action}
-              style={{
-                ...styles.menuItem,
-                width: menuItemStyle.width,
-                height: menuItemStyle.height,
-              }}
+              style={[styles.menuItem, {width: menuItemStyle.width,
+                height: menuItemStyle.height,}]}
               underlayColor={theme['c-primary-background-active']}
               onPress={() => {
                 menuPress(menu)

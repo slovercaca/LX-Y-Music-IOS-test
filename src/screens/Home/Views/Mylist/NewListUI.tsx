@@ -882,13 +882,16 @@ const styles = createStyle({
   },
   // 2026-10-04：内层玻璃容器（内容区玻璃），填满卡片
   // 2026-10-05：加细边框强化玻璃边缘（与设置页卡片观感一致）
+  // 2026-10-05 fix：加 alignSelf: 'stretch'——父容器是 row + alignItems:center，
+  // flex:1 只在横向撑开，纵向会被压扁，加 stretch 让玻璃铺满整行高度
   glassInner: {
     flex: 1,
+    alignSelf: 'stretch',
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.18)',
-    borderRadius: 12,
+    borderRadius: 18,
     overflow: 'hidden',
   },
   cardContent: {

@@ -173,14 +173,16 @@ const styles = createStyle({
   // 2026-10-04：内层玻璃（内容区玻璃），承载行内容
   // 2026-10-04：内层玻璃容器（内容区玻璃）
   // 2026-10-05：加细边框强化玻璃边缘
+  // 2026-10-05 fix：加 alignSelf: 'stretch' 让玻璃纵向铺满；圆角统一用 designRadius.md(18)
   glassRow: {
     flex: 1,
+    alignSelf: 'stretch',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: designSpacing.md,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.18)',
-    borderRadius: 12,
+    borderRadius: 18,
     overflow: 'hidden',
   },
   label: {
