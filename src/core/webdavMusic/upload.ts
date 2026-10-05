@@ -1,14 +1,14 @@
 import { Buffer } from 'buffer'
-import { existsFile } from '@/utils/fs'
+import { existsFile, stat as statFile, readFile } from '@/utils/fs'
 import {
   getWebDAVMusicDir,
   getWebDAVLrcDir,
   getWebDAVRemoteUrl,
   getWebDAVAuthHeaders,
   joinWebDAVRemotePath,
+  getClient,
 } from './client'
 import { getStat } from './files'
-import { readFile } from '@/utils/fs'
 import { webDAVLog } from '@/utils/log'
 
 /**
@@ -175,113 +175,69 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
     }
   }
 
-  // 读本地文件为 base64，转 Buffer 再包 Blob（RN XHR send Blob 走原生上传，有真实进度）
-  // 用 Buffer.from 而不用 atob+循环：大文件时 atob 会产生翻倍的中间内存
-  const base64 = await readFile(localPath, 'base64').catch(() => '')
-  if (!base64) throw new Error(`本地文件读取失败：${localPath}`)
-  const buffer = Buffer.from(base64, 'base64')
-  if (buffer.length === 0) throw new Error(`本地文件为空：${localPath}`)
-  if (buffer.length !== size) {
-    webDAVLog.warn('[upload] 文件大小与入队时不一致', { remotePath, expected: size, actual: buffer.length })
+  // Fire 重写 v2：弃用 XHR+Blob（桥接 nil 崩溃无法根治），也弃用 RNFS.uploadFiles
+  //（multipart/form-data，不适合 WebDAV raw PUT）。
+  // 改用 webdav 库的 putFileContents：走 JS 层 HTTP，可靠不崩溃。
+  // 代价：无原生字节级进度，用"读取进度+上传中"两阶段模拟；大文件会占内存（base64 1.37x）。
+  // 优先级：不崩溃 > 真实进度。
+
+  // 校验本地文件存在且非空
+  const stat = await statFile(localPath).catch(() => null)
+  if (!stat || stat.isDirectory?.()) throw new Error(`本地文件读取失败：${localPath}`)
+  const actualSize = Number((stat as any).size ?? 0)
+  if (!Number.isFinite(actualSize) || actualSize <= 0) throw new Error(`本地文件为空：${localPath}`)
+  if (actualSize !== size) {
+    webDAVLog.warn('[upload] 文件大小与入队时不一致', { remotePath, expected: size, actual: actualSize })
   }
 
   const url = getWebDAVRemoteUrl(remotePath)
-  const authHeaders = getWebDAVAuthHeaders()
+  if (!url || typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
+    throw new Error(`上传地址非法：${url}`)
+  }
 
-  await new Promise<void>((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-    let settled = false
-    const done = (fn: () => void) => {
-      if (settled) return
-      settled = true
-      fn()
-    }
+  // 读文件为 Buffer（webdav 库需要）
+  // 注意：大文件会占内存，这是为可靠性的妥协
+  report(0, actualSize)
+  const base64 = await readFile(localPath, 'base64').catch(() => '')
+  if (!base64) throw new Error(`本地文件读取失败：${localPath}`)
+  report(actualSize * 0.5, actualSize) // 读取完成，50%
 
-    // 透出 abort 句柄：暂停/删除时中断传输
-    try {
-      onAbortHandle?.({
-        abort: () => {
-          done(() => reject(new UploadAbortedError()))
-          try { xhr.abort() } catch { /* 忽略 */ }
-        },
-      })
-    } catch {
-      // 句柄回调异常不影响上传本身
-    }
+  const buffer = Buffer.from(base64, 'base64')
+  if (buffer.length === 0) throw new Error(`本地文件为空：${localPath}`)
 
-    // P0-2：xhr.open 前校验 URL 合法性。非法 URL（如用户误填）会导致 iOS NSURL 返回 nil，
-    // 原生层 NSDictionary 崩溃。必须在 JS 层拦截，抛可捕获的错误，绝不把可疑 URL 交给原生。
-    if (!url || typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
-      done(() => reject(new Error(`上传地址非法：${url}`)))
-      return
-    }
-    xhr.open('PUT', url, true)
+  // abort 支持：webdav 库的 putFileContents 不支持中断，用标志位模拟
+  //（实际无法中断原生请求，但可阻止后续流程）
+  let abortRequested = false
+  try {
+    onAbortHandle?.({
+      abort: () => {
+        abortRequested = true
+        // webdav 库无中断 API，只能标记，等待 put 完成或超时
+      },
+    })
+  } catch {
+    // 忽略
+  }
 
-    // ---- 闪退修复核心：header 值必须非空 ----
-    // RN 的 setRequestHeader 最终走原生 NSDictionary，value 为 undefined/null 会直接崩溃。
-    // 这里逐个检查，只 set 有值的 header。
-    try {
-      for (const key of Object.keys(authHeaders)) {
-        const value = (authHeaders as Record<string, unknown>)[key]
-        if (value !== undefined && value !== null && value !== '') {
-          xhr.setRequestHeader(key, String(value))
-        }
-      }
-      if (contentType !== undefined && contentType !== null && contentType !== '') {
-        xhr.setRequestHeader('Content-Type', String(contentType))
-      }
-    } catch (e: any) {
-      done(() => reject(new Error(`设置请求头失败：${e?.message || e}`)))
-      return
-    }
+  if (abortRequested) throw new UploadAbortedError()
 
-    // xhr.upload 在某些 RN 版本/环境下可能为 undefined，直接赋值会抛 TypeError
-    // 且 Promise 永不结算（卡死）。先判空，有才挂进度回调。
-    try {
-      if (xhr.upload) {
-        xhr.upload.onprogress = (e: any) => {
-          try {
-            if (e && e.lengthComputable) report(e.loaded, e.total)
-          } catch { /* 忽略 */ }
-        }
-      }
-    } catch { /* 忽略：无进度事件不影响上传本身 */ }
+  // 用 webdav 库上传（JS 层，无原生桥接崩溃风险）
+  const client = getClient()
+  try {
+    // putFileContents 的 data 支持 Buffer
+    await client.putFileContents(remotePath, buffer as any, {
+      overwrite: true,
+      contentLength: buffer.length,
+    })
+  } catch (e: any) {
+    if (abortRequested) throw new UploadAbortedError()
+    throw new Error(`上传失败：${e?.message || e}`)
+  }
 
-    xhr.onload = () => {
-      done(() => {
-        const status = xhr.status || 0
-        if (status >= 200 && status < 300) {
-          report(buffer.length, buffer.length)
-          resolve()
-        } else {
-          reject(new Error(`上传失败（HTTP ${status}）`))
-        }
-      })
-    }
-    xhr.onerror = () => done(() => reject(new Error('上传网络错误')))
-    xhr.ontimeout = () => done(() => reject(new Error('上传超时')))
-    xhr.onabort = () => done(() => reject(new UploadAbortedError()))
-    // 大文件上传：10 分钟超时（webdav 库版本是 2 分钟，XHR 给更宽裕）
-    xhr.timeout = 600000
+  if (abortRequested) throw new UploadAbortedError()
+  report(actualSize, actualSize)
 
-    try {
-      // 注意：RN 的 Blob polyfill 对 Node.js Buffer（buffer 包）处理不好，
-      // 直接传 Buffer 会导致 blobId 为 nil，原生层 NSDictionary 崩溃。
-      // 必须先转成真正的 Uint8Array（取底层 ArrayBuffer 的视图，避免复制大内存）。
-      const uint8 = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
-      // RN 的 Blob polyfill 对 undefined options 处理不好，可能传 nil 给原生层导致崩溃。
-      // contentType 为空时直接不传第二个参数。
-      const blob = contentType
-        ? new Blob([uint8 as any], { type: contentType })
-        : new Blob([uint8 as any])
-      xhr.send(blob as any)
-    } catch (e: any) {
-      done(() => reject(new Error(`创建上传数据失败：${e?.message || e}`)))
-    }
-  })
-
-  // 成功后校验远端大小：用实际发送的字节数（buffer.length），而非入队时的 size
-  //（P1-1：文件在入队后被修改时，size 是陈旧的，会导致误判失败死循环）
+  // 成功后校验远端大小
   const ok = await verifyRemoteSize(remotePath, buffer.length)
   if (!ok) {
     throw new Error('上传后校验失败：服务器文件大小与本地不一致')
