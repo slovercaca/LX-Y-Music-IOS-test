@@ -188,10 +188,8 @@ const scanFolder = async(
   const lrcMap = new Map<string, string>()
   let genericPic = ''
   // 2026-10-04：也检查 lrc/ 子目录（新目录结构：music/ 放歌曲，lrc/ 放歌词）
-  const lrcSubdir = contents.find(item => item.type === 'directory' && item.basename.toLowerCase() === 'lrc')
-  if (lrcSubdir) {
+  const loadLrcDir = async(lrcDirPath: string) => {
     try {
-      const lrcDirPath = normalizePath(folder?.path, lrcSubdir.basename)
       const lrcContents = await client.getDirectoryContents(lrcDirPath) as Array<any & { type: string }>
       for (const item of lrcContents) {
         if (item.type !== 'file') continue
@@ -204,6 +202,25 @@ const scanFolder = async(
       }
     } catch {
       // lrc 目录读取失败不影响主流程
+    }
+  }
+  const lrcSubdir = contents.find(item => item.type === 'directory' && item.basename.toLowerCase() === 'lrc')
+  if (lrcSubdir) {
+    await loadLrcDir(normalizePath(folder?.path, lrcSubdir.basename))
+  }
+  // 2026-10-05：扫描的如果是 music 目录本身，歌词在兄弟 lrc/ 目录（如 /music ↔ /lrc），
+  // 也纳入匹配，否则上传后“歌词进 lrc/”但扫描 /music 时永远匹配不上
+  const folderBase = (folder?.path ?? '').split('/').filter(Boolean).pop()?.toLowerCase()
+  if (folderBase === 'music' && folder?.path) {
+    const parentPath = folder.path.substring(0, folder.path.lastIndexOf('/')) || '/'
+    try {
+      const parentContents = await client.getDirectoryContents(parentPath) as Array<any & { type: string }>
+      const siblingLrc = parentContents.find(item => item.type === 'directory' && item.basename.toLowerCase() === 'lrc')
+      if (siblingLrc) {
+        await loadLrcDir(normalizePath(parentPath === '/' ? undefined : parentPath, siblingLrc.basename))
+      }
+    } catch {
+      // 父目录不可读不影响主流程
     }
   }
   // 2026-10-05 fix（Bug-2）：合并父目录的歌词映射（父级优先度低，不覆盖本地）
@@ -568,6 +585,36 @@ export const joinWebDAVRemotePath = (remoteDir: string, fileName: string): strin
   return `${dir}${fileName}`.replace(/\/{2,}/g, '/')
 }
 
+/**
+ * 规范化远端目录：保证以 / 开头、无多余斜杠、无末尾斜杠（根目录除外）。
+ */
+const normalizeWebDAVRemoteDir = (remoteDir: string): string => {
+  const cleaned = `/${remoteDir || ''}`.replace(/\/{2,}/g, '/')
+  return cleaned.length > 1 ? cleaned.replace(/\/$/, '') : '/'
+}
+
+/**
+ * 统一目录语义（2026-10-05）：音频目录。
+ * - 用户选的是普通目录（如 / 或 /备份）→ 音频进 <dir>/music
+ * - 用户选的已经是 music 目录（如 /music）→ 直接用它，不再追加 music
+ * 上传、冲突预检、歌词目录推导都必须走这个函数，禁止各处手写拼接。
+ */
+export const getWebDAVMusicDir = (remoteDir: string): string => {
+  const dir = normalizeWebDAVRemoteDir(remoteDir)
+  if (dir.split('/').pop()?.toLowerCase() === 'music') return dir
+  return dir === '/' ? '/music' : `${dir}/music`
+}
+
+/**
+ * 统一目录语义（2026-10-05）：歌词目录，永远是音频目录的兄弟 lrc/。
+ * 如 /music → /lrc；/备份/music → /备份/lrc；/ → /lrc。
+ */
+export const getWebDAVLrcDir = (remoteDir: string): string => {
+  const musicDir = getWebDAVMusicDir(remoteDir)
+  if (musicDir === '/music') return '/lrc'
+  return `${musicDir.substring(0, musicDir.lastIndexOf('/'))}/lrc`
+}
+
 /** 检查服务器上是否已存在该路径（存在返回 true，不存在返回 false） */
 export const checkWebDAVRemoteExists = async(remotePath: string): Promise<boolean> => {
   return (await getStat(remotePath).catch(() => null)) != null
@@ -576,7 +623,8 @@ export const checkWebDAVRemoteExists = async(remotePath: string): Promise<boolea
 /**
  * 上传本地音频文件到 WebDAV 服务器指定目录。
  * @param item 本地文件信息
- * @param remoteDir 服务器目标目录，如 /Music；传空字符串表示根目录
+ * @param remoteDir 用户选择的扫描/上传根目录（如 / 或 /备份/LX_Musix）；
+ *   实际音频目录由 getWebDAVMusicDir 推导（已是 music 目录时不再追加）
  * @param withLyrics 是否同时上传歌词（2026-10-04）：查找同名 .lrc，上传到 lrc/ 子目录
  * @returns 服务器上的完整路径（歌曲）
  */
@@ -605,8 +653,8 @@ export const uploadWebDAVMusicFile = async(
       fileName = `${fileName}.${localExt}`
     }
   }
-  // 2026-10-04：歌曲上传到 music/ 子目录
-  const musicRemoteDir = joinWebDAVRemotePath(remoteDir, 'music')
+  // 2026-10-05：音频目录走统一语义（已是 music 目录时不再追加，避免 /music/music）
+  const musicRemoteDir = getWebDAVMusicDir(remoteDir)
   const remotePath = joinWebDAVRemotePath(musicRemoteDir, fileName)
   const ext = fileName.split('.').pop()?.toLowerCase() ?? ''
   const contentType = ext === 'mp3' ? 'audio/mpeg'
@@ -638,7 +686,8 @@ export const uploadWebDAVMusicFile = async(
       for (const lrcPath of candidates) {
         const { existsFile } = await import('@/utils/fs')
         if (await existsFile(lrcPath).catch(() => false)) {
-          const lrcRemoteDir = joinWebDAVRemotePath(remoteDir, 'lrc')
+          // 2026-10-05：歌词目录走统一语义（音频目录的兄弟 lrc/）
+          const lrcRemoteDir = getWebDAVLrcDir(remoteDir)
           const lrcRemotePath = joinWebDAVRemotePath(lrcRemoteDir, lrcFileName)
           await uploadBinaryFile(lrcRemotePath, lrcPath, 'text/plain')
           break

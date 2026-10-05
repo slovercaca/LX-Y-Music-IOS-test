@@ -38,6 +38,11 @@ const preloadNextMusic = async() => {
     let currentInfo = musicInfo
     let tryCount = 0
     const maxTries = 5
+    // 2026-10-05：记录已尝试过的歌曲 id——getNextPlayMusicInfo 在切歌前
+    // 返回的仍是同一首“下一首”，不加去重会把同一首歌连试 5 次（日志风暴）。
+    const attemptedIds = new Set<string>([musicInfo.id])
+    // 确定性 404（WebDAV 远端文件不存在）：重试同一 URL 永远不会成功，直接停。
+    const isDeterministicNotFound = (err: any) => /404|找不到该文件/.test(String(err?.message ?? err))
 
     while (!success && tryCount < maxTries) {
       try {
@@ -63,11 +68,17 @@ const preloadNextMusic = async() => {
       } catch (err: any) {
         preloadLog.error(`Failed attempt ${tryCount + 1} for "${currentInfo.name}": ${err?.message || err}`)
 
+        if (isDeterministicNotFound(err)) {
+          preloadLog.warn(`Deterministic 404 for "${currentInfo.name}", stop retrying`)
+          break
+        }
+
         if (tryCount < maxTries - 1) {
           const nextInfo = await getNextPlayMusicInfo()
-          if (nextInfo && !('progress' in nextInfo.musicInfo)) {
+          if (nextInfo && !('progress' in nextInfo.musicInfo) && !attemptedIds.has(nextInfo.musicInfo.id)) {
             preloadLog.info(`Fallback to next song: "${nextInfo.musicInfo.name}"`)
             currentInfo = nextInfo.musicInfo
+            attemptedIds.add(currentInfo.id)
           } else {
             preloadLog.info('No more songs available for fallback')
             break

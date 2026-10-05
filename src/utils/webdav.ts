@@ -107,13 +107,27 @@ export async function uploadBinaryFile(
   await ensureDirectoryExists(cli, dirPath)
 
   onStage?.('正在读取文件...')
-  const fileInfo = await stat(localPath).catch(() => null)
+  // 2026-10-05：stat 失败必须如实抛错，禁止静默变成 size 0 的无效上传
+  let fileInfo
+  try {
+    fileInfo = await stat(localPath)
+  } catch (err: any) {
+    throw new Error(`本地文件不可读：${err?.message ?? err}`)
+  }
   const size = fileInfo?.size ?? 0
+  if (!fileInfo || fileInfo.isDirectory || size <= 0) {
+    throw new Error(`本地文件无效（大小 ${size}），无法上传`)
+  }
   webDAVLog.info(`Uploading binary file to ${remotePath}...`, { size })
 
   // 2026-10-05：用 webdav 库的 putFileContents（库内部处理 URL 编码和认证）
   // 之前 fetch+Blob 在 RN iOS 上不可靠，改回库方法
-  const base64 = await readFile(localPath, 'base64')
+  let base64: string
+  try {
+    base64 = await readFile(localPath, 'base64')
+  } catch (err: any) {
+    throw new Error(`读取本地文件失败：${err?.message ?? err}`)
+  }
   const buffer = Buffer.from(base64, 'base64')
 
   onStage?.('正在上传到服务器...')
