@@ -132,15 +132,31 @@ export const getWebDAVRemoteUrl = (remoteFilePath: string): string => {
   // 注意：webdav 库（JS 层）的 getFileDownloadLink 不编码 base 也能工作，但那是 JS 的 HTTP 客户端；
   // getWebDAVRemoteUrl 专供原生请求使用，必须编码。
   // 编码时用 decode-then-encode 保证幂等（防用户已手动编码导致的双重编码）。
+  // 注意：不用 new URL() 解析——Hermes 对含中文的 URL 解析可能失败，导致回退到未编码版本。
+  // 改用手动切分 protocol+host 与 path，保证任何情况下都编码。
   let baseUrl = creds.url.endsWith('/') ? creds.url.slice(0, -1) : creds.url
   const encodedFilePath = remote
     .substring(1)
     .split('/')
     .map(encodeURIComponent)
     .join('/')
-  try {
-    const urlObj = new URL(baseUrl)
-    const encodedPath = urlObj.pathname
+  // 手动切分：找到 path 起始位置（protocol://host 之后的第一个 /）
+  // 同时处理 query/hash：path 只取到 ? 或 # 之前
+  const encodeBasePath = (url: string): string => {
+    const protoIdx = url.indexOf('://')
+    if (protoIdx < 0) return url // 非法 URL，原样返回（xhr.open 前校验会拦截）
+    const pathStart = url.indexOf('/', protoIdx + 3)
+    if (pathStart < 0) return url // 无 path，原样返回
+    // 找 query/hash 起始
+    let pathEnd = url.length
+    const qIdx = url.indexOf('?', pathStart)
+    const hIdx = url.indexOf('#', pathStart)
+    if (qIdx >= 0) pathEnd = Math.min(pathEnd, qIdx)
+    if (hIdx >= 0) pathEnd = Math.min(pathEnd, hIdx)
+    const prefix = url.substring(0, pathStart) // protocol://host:port
+    const pathPart = url.substring(pathStart, pathEnd) // /DRH(主)/备份/LX_Music
+    const suffix = url.substring(pathEnd) // ?query 或 #hash 或空
+    const encodedPath = pathPart
       .split('/')
       .map(seg => {
         try {
@@ -150,16 +166,10 @@ export const getWebDAVRemoteUrl = (remoteFilePath: string): string => {
         }
       })
       .join('/')
-    // P1-1：把文件路径拼进 pathname 再 toString()，而不是在 toString() 后做字符串拼接。
-    // 否则 base URL 含 query（如 ?token=abc）时，路径会被拼到 query 后面导致 404。
-    // 同时去掉 pathname 末尾可能的多余斜杠，避免双斜杠。
-    const cleanPath = encodedPath.replace(/\/+$/, '')
-    urlObj.pathname = cleanPath + '/' + encodedFilePath
-    return urlObj.toString()
-  } catch {
-    // URL 解析失败时用原始值拼接（保持旧行为）
-    return `${baseUrl}/${encodedFilePath}`
+      .replace(/\/+$/, '') // 去末尾斜杠
+    return prefix + encodedPath + '/' + encodedFilePath + suffix
   }
+  return encodeBasePath(baseUrl)
 }
 
 /** 拼接远端目录与文件名，保证单斜杠分隔 */
