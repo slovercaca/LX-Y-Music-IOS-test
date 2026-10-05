@@ -1,27 +1,30 @@
 import { findMusic } from '@/utils/musicSdk'
-import { getWebDAVConfig, updateWebDAVMusicMeta, getWebDAVDownloadUrl, saveWebDAVConfig, getWebDAVRemoteUrl } from '@/core/webdavMusic/drive'
-import { downloadFile, existsFile, mkdir, unlink, getWebDAVPrivateDirectory } from '@/utils/fs'
+import {
+  getWebDAVConfig,
+  updateWebDAVMusicMeta,
+  getWebDAVDownloadUrl,
+  saveWebDAVConfig,
+  getWebDAVRemoteUrl,
+  getWebDAVAuthHeaders,
+  downloadToFileAtomic,
+} from '@/core/webdavMusic/drive'
+import { existsFile, mkdir, getWebDAVPrivateDirectory } from '@/utils/fs'
 import { toast, requestStoragePermission } from '@/utils/tools'
 import settingState from '@/store/setting/state'
-import { btoa } from 'react-native-quick-base64'
 import { updateListMusics, addListMusics } from '@/core/list'
 import { webDAVLog } from '@/core/webdavMusic/logger'
 import { readPic, readMetadata } from '@/utils/localMediaMetadata'
 import { handleGetOnlinePicUrl } from '@/core/music'
 import { LIST_IDS } from '@/config/constant'
 
-
-const getAuthHeaders = (): Record<string, string> => {
-  const headers: Record<string, string> = {
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; Pixel 3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.79 Mobile Safari/537.36',
-  }
-  const username = settingState.setting['sync.webdav.username']
-  const password = settingState.setting['sync.webdav.password']
-  if (username && password) {
-    headers.Authorization = 'Basic ' + btoa(`${username}:${password}`)
-  }
-  return headers
-}
+/**
+ * WebDAV 列表动作（重写版）。
+ *
+ * 职责：歌曲的"下载到本地 / 下载并导入下载列表 / 在线封面 / 移除"。
+ * 认证头统一走 getWebDAVAuthHeaders()（不再本地重复拼 Basic），
+ * 单曲/批量下载统一走 downloadToFileAtomic（statusCode 校验 + 原子落盘，
+ * 旧版单曲下载是直写目标文件、无原子保护）。
+ */
 
 const parsePathForName = (filePath: string) => ({
   ext: filePath.split('.').pop()?.toLowerCase() || '',
@@ -37,6 +40,120 @@ const chunk = <T>(arr: T[], size: number): T[][] => {
   return result
 }
 
+/** 下载目录：用户在「WebDAV 下载路径」选的目录，未选则用应用私有目录 */
+const getDefaultDownloadDir = (): string => {
+  const settings = settingState.setting
+  // 键名必须是 'webdav.downloadPath'（默认设置 / 「WebDAV 下载路径」选择器 /
+  // core/music/local.ts 用的都是它）
+  const webdavPath = settings['webdav.downloadPath']
+  if (webdavPath && typeof webdavPath === 'string' && webdavPath.trim()) {
+    return webdavPath.trim()
+  }
+  return getWebDAVPrivateDirectory()
+}
+
+/** 下载后读标签，回写名称/歌手/专辑（只补空缺，不覆盖已有） */
+const applyMetadataAfterDownload = async(
+  musicInfo: LX.WebDAV.MusicInfo,
+  filePath: string,
+): Promise<void> => {
+  const fileMetadata = await readMetadata(filePath).catch(() => null)
+  const updates: Record<string, any> = { filePath }
+  if (fileMetadata) {
+    if (fileMetadata.albumName) updates.albumName = fileMetadata.albumName
+    if (fileMetadata.name && !musicInfo.name) updates.name = fileMetadata.name
+    if (fileMetadata.singer && !musicInfo.singer) updates.singer = fileMetadata.singer
+  }
+  await updateWebDAVMusicMeta(musicInfo.id, updates)
+
+  const picPath = await readPic(filePath).catch(() => null)
+  if (picPath) {
+    const newPicUrl = picPath.startsWith('/') ? `file://${picPath}` : picPath
+    await updateWebDAVMusicMeta(musicInfo.id, { picUrl: newPicUrl })
+  }
+}
+
+/**
+ * 下载单首歌曲（含同名歌词）到 <下载目录>/music/（歌词进 lrc/）。
+ * 已存在则跳过；返回内嵌封面 URL（没有则 undefined）。
+ */
+export const handleWebDAVDownload = async(
+  musicInfo: LX.WebDAV.MusicInfo,
+): Promise<string | undefined> => {
+  const downloadDir = getDefaultDownloadDir()
+  const fileName = musicInfo.meta.fileName
+
+  if (!fileName) {
+    toast('无法获取文件名')
+    return undefined
+  }
+
+  // 歌曲下载到 music/ 子文件夹，歌词下载到 lrc/ 子文件夹
+  const musicDir = `${downloadDir}/music`
+  const lrcDir = `${downloadDir}/lrc`
+  const filePath = `${musicDir}/${fileName}`
+  const exists = await existsFile(filePath).catch(() => false)
+
+  if (!exists) {
+    try {
+      const headers = getWebDAVAuthHeaders()
+      const downloadUrl = getWebDAVDownloadUrl(musicInfo)
+      await mkdir(musicDir)
+      // 原子下载：校验 statusCode，防毒缓存（错误页面写入目标文件）
+      await downloadToFileAtomic({
+        url: downloadUrl,
+        targetPath: filePath,
+        statusError: (statusCode) => `下载失败（${statusCode}）`,
+        moveError: '下载失败（文件落盘失败）',
+      })
+
+      // 同时下载歌词（如果服务器上有同名 .lrc）
+      if (musicInfo.meta.lrcPath) {
+        try {
+          await mkdir(lrcDir)
+          const lrcFileName = fileName.replace(/\.[^/.]+$/, '.lrc')
+          const lrcFilePath = `${lrcDir}/${lrcFileName}`
+          const lrcExists = await existsFile(lrcFilePath).catch(() => false)
+          if (!lrcExists) {
+            const lrcUrl = getWebDAVRemoteUrl(musicInfo.meta.lrcPath)
+            await downloadToFileAtomic({
+              url: lrcUrl,
+              targetPath: lrcFilePath,
+              statusError: (statusCode) => `歌词下载失败（${statusCode}）`,
+              moveError: '歌词下载失败（文件落盘失败）',
+            })
+          }
+        } catch {
+          // 歌词下载失败不影响歌曲
+        }
+      }
+
+      await applyMetadataAfterDownload(musicInfo, filePath)
+    } catch (error: any) {
+      webDAVLog.error('handleWebDAVDownload: download failed', { fileName, error: error.message })
+      toast(`下载失败：${error.message}`, 'long')
+      return undefined
+    }
+  }
+
+  try {
+    const picPath = await readPic(filePath).catch(() => null)
+    if (picPath) {
+      const newPicUrl = picPath.startsWith('/') ? `file://${picPath}` : picPath
+      await updateWebDAVMusicMeta(musicInfo.id, { picUrl: newPicUrl })
+      return newPicUrl
+    }
+  } catch {
+    // ignore
+  }
+
+  return undefined
+}
+
+/**
+ * 批量下载：逐个下载，跳过已存在；本地记录被删则清掉旧 filePath。
+ * 返回成功下载（含已存在）的本地路径列表。
+ */
 export const handleWebDAVBatchDownload = async(
   songs: LX.WebDAV.MusicInfo[],
   onProgress?: (current: number, total: number, currentSong: string) => void,
@@ -55,20 +172,15 @@ export const handleWebDAVBatchDownload = async(
   try {
     await mkdir(downloadDir)
 
-    const headers = getAuthHeaders()
-
     let currentIndex = 0
     for (const musicInfo of songs) {
       currentIndex++
       const fileName = musicInfo.meta.fileName
-      // 2026-10-05 fix（P1-7）：批量下载同样使用 music/ 子目录（与单曲下载一致）
       if (!fileName) continue
       const musicDir = `${downloadDir}/music`
       const filePath = `${musicDir}/${fileName}`
 
-      if (onProgress) {
-        onProgress(currentIndex, songs.length, fileName)
-      }
+      onProgress?.(currentIndex, songs.length, fileName)
 
       const fileExists = await existsFile(filePath).catch(() => false)
 
@@ -81,39 +193,26 @@ export const handleWebDAVBatchDownload = async(
       if (fileExists) {
         webDAVLog.info('handleWebDAVBatchDownload: file already exists, skipping', { filePath })
         downloadedPaths.push(filePath)
-
         await updateWebDAVMusicMeta(musicInfo.id, { filePath })
         continue
       }
 
-      // 2026-10-05 fix（P1-7）：批量下载也下载歌词到 lrc/ 子目录
       await mkdir(musicDir).catch(() => {})
 
       try {
         const downloadUrl = getWebDAVDownloadUrl(musicInfo)
-        webDAVLog.info('handleWebDAVBatchDownload: downloading', { currentIndex, fileName, downloadUrl })
+        webDAVLog.info('handleWebDAVBatchDownload: downloading', { currentIndex, fileName })
 
-        await downloadFile(downloadUrl, filePath, { headers }).promise
+        await downloadToFileAtomic({
+          url: downloadUrl,
+          targetPath: filePath,
+          statusError: (statusCode) => `下载失败（${statusCode}）`,
+          moveError: '下载失败（文件落盘失败）',
+        })
 
-        const fileMetadata = await readMetadata(filePath).catch(() => null)
+        await applyMetadataAfterDownload(musicInfo, filePath)
 
-        const updates: Record<string, any> = { filePath }
-
-        if (fileMetadata) {
-          if (fileMetadata.albumName) updates.albumName = fileMetadata.albumName
-          if (fileMetadata.name && !musicInfo.name) updates.name = fileMetadata.name
-          if (fileMetadata.singer && !musicInfo.singer) updates.singer = fileMetadata.singer
-        }
-
-        await updateWebDAVMusicMeta(musicInfo.id, updates)
-
-        const picPath = await readPic(filePath).catch(() => null)
-        if (picPath) {
-          const newPicUrl = picPath.startsWith('/') ? `file://${picPath}` : picPath
-          await updateWebDAVMusicMeta(musicInfo.id, { picUrl: newPicUrl })
-        }
-
-        // 2026-10-05 fix（P1-7）：批量下载歌词到 lrc/ 子目录
+        // 歌词下载到 lrc/ 子目录
         if (musicInfo.meta.lrcPath) {
           try {
             const lrcDir = `${downloadDir}/lrc`
@@ -122,10 +221,13 @@ export const handleWebDAVBatchDownload = async(
             const lrcFilePath = `${lrcDir}/${lrcFileName}`
             if (!await existsFile(lrcFilePath).catch(() => false)) {
               const lrcUrl = getWebDAVRemoteUrl(musicInfo.meta.lrcPath)
-              const lrcResult = await downloadFile(lrcUrl, lrcFilePath, { headers }).promise
-              if (lrcResult.statusCode < 200 || lrcResult.statusCode >= 300) {
-                await unlink(lrcFilePath).catch(() => {})
-              }
+              // 原子下载：失败不污染目标路径，下次仍会重试
+              await downloadToFileAtomic({
+                url: lrcUrl,
+                targetPath: lrcFilePath,
+                statusError: (statusCode) => `歌词下载失败（${statusCode}）`,
+                moveError: '歌词下载失败（文件落盘失败）',
+              })
             }
           } catch {
             // 歌词下载失败不影响歌曲
@@ -147,6 +249,50 @@ export const handleWebDAVBatchDownload = async(
   }
 }
 
+const buildLocalMusicInfo = (
+  filePath: string,
+  metadata: Awaited<ReturnType<typeof readMetadata>>,
+  picPath: string | null,
+): LX.Music.MusicInfoLocal => {
+  const { nameWithoutExt, fileName } = parsePathForName(filePath)
+  return {
+    id: `local_${filePath}`,
+    name: metadata?.name || nameWithoutExt,
+    singer: metadata?.singer || '',
+    albumName: metadata?.albumName || '',
+    interval: metadata?.interval ? `${metadata.interval}s` : '',
+    source: 'local' as const,
+    meta: {
+      picUrl: picPath ? (picPath.startsWith('/') ? `file://${picPath}` : picPath) : '',
+      filePath,
+      fileName,
+    },
+  } as unknown as LX.Music.MusicInfoLocal
+}
+
+const buildLocalMusicInfoByFilePath = (filePath: string): LX.Music.MusicInfoLocal => {
+  const { nameWithoutExt, fileName } = parsePathForName(filePath)
+  return {
+    id: `local_${filePath}`,
+    name: nameWithoutExt,
+    singer: '',
+    albumName: '',
+    interval: '',
+    source: 'local' as const,
+    meta: {
+      picUrl: '',
+      fileName,
+      // filePath 必须带上：下载列表先添加后补全标签的两段式流程中，
+      // 中途任何播放/判断逻辑都依赖 meta.filePath 定位本地文件。
+      filePath,
+    },
+  } as unknown as LX.Music.MusicInfoLocal
+}
+
+/**
+ * 扫描并下载：先批量下载全部歌曲，再导入下载列表并逐批读取标签补全。
+ * （两段式：先按文件名占位添加，再读标签 update，避免 UI 长时间卡死）
+ */
 export const handleWebDAVDownloadAndImport = async(
   songs: LX.WebDAV.MusicInfo[],
   setLoadingText: (text: string) => void,
@@ -251,7 +397,9 @@ export const handleWebDAVDownloadAndImport = async(
       }
       setLoadingText(`正在读取标签 ${Math.min(index + 11, total)}/${total}...`)
       index += 10
-      if (filePaths.length - 1 > index) { await handleUpdateMusics(filePaths, throttleUpdateMusics, index, total, errorPath) } else {
+      if (filePaths.length - 1 > index) {
+        await handleUpdateMusics(filePaths, throttleUpdateMusics, index, total, errorPath)
+      } else {
         if (errorPath.length) {
           toast(
             global.i18n.t('list_select_local_file_result_failed_tip', {
@@ -289,139 +437,7 @@ export const handleWebDAVDownloadAndImport = async(
   }
 }
 
-const getDefaultDownloadDir = () => {
-  const settings = settingState.setting
-  // 键名必须是 'webdav.downloadPath'（默认设置 / 「WebDAV 下载路径」选择器 /
-  // core/music/local.ts 用的都是它）。此前这里写成 'sync.webdav.downloadPath'，
-  // 该键并不存在 → 用户在配置页选的下载目录被完全忽略，下载永远落到私有目录。
-  const webdavPath = settings['webdav.downloadPath']
-  if (webdavPath && typeof webdavPath === 'string' && webdavPath.trim()) {
-    return webdavPath.trim()
-  }
-  return getWebDAVPrivateDirectory()
-}
-
-const buildLocalMusicInfo = (
-  filePath: string,
-  metadata: Awaited<ReturnType<typeof readMetadata>>,
-  picPath: string | null,
-): LX.Music.MusicInfoLocal => {
-  const { nameWithoutExt, fileName } = parsePathForName(filePath)
-  return {
-    id: `local_${filePath}`,
-    name: metadata?.name || nameWithoutExt,
-    singer: metadata?.singer || '',
-    albumName: metadata?.albumName || '',
-    interval: metadata?.interval ? `${metadata.interval}s` : '',
-    source: 'local' as const,
-    meta: {
-      picUrl: picPath ? (picPath.startsWith('/') ? `file://${picPath}` : picPath) : '',
-      filePath,
-      fileName,
-    },
-  } as unknown as LX.Music.MusicInfoLocal
-}
-
-const buildLocalMusicInfoByFilePath = (filePath: string): LX.Music.MusicInfoLocal => {
-  const { nameWithoutExt, fileName } = parsePathForName(filePath)
-  return {
-    id: `local_${filePath}`,
-    name: nameWithoutExt,
-    singer: '',
-    albumName: '',
-    interval: '',
-    source: 'local' as const,
-    meta: {
-      picUrl: '',
-      fileName,
-      // filePath 必须带上：下载列表先添加后补全标签的两段式流程中，
-      // 中途任何播放/判断逻辑都依赖 meta.filePath 定位本地文件。
-      filePath,
-    },
-  } as unknown as LX.Music.MusicInfoLocal
-}
-
-/**
- * 下载单首 WebDAV 歌曲，返回封面 URL
- */
-export const handleWebDAVDownload = async(
-  musicInfo: LX.WebDAV.MusicInfo,
-): Promise<string | undefined> => {
-  const downloadDir = getDefaultDownloadDir()
-  const fileName = musicInfo.meta.fileName
-
-  if (!fileName) {
-    toast('无法获取文件名')
-    return undefined
-  }
-
-  // 2026-10-04：歌曲下载到 music/ 子文件夹，歌词下载到 lrc/ 子文件夹
-  const musicDir = `${downloadDir}/music`
-  const lrcDir = `${downloadDir}/lrc`
-  const filePath = `${musicDir}/${fileName}`
-  const exists = await existsFile(filePath).catch(() => false)
-
-  if (!exists) {
-    try {
-      const headers = getAuthHeaders()
-
-      const downloadUrl = getWebDAVDownloadUrl(musicInfo)
-      await mkdir(musicDir)
-      // 2026-10-05 fix（P1-8）：校验 statusCode，防毒缓存（错误页面写入）
-      const result = await downloadFile(downloadUrl, filePath, { headers }).promise
-      if (result.statusCode < 200 || result.statusCode >= 300) {
-        await unlink(filePath).catch(() => {})
-        throw new Error(`下载失败（${result.statusCode}）`)
-      }
-
-      // 同时下载歌词（如果服务器上有同名 .lrc）
-      if (musicInfo.meta.lrcPath) {
-        try {
-          await mkdir(lrcDir)
-          const lrcFileName = fileName.replace(/\.[^/.]+$/, '.lrc')
-          const lrcFilePath = `${lrcDir}/${lrcFileName}`
-          const lrcExists = await existsFile(lrcFilePath).catch(() => false)
-          if (!lrcExists) {
-            const lrcUrl = getWebDAVRemoteUrl(musicInfo.meta.lrcPath)
-            await downloadFile(lrcUrl, lrcFilePath, { headers }).promise
-          }
-        } catch {
-          // 歌词下载失败不影响歌曲
-        }
-      }
-
-      const fileMetadata = await readMetadata(filePath).catch(() => null)
-      const updates: Record<string, any> = { filePath }
-      if (fileMetadata) {
-        if (fileMetadata.albumName) updates.albumName = fileMetadata.albumName
-        if (fileMetadata.name && !musicInfo.name) updates.name = fileMetadata.name
-        if (fileMetadata.singer && !musicInfo.singer) updates.singer = fileMetadata.singer
-      }
-      await updateWebDAVMusicMeta(musicInfo.id, updates)
-    } catch (error: any) {
-      webDAVLog.error('handleWebDAVDownload: download failed', { fileName, error: error.message })
-      toast(`下载失败：${error.message}`, 'long')
-      return undefined
-    }
-  }
-
-  try {
-    const picPath = await readPic(filePath).catch(() => null)
-    if (picPath) {
-      const newPicUrl = picPath.startsWith('/') ? `file://${picPath}` : picPath
-      await updateWebDAVMusicMeta(musicInfo.id, { picUrl: newPicUrl })
-      return newPicUrl
-    }
-  } catch {
-    // ignore
-  }
-
-  return undefined
-}
-
-/**
- * 从在线音乐源获取封面
- */
+/** 从在线音乐源获取封面（按歌名/歌手匹配） */
 export const handleFetchWebDAVPicFromOnline = async(
   musicInfo: LX.WebDAV.MusicInfo,
 ): Promise<string | undefined> => {
@@ -459,9 +475,7 @@ export const handleFetchWebDAVPicFromOnline = async(
   return undefined
 }
 
-/**
- * 从 WebDAV 列表中移除歌曲
- */
+/** 从 WebDAV 列表中移除歌曲（只删本地记录，不删服务器文件） */
 export const handleWebDAVRemove = async(
   musicInfo: LX.WebDAV.MusicInfo,
 ): Promise<void> => {
