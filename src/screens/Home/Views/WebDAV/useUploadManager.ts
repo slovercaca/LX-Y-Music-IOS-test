@@ -206,7 +206,12 @@ export function useUploadManager(deps: UploadManagerDeps) {
         webDAVLog.warn('[upload] 跳过 localPath 为空的项', { fileName: r.fileName })
         continue
       }
-      const fileName = r.fileName || fileNameOf(r.localPath)
+      let fileName = r.fileName || fileNameOf(r.localPath)
+      // 兜底：文件名无后缀时从 localPath 补（如文件选择器返回的 name 缺后缀）
+      if (!/\.[a-z0-9]+$/i.test(fileName)) {
+        const pathExt = fileNameOf(r.localPath).match(/\.([a-z0-9]+)$/i)?.[1]
+        if (pathExt) fileName = `${fileName}.${pathExt}`
+      }
       const kind = extOf(fileName) === 'lrc' ? 'lrc' : 'audio'
       const remotePath = buildUploadRemotePath(targetDir, fileName, kind)
       // 按 本地路径+远端路径 去重（同一文件重复添加直接跳过）
@@ -769,7 +774,20 @@ export function useUploadManager(deps: UploadManagerDeps) {
     void selectFile({ extTypes: ['mp3', 'flac', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'wma', 'ape', 'lrc'] })
       .then(async(res) => {
         if (!res?.path) return
-        const fileName = res.name || fileNameOf(res.path)
+        let fileName = res.name || fileNameOf(res.path)
+        // 修复：iOS 文件选择器返回的 name 可能不带后缀名（如音频文件），
+        // 导致上传后无法识别类型。从 path 补后缀，path 也没有则按选择类型兜底。
+        if (!/\.[a-z0-9]+$/i.test(fileName)) {
+          const pathName = fileNameOf(res.path)
+          const pathExt = pathName.match(/\.([a-z0-9]+)$/i)?.[1]
+          if (pathExt) {
+            fileName = `${fileName}.${pathExt}`
+          } else {
+            // 兜底：根据 extTypes 无法判断时，默认 mp3（音频）或 lrc
+            // 实际应从 res.type 或文件头判断，这里保守处理
+            webDAVLog.warn('[upload] 文件名无后缀，无法确定类型', { fileName, path: res.path })
+          }
+        }
         let size = res.size || 0
         if (!size) {
           try {
