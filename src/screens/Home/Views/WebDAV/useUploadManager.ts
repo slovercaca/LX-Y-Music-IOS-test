@@ -74,6 +74,8 @@ export function useUploadManager(deps: UploadManagerDeps) {
   const userPausedRef = useRef(new Set<string>())
   /** 已从队列删除的 id：abort 回调直接清理，不写历史 */
   const removedRef = useRef(new Set<string>())
+  /** 看门狗触发的 abort 的 id：按失败（可重试）处理，而非 cancelled */
+  const stallAbortedRef = useRef(new Set<string>())
   const queueStateRef = useRef<WebDAVUploadQueueState>('idle')
   const generationRef = useRef(0)
   const lastBumpRef = useRef(0)
@@ -285,6 +287,7 @@ export function useUploadManager(deps: UploadManagerDeps) {
   const finishItem = useCallback((item: WebDAVUploadQueueItem, status: WebDAVUploadQueueItem['status'], error?: string) => {
     abortHandlesRef.current.delete(item.id)
     userPausedRef.current.delete(item.id)
+    stallAbortedRef.current.delete(item.id)
     item.status = status
     if (error) item.error = error
     if (status === 'completed') item.uploadedBytes = item.size
@@ -304,12 +307,33 @@ export function useUploadManager(deps: UploadManagerDeps) {
     let lastAt = startAt
     /** 本轮是否仍有效：item 未被删除、未被新一轮接管（防 stale worker 重复结算） */
     const stillMine = () => itemsRef.current.get(item.id) === item && item.attempt === attempt
+    // 90 秒无进度看门狗：XHR 卡死时自动中断，转失败可重试（不无限卡"上传中"）
+    const UPLOAD_STALL_MS = 90000
+    const stallTimer = setInterval(() => {
+      if (!stillMine()) {
+        clearInterval(stallTimer)
+        return
+      }
+      if (item.status === 'uploading' && Date.now() - item.lastProgressAt > UPLOAD_STALL_MS) {
+        webDAVLog.warn('[upload] 90s 无进度，看门狗中断', { fileName: item.fileName })
+        clearInterval(stallTimer)
+        // 标记为看门狗中断：catch 里按失败处理（可重试），而非 cancelled
+        stallAbortedRef.current.add(item.id)
+        try {
+          abortHandlesRef.current.get(item.id)?.abort()
+        } catch { /* 忽略 */ }
+      }
+    }, 15000)
     try {
       await putFileWithProgress({
         remotePath: item.remotePath,
         localPath: item.localPath,
         size: item.size,
         contentType: contentTypeForExt(extOf(item.fileName)),
+        onAbortHandle: (handle) => {
+          // 只保留本轮的句柄：stale worker 的句柄不覆盖
+          if (stillMine()) abortHandlesRef.current.set(item.id, handle)
+        },
         onProgress: (loaded, total) => {
           if (gen !== generationRef.current) return
           const now = Date.now()
@@ -321,17 +345,21 @@ export function useUploadManager(deps: UploadManagerDeps) {
           item.speed = item.speed > 0 ? item.speed * 0.7 + instant * 0.3 : instant
           item.lastProgressAt = now
           void total
+          // bump 内部已有 250ms 节流（PROGRESS_BUMP_MS），XHR 高频进度事件不会淹没 JS 线程
           bump()
         },
       })
+      clearInterval(stallTimer)
       if (!stillMine()) return
       webDAVLog.info('[upload] 完成', { fileName: item.fileName, remotePath: item.remotePath })
       finishItem(item, 'completed')
     } catch (err: any) {
+      clearInterval(stallTimer)
       if (!stillMine()) {
         // 已被删除或被新一轮接管：只清理句柄，不结算
         abortHandlesRef.current.delete(item.id)
             userPausedRef.current.delete(item.id)
+            stallAbortedRef.current.delete(item.id)
         return
       }
       // 已被删除的项：只清理，不写历史
@@ -339,9 +367,16 @@ export function useUploadManager(deps: UploadManagerDeps) {
         removedRef.current.delete(item.id)
         abortHandlesRef.current.delete(item.id)
             userPausedRef.current.delete(item.id)
+            stallAbortedRef.current.delete(item.id)
         return
       }
       if (err instanceof UploadAbortedError) {
+        // 看门狗中断：按失败处理（可重试），不是用户取消
+        if (stallAbortedRef.current.has(item.id)) {
+          stallAbortedRef.current.delete(item.id)
+          finishItem(item, 'failed', '上传停滞（90秒无进度），已中断，可重试')
+          return
+        }
         // 用户单项暂停计 paused；队列整体暂停计 paused；其他（删除）计 cancelled
         if (userPausedRef.current.has(item.id)) {
           userPausedRef.current.delete(item.id)

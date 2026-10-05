@@ -1,10 +1,15 @@
+import { Buffer } from 'buffer'
 import { existsFile } from '@/utils/fs'
 import {
   getWebDAVMusicDir,
   getWebDAVLrcDir,
+  getWebDAVRemoteUrl,
+  getWebDAVAuthHeaders,
   joinWebDAVRemotePath,
 } from './client'
-import { getStat, uploadBinaryFile } from './files'
+import { getStat } from './files'
+import { readFile } from '@/utils/fs'
+import { webDAVLog } from '@/utils/log'
 
 // ---------------------------------------------------------------------------
 // 类型
@@ -122,23 +127,28 @@ export interface PutFileOptions {
   localPath: string
   size: number
   contentType?: string
-  /** 进度回调（当前为文件粒度：完成时一次性置满） */
+  /** 字节级进度回调（XHR upload.onprogress 真实字节） */
   onProgress?: (loaded: number, total: number) => void
+  /** 透出 abort 句柄，调用方（暂停/删除）可中断传输 */
+  onAbortHandle?: (handle: { abort: () => void }) => void
 }
 
 /**
- * 带进度的单文件 PUT。
+ * 带真实字节级进度的单文件 PUT（XHR + Blob）。
  *
- * 2026-10-05 安全修复：XHR+Blob 传输在真机上未经验证，且与原生崩溃
- * （-[__NSPlaceholderDictionary initWithObjects:forKeys:count:] attempt to insert nil）
- * 高度相关，已默认关闭。当前使用 webdav 库 PUT（已验证可完成），进度为文件粒度；
- * 字节级进度待真机验证 XHR+Blob 安全性后再启用。
+ * 2026-10-05 闪退修复：RN 桥接层 `-[__NSPlaceholderDictionary initWithObjects:forKeys:count:]`
+ * 崩溃的根因是 `xhr.setRequestHeader(name, undefined)` —— JS 传 undefined 给原生模块，
+ * 原生尝试创建 NSDictionary 时遇到 nil 直接崩。本实现：
+ * 1. 所有 header 值先做 nil 过滤，undefined/null 一律不 set；
+ * 2. Content-Type 仅在有值时设置；
+ * 3. Blob 创建前校验数据非空；
+ * 4. 进度回调 try/catch 包裹，永不打断上传。
  *
  * 用户暂停/删除导致的 abort 以 UploadAbortedError 抛出，调用方据此置 paused/cancelled，
  * 不计为失败。
  */
 export const putFileWithProgress = async(options: PutFileOptions): Promise<void> => {
-  const { remotePath, localPath, size, contentType, onProgress } = options
+  const { remotePath, localPath, size, contentType, onProgress, onAbortHandle } = options
   const report = (loaded: number, total: number) => {
     try {
       onProgress?.(loaded, total)
@@ -147,9 +157,96 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
     }
   }
 
-  // webdav 库 PUT（无字节级进度，完成后一次性置满）
-  await uploadBinaryFile(remotePath, localPath, contentType)
-  report(size, size)
+  // 读本地文件为 base64，转 Buffer 再包 Blob（RN XHR send Blob 走原生上传，有真实进度）
+  // 用 Buffer.from 而不用 atob+循环：大文件时 atob 会产生翻倍的中间内存
+  const base64 = await readFile(localPath, 'base64').catch(() => '')
+  if (!base64) throw new Error(`本地文件读取失败：${localPath}`)
+  const buffer = Buffer.from(base64, 'base64')
+  if (buffer.length === 0) throw new Error(`本地文件为空：${localPath}`)
+  if (buffer.length !== size) {
+    webDAVLog.warn('[upload] 文件大小与入队时不一致', { remotePath, expected: size, actual: buffer.length })
+  }
+
+  const url = getWebDAVRemoteUrl(remotePath)
+  const authHeaders = getWebDAVAuthHeaders()
+
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    let settled = false
+    const done = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      fn()
+    }
+
+    // 透出 abort 句柄：暂停/删除时中断传输
+    try {
+      onAbortHandle?.({
+        abort: () => {
+          done(() => reject(new UploadAbortedError()))
+          try { xhr.abort() } catch { /* 忽略 */ }
+        },
+      })
+    } catch {
+      // 句柄回调异常不影响上传本身
+    }
+
+    xhr.open('PUT', url, true)
+
+    // ---- 闪退修复核心：header 值必须非空 ----
+    // RN 的 setRequestHeader 最终走原生 NSDictionary，value 为 undefined/null 会直接崩溃。
+    // 这里逐个检查，只 set 有值的 header。
+    try {
+      for (const key of Object.keys(authHeaders)) {
+        const value = (authHeaders as Record<string, unknown>)[key]
+        if (value !== undefined && value !== null && value !== '') {
+          xhr.setRequestHeader(key, String(value))
+        }
+      }
+      if (contentType !== undefined && contentType !== null && contentType !== '') {
+        xhr.setRequestHeader('Content-Type', String(contentType))
+      }
+    } catch (e: any) {
+      done(() => reject(new Error(`设置请求头失败：${e?.message || e}`)))
+      return
+    }
+
+    // xhr.upload 在某些 RN 版本/环境下可能为 undefined，直接赋值会抛 TypeError
+    // 且 Promise 永不结算（卡死）。先判空，有才挂进度回调。
+    try {
+      if (xhr.upload) {
+        xhr.upload.onprogress = (e: any) => {
+          try {
+            if (e && e.lengthComputable) report(e.loaded, e.total)
+          } catch { /* 忽略 */ }
+        }
+      }
+    } catch { /* 忽略：无进度事件不影响上传本身 */ }
+
+    xhr.onload = () => {
+      done(() => {
+        const status = xhr.status || 0
+        if (status >= 200 && status < 300) {
+          report(buffer.length, buffer.length)
+          resolve()
+        } else {
+          reject(new Error(`上传失败（HTTP ${status}）`))
+        }
+      })
+    }
+    xhr.onerror = () => done(() => reject(new Error('上传网络错误')))
+    xhr.ontimeout = () => done(() => reject(new Error('上传超时')))
+    xhr.onabort = () => done(() => reject(new UploadAbortedError()))
+    // 大文件上传：10 分钟超时（webdav 库版本是 2 分钟，XHR 给更宽裕）
+    xhr.timeout = 600000
+
+    try {
+      const blob = new Blob([buffer as any], contentType ? { type: contentType } : undefined)
+      xhr.send(blob as any)
+    } catch (e: any) {
+      done(() => reject(new Error(`创建上传数据失败：${e?.message || e}`)))
+    }
+  })
 
   // 成功后校验远端大小：2xx 不代表字节无损（如代理截断）；服务器不返回大小时放行
   const ok = await verifyRemoteSize(remotePath, size)
