@@ -171,11 +171,17 @@ const styles = createStyle({
     borderRadius: designRadius.md,
   },
   // 2026-10-04：内层玻璃（内容区玻璃），承载行内容
+  // 2026-10-04：内层玻璃容器（内容区玻璃）
+  // 2026-10-05：加细边框强化玻璃边缘
   glassRow: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: designSpacing.md,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+    borderRadius: 12,
+    overflow: 'hidden',
   },
   label: {
     flex: 1,

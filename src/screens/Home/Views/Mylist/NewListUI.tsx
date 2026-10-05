@@ -881,10 +881,15 @@ const styles = createStyle({
     overflow: 'hidden',
   },
   // 2026-10-04：内层玻璃容器（内容区玻璃），填满卡片
+  // 2026-10-05：加细边框强化玻璃边缘（与设置页卡片观感一致）
   glassInner: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.18)',
+    borderRadius: 12,
+    overflow: 'hidden',
   },
   cardContent: {
     flex: 1,
