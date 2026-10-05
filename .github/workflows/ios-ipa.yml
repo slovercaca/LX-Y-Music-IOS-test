@@ -159,8 +159,14 @@ jobs:
           SRC_IPA="build/LX-Y Music-v${PACKAGE_VERSION}-ios-unsigned.ipa"
           IPA_NAME="LX-Y-Test.Music-${TAG_NAME}.ipa"
           mv "$SRC_IPA" "build/${IPA_NAME}"
-          gh release create "${TAG_NAME}" "build/${IPA_NAME}" \
-            --title "${TAG_NAME}" \
-            --draft \
-            --generate-notes || true
-          echo "Draft release '${TAG_NAME}' created with '${IPA_NAME}'. Edit release notes, then publish manually."
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            # draft 已存在（网页端先建的 tag），直接把 IPA 传上去
+            gh release upload "${TAG_NAME}" "build/${IPA_NAME}" --clobber || true
+            echo "Uploaded '${IPA_NAME}' to existing draft release '${TAG_NAME}'.""
+          else
+            gh release create "${TAG_NAME}" "build/${IPA_NAME}" \
+              --title "${TAG_NAME}" \
+              --draft \
+              --generate-notes || true
+            echo "Draft release '${TAG_NAME}' created with '${IPA_NAME}'. Edit release notes, then publish manually.""
+          fi
