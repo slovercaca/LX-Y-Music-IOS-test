@@ -37,6 +37,7 @@ import {
   updateWebDAVMusicMeta,
   checkWebDAVRemoteExists,
   joinWebDAVRemotePath,
+  getWebDAVMusicDir,
   uploadWebDAVMusicFile,
   type WebDAVUploadItem,
 } from '@/core/webdavMusic/drive'
@@ -56,7 +57,7 @@ import {
 import { readMetadata, readPic } from '@/utils/localMediaMetadata'
 import { useSettingValue } from '@/store/setting/hook'
 import { testConnection, resetClient } from '@/utils/webdav'
-import { existsFile, selectFile, unlink } from '@/utils/fs'
+import { existsFile, selectFile, stat, unlink } from '@/utils/fs'
 import InputItem from '@/screens/Home/Views/Setting/components/InputItem'
 import { updateSetting } from '@/core/common'
 
@@ -708,7 +709,27 @@ export default memo(() => {
     withLyrics?: boolean,
   ): Promise<boolean> => {
     // 2026-10-05 fix（P1-5）：返回是否真正开始上传，供调用方决定是否清理队列
-    if (items.length === 0) return false
+    // 2026-10-05：先校验本地文件真实可读且大小 > 0（stat 失败/大小为 0 直接跳过，
+    // 不再让 uploadBinaryFile 吞掉错误变成 size 0 的无效上传）
+    const validItems: WebDAVUploadItem[] = []
+    const invalidNames: string[] = []
+    for (const item of items) {
+      try {
+        const info = await stat(item.localPath)
+        if (info && !info.isDirectory && info.size > 0) {
+          validItems.push({ ...item, size: info.size })
+        } else {
+          invalidNames.push(item.fileName)
+        }
+      } catch {
+        invalidNames.push(item.fileName)
+      }
+    }
+    if (invalidNames.length > 0) {
+      toast(`以下文件本地不可读，已跳过：${invalidNames.slice(0, 3).join('、')}${invalidNames.length > 3 ? `（等共 ${invalidNames.length} 个）` : ''}`, 'long')
+    }
+    if (validItems.length === 0) return false
+    items = validItems
     const totalSize = items.reduce((sum, it) => sum + (it.size || 0), 0)
     // 超大文件走 base64 中转内存，100MB 以上先提醒
     if (totalSize > 100 * 1024 * 1024) {
@@ -733,9 +754,8 @@ export default memo(() => {
     setBatchLoadingText('正在检查服务器文件...')
     const conflicts: string[] = []
     for (const item of items) {
-      // 2026-10-05 fix（P1-3）：实际上传目标是 <target>/music/<fileName>，
-      // 预检路径也要加上 music/，否则冲突永远检查不出来
-      const remotePath = joinWebDAVRemotePath(joinWebDAVRemotePath(uploadTargetDir, 'music'), item.fileName)
+      // 2026-10-05：冲突预检必须走统一目录语义（与 uploadWebDAVMusicFile 实际目标一致）
+      const remotePath = joinWebDAVRemotePath(getWebDAVMusicDir(uploadTargetDir), item.fileName)
       if (await checkWebDAVRemoteExists(remotePath).catch(() => false)) {
         conflicts.push(item.fileName)
       }
@@ -1367,7 +1387,7 @@ export default memo(() => {
           <View style={styles.uploadSection}>
             <Text size={designTypography.caption} color={theme['c-font-label']}>上传目标目录</Text>
             <Text size={designTypography.body} color={theme['c-font']} numberOfLines={2} style={styles.uploadTargetPath}>
-              {uploadTargetDir}
+              {getWebDAVMusicDir(uploadTargetDir)}
             </Text>
           </View>
 
