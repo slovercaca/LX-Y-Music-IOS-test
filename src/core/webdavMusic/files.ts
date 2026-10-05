@@ -212,9 +212,31 @@ export const downloadToFileAtomic = async(options: {
   const tmpPath = `${targetPath}.${Date.now().toString(36)}${Math.random().toString(36).slice(2)}.tmp`
   const cleanupTmp = () => unlink(tmpPath).catch(() => {})
   try {
-    const result = await rnDownloadFile(url, tmpPath, { headers: getWebDAVAuthHeaders() }).promise
+    // 诊断日志：404 排查用。记录完整 URL 和 headers（密码脱敏）。
+    // 如果下载 404 但 PROPFIND 正常，对比两者差异定位问题。
+    const headers = getWebDAVAuthHeaders()
+    const safeHeaders: Record<string, string> = {}
+    for (const k of Object.keys(headers)) {
+      if (k.toLowerCase() === 'authorization') {
+        // 只显示认证类型和长度，不显示具体值
+        const v = headers[k] || ''
+        safeHeaders[k] = v.split(' ')[0] + ' <' + v.length + ' chars>'
+      } else {
+        safeHeaders[k] = headers[k]
+      }
+    }
+    webDAVLog.info('downloadToFileAtomic: 开始下载', { url, headers: safeHeaders })
+    const result = await rnDownloadFile(url, tmpPath, { headers }).promise
     if (result.statusCode < 200 || result.statusCode >= 300 || !result.bytesWritten) {
-      webDAVLog.error('downloadToFileAtomic: 下载失败', { statusCode: result.statusCode, url })
+      webDAVLog.error('downloadToFileAtomic: 下载失败', {
+        statusCode: result.statusCode,
+        url,
+        headers: safeHeaders,
+        bytesWritten: result.bytesWritten,
+        // 提示：如果 PROPFIND 能列出文件但 GET 404，
+        // 可能是服务器对未认证请求返回 404（鉴权头有问题），
+        // 或 URL 编码与服务器期望不一致。
+      })
       throw new Error(statusError(result.statusCode))
     }
     try {
