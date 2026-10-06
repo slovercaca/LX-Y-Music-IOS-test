@@ -120,11 +120,25 @@ async function uploadSettings(): Promise<number> {
  * - 时间戳 last-write-wins：远端新则下载，本地变则上传
  * - hash 存的是过滤敏感键后的设置 JSON，确保上传/下载/比较用同一口径
  */
+/**
+ * P1-6（2026-10-06）：计算设置 hash 时剔除同步元数据键自身。
+ * 否则 hash 输入包含 `lastSyncSettingsHash`/`lastSyncTimeSettings`，
+ * 每次上传后更新这俩键 → hash 必然变化 → 下次必再上传 → 双设备无限 ping-pong。
+ */
+const hashSettingsForSync = (settings: Record<string, unknown>): string => {
+  const filtered: Record<string, unknown> = {}
+  for (const key of Object.keys(settings)) {
+    if (key.startsWith('sync.webdav.lastSync')) continue
+    filtered[key] = settings[key]
+  }
+  return JSON.stringify(filtered)
+}
+
 async function syncSettingsAuto(): Promise<void> {
   if (settingState.setting['sync.webdav.syncSettings'] === false) return
   const includeCookies = settingState.setting['sync.webdav.syncCookies'] === true
   const { settings } = await getAllDataForSync(includeCookies)
-  const localHash = JSON.stringify(settings)
+  const localHash = hashSettingsForSync(settings as Record<string, unknown>)
   const lastHash = settingState.setting['sync.webdav.lastSyncSettingsHash'] ?? ''
   const localTimestamp = settingState.setting['sync.webdav.lastSyncTimeSettings'] ?? 0
 
@@ -155,7 +169,7 @@ async function syncSettingsAuto(): Promise<void> {
     updateSetting(filtered)
     updateSetting({
       'sync.webdav.lastSyncTimeSettings': remoteTimestamp,
-      'sync.webdav.lastSyncSettingsHash': JSON.stringify(filtered),
+      'sync.webdav.lastSyncSettingsHash': hashSettingsForSync(filtered as Record<string, unknown>),
     })
   } else if (lastHash !== localHash) {
     // 本地有变化：上传
@@ -319,6 +333,10 @@ const hasLocalExtraDataChanges = async(remoteData: ListsSyncFile): Promise<boole
   const remoteDownloads = settingState.setting['sync.webdav.syncDownloadTasks']
     ? normalizeDownloadTasksForSync(remoteData.downloadTasks ?? [])
     : []
+  // P2-4（2026-10-06）：先比长度，长度不等直接返回 true，避免对 5000 条历史
+  // 做两次全量 JSON.stringify（性能优化）
+  if (localHistory.length !== remoteHistory.length) return true
+  if (localDownloads.length !== remoteDownloads.length) return true
   return JSON.stringify({ playHistory: localHistory, downloadTasks: localDownloads })
     !== JSON.stringify({ playHistory: remoteHistory, downloadTasks: remoteDownloads })
 }
@@ -498,7 +516,9 @@ export async function manualDownloadLists(onProgress?: SyncProgressCallback): Pr
 let listsChanged = false
 let settingsChanged = false
 
-void loadOperationQueue()
+void loadOperationQueue().catch(() => {
+  // P2（2026-10-06）：启动加载失败不阻断主流程，已有日志
+})
 
 const debouncedSync = debounce(() => {
   if (!settingState.setting['sync.webdav.enable']) return
@@ -584,6 +604,11 @@ export async function triggerWebDAVSync(isManual = false): Promise<void> {
 
   try {
     await runWithWebDAVFailover(async() => {
+      // P1-7（2026-10-06）：歌单同步受 sync.webdav.syncLists 开关控制。
+      // 自动触发时若开关关闭，跳过歌单流程（只跑设置/插件自动同步）；
+      // 手动触发（isManual）时允许，方便用户手动同步一次。
+      // 注意 syncLists 默认 false，老用户 undefined 按关闭处理（与 UI 一致）。
+      if (settingState.setting['sync.webdav.syncLists'] || isManual) {
       const remoteListsContent = await webdav.downloadFile(remoteListsPath())
 
       // 云端没有歌单文件：直接上传本地
@@ -679,6 +704,7 @@ export async function triggerWebDAVSync(isManual = false): Promise<void> {
         webDAVLog.info('[Sync] Lists are up to date.')
         toast('歌单已是最新，无需同步')
       }
+      } // P1-7: syncLists 开关 guard 结束
 
       // 自动同步设置与自定义音源（2026-10-06）：歌单同步完成后顺带执行，
       // 各自有独立开关 sync.webdav.syncSettings / sync.webdav.syncUserApis，
@@ -697,7 +723,8 @@ export async function triggerWebDAVSync(isManual = false): Promise<void> {
     })
   } catch (error: any) {
     webDAVLog.error(`[Sync] Sync failed: ${error.stack ?? error.message}`)
-    toast(`同步失败: ${error.message}`, 'long')
+    // P2（2026-10-06）：error.message 可能为 undefined，避免 toast 显示"同步失败: undefined"
+    toast(`同步失败: ${error?.message ?? '未知错误'}`, 'long')
   } finally {
     isSyncing = false
   }

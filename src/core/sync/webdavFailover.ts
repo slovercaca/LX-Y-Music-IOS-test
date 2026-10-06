@@ -28,8 +28,22 @@ const isFailoverWorthyError = (error: any): boolean => {
   const msg = String(error?.message ?? '')
   if (msg.includes('未配置')) return false
   const status = error?.status ?? error?.response?.status
-  if (status == null) return true
-  return status === 401 || status === 403 || status === 407 || status === 408 || status === 429 || status >= 500
+  if (status != null) {
+    return status === 401 || status === 403 || status === 407 || status === 408 || status === 429 || status >= 500
+  }
+  // P1-8（2026-10-06）：无 status 时只对真正的网络错误转移，
+  // 普通 JS TypeError（如逻辑 bug 导致的）不转移，避免误切服务器。
+  // 网络错误特征：RN fetch 的 "Network request failed"、iOS NSURLError*、
+  // 原生模块 E_ 开头 code、常见网络关键字。
+  const code = String(error?.code ?? '')
+  if (code.startsWith('E_') || code.startsWith('NSURLError')) return true
+  const lowerMsg = msg.toLowerCase()
+  const networkKeywords = ['network request failed', 'network connection was lost', 'timeout', 'timed out',
+    'econn', 'enotfound', 'eai_again', 'epipe', 'ehostunreach', 'enetunreach', 'socket hang up']
+  if (networkKeywords.some(k => lowerMsg.includes(k))) return true
+  // fetch 的 TypeError 无 code、无 status，但 message 是网络错误时也算
+  if (error instanceof TypeError && lowerMsg.includes('network')) return true
+  return false
 }
 
 const notify = (message: string) => {

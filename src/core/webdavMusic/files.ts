@@ -5,6 +5,7 @@ import {
   existsFile,
   moveFile,
   read,
+  readDir,
   readFile,
   stat as statLocalFile,
   unlink,
@@ -102,7 +103,9 @@ export const getStat = async(remotePath: string): Promise<FileStat | null> => {
   try {
     return (await getClient().stat(remotePath)) as FileStat
   } catch (error: any) {
-    if (error?.status === 404) return null
+    // P2（2026-10-06）：404 判断统一口径 error?.status ?? error?.response?.status，
+    // 与 ensureRemoteDir 一致（某错误只带 response.status 时不再误抛）
+    if ((error?.status ?? error?.response?.status) === 404) return null
     throw error
   }
 }
@@ -122,7 +125,9 @@ export const downloadFile = async(remotePath: string): Promise<string | null> =>
     const result: any = await client.getFileContents(remotePath, { format: 'text' })
     return typeof result === 'string' ? result : null
   } catch (error: any) {
-    if (error?.status === 404 || error?.status === 409) return null
+    // P2（2026-10-06）：404/409 判断统一口径
+    const status = error?.status ?? error?.response?.status
+    if (status === 404 || status === 409) return null
     throw error
   }
 }
@@ -173,12 +178,24 @@ export const uploadBinaryFile = async(
   report('正在上传到服务器…')
   const client = getClient()
   const buffer = Buffer.from(base64, 'base64')
-  await client.putFileContents(remotePath, buffer, {
-    overwrite: true,
-    ...(contentType ? { headers: { 'Content-Type': contentType } } : {}),
-    // 大文件上传兜底：2 分钟超时
-    timeout: 120000,
-  } as any)
+  // P1-1（2026-10-06）：webdav v5 的 PutFileContentsOptions 没有 timeout 字段，
+  // 之前 `timeout: 120000` 被静默忽略。改用 AbortSignal 实现 2 分钟超时。
+  const abortController = new AbortController()
+  const timeoutId = setTimeout(() => abortController.abort(), 120000)
+  try {
+    await client.putFileContents(remotePath, buffer, {
+      overwrite: true,
+      ...(contentType ? { headers: { 'Content-Type': contentType } } : {}),
+      signal: abortController.signal,
+    } as any)
+  } catch (e: any) {
+    if (abortController.signal.aborted) {
+      throw new Error(`上传超时（120秒无响应）：${remotePath}`)
+    }
+    throw e
+  } finally {
+    clearTimeout(timeoutId)
+  }
   report('上传完成')
 }
 
@@ -207,8 +224,12 @@ export const downloadToFileAtomic = async(options: {
   targetPath: string
   statusError: (statusCode: number) => string
   moveError: string
+  // P2（2026-10-06）：远端文件预期大小（字节）。0 字节下载时：
+  // 若 expectedSize === 0，视为合法空文件，算成功；否则按失败处理。
+  // 不传时保持旧行为（0 字节判失败），避免存量调用方语义变化。
+  expectedSize?: number
 }): Promise<void> => {
-  const { url, targetPath, statusError, moveError } = options
+  const { url, targetPath, statusError, moveError, expectedSize } = options
   const tmpPath = `${targetPath}.${Date.now().toString(36)}${Math.random().toString(36).slice(2)}.tmp`
   const cleanupTmp = () => unlink(tmpPath).catch(() => {})
   try {
@@ -226,8 +247,13 @@ export const downloadToFileAtomic = async(options: {
       }
     }
     webDAVLog.info('downloadToFileAtomic: 开始下载', { url, headers: safeHeaders })
-    const result = await rnDownloadFile(url, tmpPath, { headers }).promise
-    if (result.statusCode < 200 || result.statusCode >= 300 || !result.bytesWritten) {
+    // 诊断：不发送自定义 User-Agent（当前为 Android Chrome UA，在 iOS 上可疑），
+    // 让 RNFS 用系统默认。部分 NAS/WAF 会拦截异常 UA。
+    const { 'User-Agent': _ua, ...headersNoUA } = headers
+    const result = await rnDownloadFile(url, tmpPath, { headers: headersNoUA }).promise
+    // P2（2026-10-06）：0 字节下载不再一律判失败。若远端确为空文件（expectedSize === 0），算成功
+    const isEmptyFileOk = result.bytesWritten === 0 && expectedSize === 0
+    if (result.statusCode < 200 || result.statusCode >= 300 || (!result.bytesWritten && !isEmptyFileOk)) {
       webDAVLog.error('downloadToFileAtomic: 下载失败', {
         statusCode: result.statusCode,
         url,
@@ -255,4 +281,35 @@ export const downloadToFileAtomic = async(options: {
     throw err
   }
 }
+
+/**
+ * 启动期清扫残留的 .tmp 文件（P2 2026-10-06）。
+ * downloadToFileAtomic 崩溃时可能在缓存目录留下 .tmp，永不清理会越积越多。
+ * 在模块加载时异步执行，不阻塞启动。
+ */
+const cleanStaleTmpFiles = async(): Promise<void> => {
+  try {
+    const { getCacheDir } = await import('@/utils/tools')
+    const cacheDir = getCacheDir()
+    const dirs = [`${cacheDir}/covers`, `${cacheDir}/music`]
+    for (const dir of dirs) {
+      try {
+        const entries = await readDir(dir)
+        for (const entry of entries) {
+          if (entry.name.endsWith('.tmp')) {
+            await unlink(entry.path).catch(() => {})
+            webDAVLog.info('cleanStaleTmpFiles: 删除残留', { path: entry.path })
+          }
+        }
+      } catch {
+        // 目录不存在，跳过
+      }
+    }
+  } catch {
+    // 清扫失败不影响主流程
+  }
+}
+
+// 模块加载时触发清扫（fire-and-forget）
+void cleanStaleTmpFiles()
 

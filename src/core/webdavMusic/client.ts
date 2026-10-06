@@ -27,7 +27,8 @@ export interface WebDAVCredentials {
 export const readWebDAVCredentials = (): WebDAVCredentials | null => {
   const settings = settingState.setting
   const url = String(settings['sync.webdav.url'] ?? '').trim()
-  const username = String(settings['sync.webdav.username'] ?? '')
+  // P2（2026-10-06）：username 也 trim，纯空格用户名视为未配置
+  const username = String(settings['sync.webdav.username'] ?? '').trim()
   if (!url || !username) return null
   return { url, username, password: String(settings['sync.webdav.password'] ?? '') }
 }
@@ -66,11 +67,19 @@ export const resetClient = (): void => {
 /** 连通性测试：读根目录，成功返回 true，失败抛错（15 秒超时防 hang） */
 export const testConnection = async(): Promise<boolean> => {
   const client = getClient()
-  await Promise.race([
-    client.getDirectoryContents('/'),
-    new Promise((_, reject) => setTimeout(() => reject(new Error('连接超时（15秒无响应）')), 15000)),
-  ])
-  return true
+  // P2（2026-10-06）：timer 用完必须 clear，否则每次测试都残留一个 15s 定时器
+  let timer: ReturnType<typeof setTimeout> | null = null
+  try {
+    await Promise.race([
+      client.getDirectoryContents('/'),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('连接超时（15秒无响应）')), 15000)
+      }),
+    ])
+    return true
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 const USER_AGENT =
@@ -160,8 +169,17 @@ export const getWebDAVRemoteUrl = (remoteFilePath: string): string => {
     if (pathStart < 0) {
       // P1-A：无 path 时（如 http://host:port），不能直接返回 url，
       // 否则文件名丢了，请求发到目录地址。拼上 / + 文件名。
-      // 注意：此时无 query/hash（否则 pathStart >= 0），直接拼接即可。
-      return url.replace(/\/+$/, '') + '/' + encodedFilePath
+      // P1-2（2026-10-06）：若 URL 带 query/hash（如 http://host:port?token=xxx），
+      // 文件名必须插到 path 部分（即 ?/# 之前），不能直接缀在末尾，
+      // 否则得到 http://host:port?token=xxx/xxx.mp3（非法）。
+      const qmIdx = url.indexOf('?')
+      const hashIdx = url.indexOf('#')
+      let cutIdx = url.length
+      if (qmIdx >= 0) cutIdx = Math.min(cutIdx, qmIdx)
+      if (hashIdx >= 0) cutIdx = Math.min(cutIdx, hashIdx)
+      const base = url.substring(0, cutIdx).replace(/\/+$/, '')
+      const suffix = url.substring(cutIdx)
+      return base + '/' + encodedFilePath + suffix
     }
     // 找 query/hash 起始
     let pathEnd = url.length
