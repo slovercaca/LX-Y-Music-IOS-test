@@ -28,8 +28,17 @@ class WebDAVUploadModule: RCTEventEmitter {
 
   // MARK: - 共享 Session
 
-  /// 共享 session：连接复用，避免每任务建 session 的 TLS 握手开销
-  private lazy var session: URLSession = {
+  // 线程安全的 session 初始化（lazy var 非线程安全，并发上传会崩）
+  private var _session: URLSession?
+  private var _delegate: SharedUploadDelegate?
+  private let sessionLock = NSLock()
+
+  private var session: URLSession {
+    sessionLock.lock()
+    defer { sessionLock.unlock() }
+    if let s = _session { return s }
+    let delegate = SharedUploadDelegate(module: self)
+    _delegate = delegate
     let config = URLSessionConfiguration.default
     // 连接复用与性能调优
     config.httpMaximumConnectionsPerHost = 6          // 与 JS 并发上限对齐
@@ -41,12 +50,10 @@ class WebDAVUploadModule: RCTEventEmitter {
     let queue = OperationQueue()
     queue.maxConcurrentOperationCount = 1             // 进度回调串行，有序
     queue.name = "com.lxy.WebDAVUploadDelegate"
-    return URLSession(configuration: config, delegate: sharedDelegate, delegateQueue: queue)
-  }()
-
-  private lazy var sharedDelegate: SharedUploadDelegate = {
-    SharedUploadDelegate(module: self)
-  }()
+    let s = URLSession(configuration: config, delegate: delegate, delegateQueue: queue)
+    _session = s
+    return s
+  }
 
   // 任务表：uploadId -> 上下文（含 task、resolver、rejecter）
   private var contexts: [String: UploadContext] = [:]
