@@ -464,13 +464,14 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
   // 用 webdav 库上传（JS 层，无原生桥接崩溃风险）
   const client = getClient()
 
-  // 心跳保活：webdav 库无进度回调，上传期间每 30s 上报一次 50% 进度，
-  // 防止 useUploadManager 的 90s 看门狗误判为 stall 而中断。
+  // 心跳保活：webdav 库无进度回调，上传期间每 10s 上报一次 50% 进度，
+  // 防止 useUploadManager 的 15s 看门狗误判为 stall 而中断。
+  // P0-1（2026-10-06）：此前 30s 心跳 > 15s 看门狗，大文件走降级必被误杀。
   const heartbeat = setInterval(() => {
     try {
       report(actualSize * 0.5, actualSize)
     } catch { /* 忽略 */ }
-  }, 30000)
+  }, 10000)
 
   try {
     // putFileContents 的 data 支持 Buffer

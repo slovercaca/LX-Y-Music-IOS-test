@@ -294,6 +294,20 @@ export const scanWebDAVSongs = async(
     return newSong
   })
 
+  // P0-2（2026-10-06）：扫描期间新增的歌曲不能丢。
+  // 场景：扫描耗时数分钟，期间用户下载了新歌（updateWebDAVMusicMeta 写回），
+  // 若新歌不在本次扫描结果里，直接写回 mergedSongs 会把它丢掉。
+  // 保留有本地状态（已下载/自定义封面/歌词）的、但不在扫描结果中的歌曲。
+  const scannedIds = new Set(mergedSongs.map(s => s.id))
+  for (const existing of config.songs ?? []) {
+    if (!scannedIds.has(existing.id)) {
+      const hasLocalState = !!(existing.filePath || existing.customPicPath || existing.customLrcPath)
+      if (hasLocalState) {
+        mergedSongs.push(existing)
+      }
+    }
+  }
+
   config.selectedFolder = folder
   config.songs = mergedSongs
   config.scannedAt = Date.now()

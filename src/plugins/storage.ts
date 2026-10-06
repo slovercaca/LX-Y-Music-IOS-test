@@ -48,8 +48,31 @@ export const saveData = async(key: string, value: any) => {
     // buildData 里做 JSON.stringify：放进 try 才能把「序列化失败」（如循环引用）
     // 也写进日志 —— 否则这类失败在页面上只表现为「像没写进缓存」，排查时没有线索。
     buildData(key, value, datas)
-    await removeData(key)
+    // P0-3（2026-10-06）：原子化写入。旧逻辑是"先删后写"，
+    // 若 multiSet 失败（磁盘满/异常），旧值已删、新值未落盘，永久丢数据。
+    // 新逻辑：先 multiSet 覆盖写新值，再清理不再使用的旧分片键。
+    // 即使清理失败，也只是残留孤儿分片（占空间），不丢数据。
+    let oldPartKeys: string[] = []
+    try {
+      const oldValue = await AsyncStorage.getItem(key)
+      if (oldValue) {
+        if (partKeyPrefixRxp.test(oldValue)) {
+          oldPartKeys = oldValue.replace(partKeyPrefixRxp, '').split(keySplit)
+        } else if (partKeyArrPrefixRxp.test(oldValue)) {
+          oldPartKeys = JSON.parse(oldValue.replace(partKeyArrPrefixRxp, '')) as string[]
+        }
+      }
+    } catch {
+      // 读旧值失败，跳过清理（宁可残留，不丢数据）
+    }
     await AsyncStorage.multiSet(datas)
+    const newKeys = new Set(datas.map(([k]) => k))
+    const staleKeys = oldPartKeys.filter(k => !newKeys.has(k))
+    if (staleKeys.length) {
+      await AsyncStorage.multiRemove(staleKeys).catch(() => {
+        // 清理失败不抛错
+      })
+    }
   } catch (e: any) {
     // saving error
     log.error('storage error[saveData]:', key, e.message)

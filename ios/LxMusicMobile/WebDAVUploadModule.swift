@@ -163,6 +163,12 @@ class WebDAVUploadModule: RCTEventEmitter {
       endOffset = nil
     }
     if let start = startOffset, let end = endOffset, end > start {
+      // P0-4（2026-10-06）：防御负数。UInt64(负数) 会 fatal error 直接崩溃，
+      // 而非优雅 reject。JS 侧恒 ≥0，但 Swift 侧加校验更稳。
+      guard start >= 0 else {
+        reject("E_CHUNK_INVALID_RANGE", "分块起始偏移不能为负数", nil)
+        return
+      }
       // 读取指定范围到内存（块大小可控，如 5MB）
       do {
         let handle = try FileHandle(forReadingFrom: fileURL)
