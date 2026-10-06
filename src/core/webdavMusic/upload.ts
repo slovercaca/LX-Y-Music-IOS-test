@@ -10,7 +10,7 @@ import {
   getClient,
 } from './client'
 import { getStat } from './files'
-import { webDAVLog } from '@/utils/log'
+import { webDAVLog } from './logger'
 
 // 原生上传模块（iOS）：URLSession 流式上传，真实进度、可中断、低内存。
 // 不可用时（旧包/Android）降级到 webdav 库。
