@@ -54,6 +54,8 @@ export default memo(() => {
   const [syncProgress, setSyncProgress] = useState<{ progress: number; stage: string } | null>(null)
   /** 进度条自动清除的定时器：新任务开始时先清掉旧的，防止提前清除新进度 */
   const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // P2-1（2026-10-06）：mounted guard，async 流程 await 后检查，防止卸载后 setState
+  const mountedRef = useRef(true)
   const clearProgressLater = useCallback(() => {
     if (progressTimerRef.current) clearTimeout(progressTimerRef.current)
     progressTimerRef.current = setTimeout(() => {
@@ -70,9 +72,13 @@ export default memo(() => {
   }, [])
 
   useEffect(() => {
-    void getSyncHost().then(setHost)
+    mountedRef.current = true
+    void getSyncHost().then(host => {
+      if (mountedRef.current) setHost(host)
+    })
     // 卸载时清理进度条定时器
     return () => {
+      mountedRef.current = false
       if (progressTimerRef.current) clearTimeout(progressTimerRef.current)
     }
   }, [])
@@ -132,9 +138,9 @@ export default memo(() => {
       // 顶部弹窗，3.5 秒后自动消失
       toast('WebDAV 连接成功！', 'long', 'top')
     } catch (error: any) {
-      toast(`WebDAV 连接失败: ${error.message}`, 'long', 'top')
+      toast(`WebDAV 连接失败: ${error?.message ?? '连接失败'}`, 'long', 'top')
     } finally {
-      setIsTesting(false)
+      if (mountedRef.current) setIsTesting(false)
     }
   }, [isTesting])
 
@@ -144,7 +150,7 @@ export default memo(() => {
     try {
       await triggerWebDAVSync(true)
     } finally {
-      setIsSyncing(false)
+      if (mountedRef.current) setIsSyncing(false)
     }
   }, [isSyncing])
 
@@ -154,12 +160,14 @@ export default memo(() => {
     startProgress('准备上传…')
     try {
       await manualUploadSettingsAndApis((progress, stage) => {
-        setSyncProgress({ progress, stage })
+        if (mountedRef.current) setSyncProgress({ progress, stage })
       })
     } finally {
-      setIsUploading(false)
-      // 完成后延迟清除，让用户看到 100%
-      clearProgressLater()
+      if (mountedRef.current) {
+        setIsUploading(false)
+        // 完成后延迟清除，让用户看到 100%
+        clearProgressLater()
+      }
     }
   }, [isUploading, startProgress, clearProgressLater])
 
@@ -169,11 +177,13 @@ export default memo(() => {
     startProgress('准备下载…')
     try {
       await manualDownloadSettingsAndApis((progress, stage) => {
-        setSyncProgress({ progress, stage })
+        if (mountedRef.current) setSyncProgress({ progress, stage })
       })
     } finally {
-      setIsDownloading(false)
-      clearProgressLater()
+      if (mountedRef.current) {
+        setIsDownloading(false)
+        clearProgressLater()
+      }
     }
   }, [isDownloading, startProgress, clearProgressLater])
 
@@ -183,11 +193,13 @@ export default memo(() => {
     startProgress('准备上传歌单…')
     try {
       await manualUploadLists((progress, stage) => {
-        setSyncProgress({ progress, stage })
+        if (mountedRef.current) setSyncProgress({ progress, stage })
       })
     } finally {
-      setIsUploadingLists(false)
-      clearProgressLater()
+      if (mountedRef.current) {
+        setIsUploadingLists(false)
+        clearProgressLater()
+      }
     }
   }, [isUploadingLists, startProgress, clearProgressLater])
 
@@ -197,11 +209,13 @@ export default memo(() => {
     startProgress('准备下载歌单…')
     try {
       await manualDownloadLists((progress, stage) => {
-        setSyncProgress({ progress, stage })
+        if (mountedRef.current) setSyncProgress({ progress, stage })
       })
     } finally {
-      setIsDownloadingLists(false)
-      clearProgressLater()
+      if (mountedRef.current) {
+        setIsDownloadingLists(false)
+        clearProgressLater()
+      }
     }
   }, [isDownloadingLists, startProgress, clearProgressLater])
 
