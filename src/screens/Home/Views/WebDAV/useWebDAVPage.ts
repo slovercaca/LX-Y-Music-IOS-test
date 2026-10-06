@@ -63,6 +63,15 @@ export function useWebDAVPage() {
   const [scannedAt, setScannedAt] = useState<number | undefined>()
   const [filterPath, setFilterPath] = useState<string | null>(null)
   const [scanText, setScanText] = useState('')
+  // P2（2026-10-06）：错误提示 5 秒后自动清除，避免永久钉在列表头
+  const setScanTextTemp = (text: string) => {
+    setScanText(text)
+    if (text) {
+      setTimeout(() => {
+        setScanText(prev => (prev === text ? '' : prev))
+      }, 5000)
+    }
+  }
   const [searchVisible, setSearchVisible] = useState(false)
   const [searchText, setSearchText] = useState('')
   const [batchLoadingText, setBatchLoadingText] = useState('')
@@ -76,6 +85,8 @@ export function useWebDAVPage() {
   const musicMultiAddModalRef = useRef<MusicMultiAddModalType>(null)
   const metadataEditTypeRef = useRef<any>(null)
   const selectedMusicInfoRef = useRef<LX.WebDAV.MusicInfo | null>(null)
+  // P1-15：目录加载请求序号，防快速切换时后发先至显示错乱
+  const loadFoldersRequestIdRef = useRef(0)
 
   // ---------------- 目录浏览 ----------------
   const [folderStack, setFolderStack] = useState<LX.WebDAV.DriveFolder[]>([])
@@ -202,6 +213,9 @@ export function useWebDAVPage() {
   const syncSongsCover = useCallback(async(songList: LX.WebDAV.MusicInfo[]) => {
     // 仅补充网盘内封面（快速直连下载到本地），不触发全平台搜索；
     // 全平台封面由播放详情页按需获取。限制并发 4，避免批量下载风暴。
+    // P1-16：用函数式更新合并封面，不用闭包旧数组整体覆盖，
+    // 避免扫描先完成写新结果、封面协程后完成写回旧列表导致新结果丢失。
+    const picUpdates = new Map<string, string>()
     let index = 0
     const workers = Array.from({ length: 4 }, async() => {
       while (index < songList.length) {
@@ -211,7 +225,7 @@ export function useWebDAVPage() {
         try {
           const picUrl = await fetchWebDAVPic(song)
           if (picUrl) {
-            songList[i] = { ...song, meta: { ...song.meta, picUrl } }
+            picUpdates.set(song.id, picUrl)
           }
         } catch {
           // ignore error
@@ -219,7 +233,12 @@ export function useWebDAVPage() {
       }
     })
     await Promise.all(workers)
-    setSongs([...songList])
+    if (picUpdates.size === 0) return
+    setSongs(prevSongs => prevSongs.map(song => {
+      const picUrl = picUpdates.get(song.id)
+      if (!picUrl || song.meta.picUrl) return song
+      return { ...song, meta: { ...song.meta, picUrl } }
+    }))
   }, [])
 
   const loadConfig = useCallback(async() => {
@@ -265,7 +284,8 @@ export function useWebDAVPage() {
       // 顶部弹窗，3.5 秒后自动消失
       toast('WebDAV 连接成功！', 'long', 'top')
     } catch (error: any) {
-      toast(`WebDAV 连接失败：${error.message}`, 'long', 'top')
+      // P2-6（2026-10-06）：非 Error 时 error.message 为 undefined，显示兜底文案
+      toast(`WebDAV 连接失败：${error?.message ?? '连接失败'}`, 'long', 'top')
     } finally {
       setIsTesting(false)
     }
@@ -274,14 +294,21 @@ export function useWebDAVPage() {
   // ================= 目录页动作 =================
 
   const loadFolders = useCallback((folder: LX.WebDAV.DriveFolder | null) => {
+    // P1-15：递增请求序号，回调里校验，过期响应直接丢弃
+    const requestId = ++loadFoldersRequestIdRef.current
     setFolderLoading(true)
     void listWebDAVFolders(folder)
-      .then(setFolders)
+      .then((folders) => {
+        if (requestId !== loadFoldersRequestIdRef.current) return
+        setFolders(folders)
+      })
       .catch((err: any) => {
+        if (requestId !== loadFoldersRequestIdRef.current) return
         const message = err.message ?? String(err)
         toast(message, 'long')
       })
       .finally(() => {
+        if (requestId !== loadFoldersRequestIdRef.current) return
         setFolderLoading(false)
       })
   }, [])
@@ -334,11 +361,11 @@ export function useWebDAVPage() {
           setScannedAt(config.scannedAt)
           setScanText('')
           setActiveTab('list')
-          toast(`扫描完成：${config.songs.length} 首`)
+          toast(`扫描完成：${(config.songs ?? []).length} 首`)
         })
         .catch((err: any) => {
           const message = err.message ?? String(err)
-          setScanText(message)
+          setScanTextTemp(message)
           toast(message, 'long')
         })
         .finally(() => {
@@ -402,7 +429,7 @@ export function useWebDAVPage() {
       toast(`已更新 ${localSongs.length} 首本地文件的标签`)
     }).catch((err: any) => {
       const message = err.message ?? String(err)
-      setScanText(message)
+      setScanTextTemp(message)
       toast(message, 'long')
     }).finally(() => {
       setLoading(false)
@@ -458,6 +485,8 @@ export function useWebDAVPage() {
   }, [])
 
   const toggleSelectAll = useCallback(() => {
+    // P1-12：空搜索结果时不清空已有选择
+    if (filteredSongs.length === 0) return
     setSelectedIds(prev => {
       // 如果已全选则清空，否则全选当前筛选列表
       if (prev.size >= filteredSongs.length && filteredSongs.length > 0) return new Set<string>()
@@ -627,8 +656,11 @@ export function useWebDAVPage() {
   }, [loadConfig])
 
   const handleRemove = useCallback((info: WebDAVSelectInfo) => {
-    void handleWebDAVRemove(info.musicInfo).then(() => {
-      setSongs(prevSongs => prevSongs.filter(song => song.id !== info.musicInfo.id))
+    void handleWebDAVRemove(info.musicInfo).then((success) => {
+      // P1-13：只在真正删除成功时更新 UI，避免持久化失败时 UI 与数据不一致
+      if (success) {
+        setSongs(prevSongs => prevSongs.filter(song => song.id !== info.musicInfo.id))
+      }
     })
   }, [])
 
@@ -665,7 +697,7 @@ export function useWebDAVPage() {
         })
         .catch((err: any) => {
           const message = err.message ?? String(err)
-          setScanText(message)
+          setScanTextTemp(message)
           toast(message, 'long')
         })
         .finally(() => {
@@ -741,7 +773,11 @@ export function useWebDAVPage() {
   // ================= effects =================
 
   useEffect(() => {
-    loadConfig()
+    // P1-14：加 catch，存储损坏时给用户提示而不是静默白屏
+    loadConfig().catch((err: any) => {
+      webDAVLog.error('[WebDAV] 首屏加载配置失败', { error: err?.message ?? err })
+      toast(`加载 WebDAV 配置失败：${err?.message ?? err}`, 'long')
+    })
   }, [loadConfig])
 
   useEffect(() => {
