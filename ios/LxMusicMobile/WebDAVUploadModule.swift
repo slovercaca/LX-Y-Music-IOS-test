@@ -134,12 +134,43 @@ class WebDAVUploadModule: RCTEventEmitter {
       }
     }
 
-    // 4. 创建上传任务（流式：文件不进内存）
-    // 注意：uploadTask(with:fromFile:) 会自动设置 Content-Length
+    // 4. 创建上传任务
+    // 分块上传：若指定 startOffset/endOffset，只读该范围（断点续传/分块）
+    // 用 uploadTask(with:from:) 传 Data；整文件用 uploadTask(with:fromFile:) 流式（省内存）
+    // 注意：JS 数字桥接为 NSNumber，需用 int64Value 取值（直接 as? Int64 可能失败）
     let task: URLSessionUploadTask
-    // completionHandler 形式不支持 delegate 进度回调，改用 delegate 形式：
-    // 用 uploadTask(with:fromFile:) 无 completionHandler 版本，delegate 收 didCompleteWithError
-    task = session.uploadTask(with: request, fromFile: fileURL)
+    let startOffset: Int64?
+    let endOffset: Int64?
+    if let startNum = options["startOffset"] as? NSNumber,
+       let endNum = options["endOffset"] as? NSNumber {
+      startOffset = startNum.int64Value
+      endOffset = endNum.int64Value
+    } else {
+      startOffset = nil
+      endOffset = nil
+    }
+    if let start = startOffset, let end = endOffset, end > start {
+      // 读取指定范围到内存（块大小可控，如 5MB）
+      do {
+        let handle = try FileHandle(forReadingFrom: fileURL)
+        defer { try? handle.close() }
+        try handle.seek(toOffset: UInt64(start))
+        let chunkLength = Int(end - start)
+        let chunkData = handle.readData(ofLength: chunkLength)
+        guard chunkData.count > 0 else {
+          reject("E_CHUNK_EMPTY", "分块数据为空", nil)
+          return
+        }
+        task = session.uploadTask(with: request, from: chunkData)
+      } catch {
+        reject("E_CHUNK_READ", "读取分块失败：\(error.localizedDescription)", nil)
+        return
+      }
+    } else {
+      // 整文件流式上传（不进内存）
+      // 注意：uploadTask(with:fromFile:) 会自动设置 Content-Length
+      task = session.uploadTask(with: request, fromFile: fileURL)
+    }
 
     // 5. 保存上下文
     let ctx = UploadContext(

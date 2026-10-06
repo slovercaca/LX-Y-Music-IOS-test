@@ -185,6 +185,12 @@ const defaultSetting: LX.AppSetting = {
   'webdav.downloadPath': '',
   // 上传并发线程数（2026-10-05）：上传 tab 可调，1-6，默认 2
   'webdav.uploadConcurrency': 2,
+  // 断点续传（Test-v2）：上传前检查远端已有大小，从断点继续。默认开。
+  'webdav.uploadResume': true,
+  // 分块上传（Test-v2）：大文件切块逐块传，单块失败只重传该块。默认关。
+  'webdav.uploadChunked': false,
+  // 分块大小 MB（Test-v2）：默认 5
+  'webdav.uploadChunkSizeMB': 5,
   // 封面歌词来源（2026-10-04）：'file' = 从歌曲文件（同目录同名/通用封面、内嵌标签），
   // 'online' = 从云端插件（按歌名/歌手在线匹配）。默认 file。
   'webdav.mediaSource': 'file',

@@ -1,11 +1,13 @@
 import { memo, useState } from 'react'
-import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native'
+import { ScrollView, StyleSheet, Switch, TouchableOpacity, View } from 'react-native'
 import Text from '@/components/common/Text'
 import Button from '@/components/common/Button'
 import CheckBox from '@/components/common/CheckBox'
 import ContentGlass from '@/components/common/ContentGlass'
 import { Icon } from '@/components/common/Icon'
 import { useTheme } from '@/store/theme/hook'
+import { useSettingValue } from '@/store/setting/hook'
+import { updateSetting } from '@/core/common'
 import { createStyle } from '@/utils/tools'
 import { designRadius, designSpacing, designTypography } from '@/theme/DesignTokens'
 import { getWebDAVMusicDir } from '@/core/webdavMusic/drive'
@@ -13,6 +15,7 @@ import TabsHeader from './TabsHeader'
 import { formatUploadSize, formatSpeed, formatEta, formatBriefTime } from '../format'
 import type { WebDAVUploadQueueItem, WebDAVUploadStatus } from '@/core/webdavMusic/upload'
 import type { useUploadManager } from '../useUploadManager'
+import { UPLOAD_PHASE_TEXT } from '../useUploadManager'
 import type { ActiveTab } from '../useWebDAVPage'
 
 export interface UploadTabProps {
@@ -39,7 +42,16 @@ const ItemStatusLine = ({ item }: { item: WebDAVUploadQueueItem }) => {
   const theme = useTheme()
   let text = statusText[item.status]
   if (item.status === 'uploading') {
-    if (item.uploadedBytes > 0 && item.size > 0) {
+    // 阶段优先：卡顿/准备中/等待服务器时显示阶段文案，避免误导
+    const phase = (item as any).phase as string | undefined
+    const phaseDetail = (item as any).phaseDetail as string | undefined
+    if (phase === 'stalled') {
+      text = `网络卡顿…${phaseDetail ? `（${phaseDetail}）` : ''}`
+    } else if (phase === 'preparing') {
+      text = '准备中…'
+    } else if (phase === 'waiting') {
+      text = '等待服务器响应…'
+    } else if (item.uploadedBytes > 0 && item.size > 0) {
       const sizeText = `${formatUploadSize(item.uploadedBytes)} / ${formatUploadSize(item.size)}`
       const speedText = formatSpeed(item.speed)
       const etaText = item.speed > 0
@@ -80,6 +92,10 @@ export default memo(({ page }: { page: UploadTabProps }) => {
   const { activeTab, selectTab, uploadTargetDir, uploadWithLyrics, setUploadWithLyrics } = page
   const mgr = page.uploadManager
   const { items, stats, queueState, history, selectedIds, concurrency } = mgr
+  // 分块/断点续传开关
+  const resumeEnabled = useSettingValue('webdav.uploadResume')
+  const chunkedEnabled = useSettingValue('webdav.uploadChunked')
+  const chunkSizeMB = useSettingValue('webdav.uploadChunkSizeMB')
 
   const [pickerExpanded, setPickerExpanded] = useState(false)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
@@ -167,6 +183,74 @@ export default memo(({ page }: { page: UploadTabProps }) => {
               </TouchableOpacity>
             </View>
           </View>
+        </ContentGlass>
+
+        {/* 断点续传开关 */}
+        <ContentGlass
+          style={styles.card}
+          glassStyle={styles.cardGlass}
+          fallbackBackgroundColor={theme['c-content-background']}
+        >
+          <View style={styles.rowBetween}>
+            <View style={styles.flex1}>
+              <Text size={designTypography.body} color={theme['c-font']}>断点续传</Text>
+              <Text size={designTypography.caption} color={theme['c-font-label']} style={styles.tip}>
+                上传中断后从断点继续，不用从头传
+              </Text>
+            </View>
+            <Switch
+              value={resumeEnabled !== false}
+              onValueChange={(v) => { void updateSetting({ 'webdav.uploadResume': v }) }}
+              disabled={queueState === 'uploading'}
+            />
+          </View>
+        </ContentGlass>
+
+        {/* 分块上传开关 */}
+        <ContentGlass
+          style={styles.card}
+          glassStyle={styles.cardGlass}
+          fallbackBackgroundColor={theme['c-content-background']}
+        >
+          <View style={styles.rowBetween}>
+            <View style={styles.flex1}>
+              <Text size={designTypography.body} color={theme['c-font']}>分块上传</Text>
+              <Text size={designTypography.caption} color={theme['c-font-label']} style={styles.tip}>
+                大文件切块逐块传，单块失败只重传该块（块串行，文件并行）
+              </Text>
+            </View>
+            <Switch
+              value={chunkedEnabled === true}
+              onValueChange={(v) => { void updateSetting({ 'webdav.uploadChunked': v }) }}
+              disabled={queueState === 'uploading'}
+            />
+          </View>
+          {chunkedEnabled === true ? (
+            <View style={[styles.rowBetween, { marginTop: 8 }]}>
+              <Text size={designTypography.caption} color={theme['c-font-label']}>分块大小</Text>
+              <View style={styles.stepper}>
+                <TouchableOpacity
+                  style={[styles.stepBtn, { borderColor: theme['c-border-background'] }]}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  onPress={() => { void updateSetting({ 'webdav.uploadChunkSizeMB': Math.max(1, (Number(chunkSizeMB) || 5) - 1) }) }}
+                  disabled={queueState === 'uploading'}
+                >
+                  <Text size={designTypography.title2} color={theme['c-font']}>−</Text>
+                </TouchableOpacity>
+                <Text size={designTypography.title2} color={theme['c-font']} style={styles.stepValue}>
+                  {Number(chunkSizeMB) || 5}MB
+                </Text>
+                <TouchableOpacity
+                  style={[styles.stepBtn, { borderColor: theme['c-border-background'] }]}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  onPress={() => { void updateSetting({ 'webdav.uploadChunkSizeMB': Math.min(100, (Number(chunkSizeMB) || 5) + 1) }) }}
+                  disabled={queueState === 'uploading'}
+                >
+                  <Text size={designTypography.title2} color={theme['c-font']}>＋</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : null}
         </ContentGlass>
 
         {/* 来源选择 */}

@@ -1,6 +1,7 @@
 import { Buffer } from 'buffer'
 import { NativeModules, NativeEventEmitter } from 'react-native'
 import { existsFile, stat as statFile, readFile } from '@/utils/fs'
+import settingState from '@/store/setting/state'
 import {
   getWebDAVMusicDir,
   getWebDAVLrcDir,
@@ -35,16 +36,22 @@ const putViaNative = async(
   headers: Record<string, string>,
   onProgress: (loaded: number, total: number) => void,
   onAbortHandle: PutFileOptions['onAbortHandle'],
+  /** 分块/断点续传：指定字节范围 [startOffset, endOffset)，totalSize 为文件总大小 */
+  range?: { startOffset: number; endOffset: number; totalSize: number },
 ): Promise<number> => {
   const uploadId = `wdu_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   const emitter = getNativeEmitter()
   let abortRequested = false
 
-  // 订阅进度事件
+  // 分块时调整进度回调：native 上报的是块内进度，需映射到全局
+  const baseOffset = range?.startOffset ?? 0
   const sub = emitter?.addListener('WebDAVUploadProgress', (e: any) => {
     if (e?.uploadId !== uploadId) return
     try {
-      onProgress(Number(e.totalBytesSent) || 0, Number(e.totalBytesExpectedToSend) || 0)
+      const chunkSent = Number(e.totalBytesSent) || 0
+      const chunkTotal = Number(e.totalBytesExpectedToSend) || 0
+      // 映射到全局：baseOffset + chunkSent
+      onProgress(baseOffset + chunkSent, range?.totalSize ?? chunkTotal)
     } catch { /* 忽略 */ }
   })
 
@@ -60,15 +67,25 @@ const putViaNative = async(
     })
   } catch { /* 忽略 */ }
 
+  // 分块时加 Content-Range 头
+  const finalHeaders = { ...headers }
+  const options: Record<string, any> = {
+    url,
+    filePath: localPath,
+    headers: finalHeaders,
+    method: 'PUT',
+    uploadId,
+  }
+  if (range) {
+    // Content-Range: bytes <start>-<end>/<total>（end 为闭区间）
+    finalHeaders['Content-Range'] = `bytes ${range.startOffset}-${range.endOffset - 1}/${range.totalSize}`
+    options.startOffset = range.startOffset
+    options.endOffset = range.endOffset
+  }
+
   try {
     // 单字典传参（避免多参数桥接越界）
-    const result: any = await NativeUpload.uploadFile({
-      url,
-      filePath: localPath,
-      headers,
-      method: 'PUT',
-      uploadId,
-    })
+    const result: any = await NativeUpload.uploadFile(options)
     return Number(result?.statusCode ?? 0)
   } catch (e: any) {
     // 原生取消 -> 转为 UploadAbortedError
@@ -78,6 +95,18 @@ const putViaNative = async(
     throw e
   } finally {
     try { sub?.remove() } catch { /* 忽略 */ }
+  }
+}
+
+/** 获取远端文件大小（断点续传用）。不存在返回 0，异常返回 -1 */
+const getRemoteFileSize = async(remotePath: string): Promise<number> => {
+  try {
+    const stat: any = await getStat(remotePath)
+    if (!stat) return 0
+    const size = Number(stat.size)
+    return Number.isFinite(size) && size >= 0 ? size : 0
+  } catch {
+    return 0
   }
 }
 
@@ -146,6 +175,10 @@ export interface WebDAVUploadQueueItem {
   attempt?: number
   /** 完成/失败的时间戳（历史用） */
   finishedAt?: number
+  /** 上传阶段（用于详细状态显示） */
+  phase?: string
+  /** 阶段详情（如卡顿时长） */
+  phaseDetail?: string
 }
 
 export interface WebDAVUploadHistoryItem {
@@ -292,8 +325,91 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
         const v = (authHeaders as Record<string, unknown>)[key]
         if (v !== undefined && v !== null && v !== '') headers[key] = String(v)
       }
-      report(0, actualSize)
-      const statusCode = await putViaNative(url, localPath, headers, report, onAbortHandle)
+
+      // 读取分块/断点续传设置
+      const resumeEnabled = settingState.setting['webdav.uploadResume'] !== false
+      const chunkedEnabled = settingState.setting['webdav.uploadChunked'] === true
+      const chunkSizeMB = Number(settingState.setting['webdav.uploadChunkSizeMB'] ?? 5)
+      const chunkSize = Math.max(1, Math.min(100, chunkSizeMB)) * 1024 * 1024
+
+      // 断点续传：检查远端已有大小
+      let startOffset = 0
+      if (resumeEnabled) {
+        const remoteSize = await getRemoteFileSize(remotePath)
+        if (remoteSize > 0 && remoteSize < actualSize) {
+          startOffset = remoteSize
+          webDAVLog.info('[upload] 断点续传', { remotePath, remoteSize, actualSize })
+        } else if (remoteSize >= actualSize && remoteSize > 0) {
+          // 远端已完整，直接成功
+          webDAVLog.info('[upload] 远端已存在完整文件，跳过上传', { remotePath })
+          report(actualSize, actualSize)
+          return
+        }
+      }
+
+      // 分块上传：文件大于块大小且启用分块时
+      if (chunkedEnabled && actualSize > chunkSize) {
+        webDAVLog.info('[upload] 分块上传', {
+          remotePath,
+          actualSize,
+          chunkSize,
+          startOffset,
+          chunkCount: Math.ceil((actualSize - startOffset) / chunkSize),
+        })
+        let uploaded = startOffset
+        report(uploaded, actualSize)
+        let chunkUnsupported = false
+        // 逐块上传（串行，WebDAV 不支持并行写同一文件）
+        for (let offset = startOffset; offset < actualSize; offset += chunkSize) {
+          const endOffset = Math.min(offset + chunkSize, actualSize)
+          const statusCode = await putViaNative(
+            url,
+            localPath,
+            headers,
+            (loaded, total) => {
+              // loaded 是全局偏移（putViaNative 已映射）
+              report(loaded, total)
+            },
+            onAbortHandle,
+            { startOffset: offset, endOffset, totalSize: actualSize },
+          )
+          if (statusCode === 409) {
+            const lastSlash = remotePath.lastIndexOf('/')
+            const dirPath = lastSlash > 0 ? remotePath.substring(0, lastSlash) : '/'
+            throw new RemoteDirNotFoundError(dirPath)
+          }
+          // 服务器不支持 Content-Range（400/411/416/501）：第一块就失败时降级为整文件上传
+          if ([400, 411, 416, 501].includes(statusCode) && offset === startOffset) {
+            webDAVLog.warn('[upload] 服务器不支持 Content-Range，降级为整文件上传', { remotePath, statusCode })
+            chunkUnsupported = true
+            break
+          }
+          if (statusCode < 200 || statusCode >= 300) {
+            throw new Error(`分块上传失败（块 ${offset}-${endOffset}，HTTP ${statusCode}）`)
+          }
+          uploaded = endOffset
+          report(uploaded, actualSize)
+        }
+        // 若因服务器不支持而跳出分块，则走整文件上传（不 return，继续向下）
+        if (!chunkUnsupported) {
+          // 成功后校验远端大小
+          const ok = await verifyRemoteSize(remotePath, actualSize)
+          if (!ok) throw new Error('上传后校验失败：服务器文件大小与本地不一致')
+          return
+        }
+        webDAVLog.info('[upload] 分块不受支持，转整文件上传', { remotePath })
+        // 重置进度，且清除断点偏移（服务器不支持 Content-Range，必须从头传）
+        startOffset = 0
+        report(0, actualSize)
+      }
+
+      // 非分块：单 PUT（支持断点续传的 Content-Range）
+      // 注意：若上面分块因服务器不支持而降级，startOffset 已被清零，此处为整文件上传
+      report(startOffset, actualSize)
+      const range = startOffset > 0
+        ? { startOffset, endOffset: actualSize, totalSize: actualSize }
+        : undefined
+      const statusCode = await putViaNative(url, localPath, headers, report, onAbortHandle, range)
       if (statusCode >= 200 && statusCode < 300) {
         report(actualSize, actualSize)
       } else if (statusCode === 409) {

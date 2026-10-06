@@ -25,6 +25,25 @@ const HISTORY_LIMIT = 100
 /** 进度 UI 刷新节流 */
 const PROGRESS_BUMP_MS = 250
 
+/** 上传阶段（用于详细状态显示） */
+export type UploadPhase =
+  | 'queued'      // 排队等待
+  | 'preparing'   // 准备中（连接、校验）
+  | 'uploading'   // 上传中（有进度）
+  | 'waiting'     // 等待服务器响应（100% 已发送）
+  | 'verifying'   // 校验中（检查远端文件）
+  | 'stalled'     // 网络卡顿（长时间无进度）
+
+/** 阶段文案 */
+export const UPLOAD_PHASE_TEXT: Record<UploadPhase, string> = {
+  queued: '等待中',
+  preparing: '准备中…',
+  uploading: '上传中…',
+  waiting: '等待服务器响应…',
+  verifying: '校验中…',
+  stalled: '网络卡顿…',
+}
+
 export interface UploadManagerDeps {
   /** 当前上传目标目录（用户在目录 tab 选的文件夹，无选择时为根） */
   getTargetDir: () => string
@@ -238,6 +257,9 @@ export function useUploadManager(deps: UploadManagerDeps) {
         lastProgressAt: 0,
         isTempFile: r.isTempFile,
         addedAt: now,
+        // 阶段跟踪（用于详细状态显示）
+        phase: 'queued' as UploadPhase,
+        phaseDetail: '',
       }
       itemsRef.current.set(item.id, item)
       added++
@@ -324,12 +346,20 @@ export function useUploadManager(deps: UploadManagerDeps) {
     const stillMine = () => itemsRef.current.get(item.id) === item && item.attempt === attempt
     // 90 秒无进度看门狗：XHR 卡死时自动中断，转失败可重试（不无限卡"上传中"）
     const UPLOAD_STALL_MS = 90000
+    const STALL_WARN_MS = 10000  // 10 秒无进度即显示"网络卡顿"
     const stallTimer = setInterval(() => {
       if (!stillMine()) {
         clearInterval(stallTimer)
         return
       }
-      if (item.status === 'uploading' && Date.now() - item.lastProgressAt > UPLOAD_STALL_MS) {
+      const noProgressMs = Date.now() - item.lastProgressAt
+      // 10 秒无进度：标记为卡顿（UI 显示"网络卡顿…"而非误导性的"即将完成"）
+      if (item.status === 'uploading' && noProgressMs > STALL_WARN_MS && item.phase !== 'stalled') {
+        item.phase = 'stalled'
+        item.phaseDetail = `已 ${Math.round(noProgressMs / 1000)} 秒无进度`
+        bump()
+      }
+      if (item.status === 'uploading' && noProgressMs > UPLOAD_STALL_MS) {
         webDAVLog.warn('[upload] 90s 无进度，看门狗检查', { fileName: item.fileName })
         // P1-2：只有真正有 abort 句柄时才中断并加 stale 标记。读文件阶段（XHR 未启动、无句柄）
         // 触发时，abort 是 no-op，若照样加标记，后续用户暂停会被误判为失败。
@@ -348,6 +378,9 @@ export function useUploadManager(deps: UploadManagerDeps) {
       }
     }, 15000)
     try {
+      // 阶段：准备中
+      item.phase = 'preparing'
+      bump()
       await putFileWithProgress({
         remotePath: item.remotePath,
         localPath: item.localPath,
@@ -360,13 +393,28 @@ export function useUploadManager(deps: UploadManagerDeps) {
         onProgress: (loaded, total) => {
           if (gen !== generationRef.current) return
           const now = Date.now()
-          const dt = Math.max(1, now - lastAt) / 1000
-          const instant = Math.max(0, (loaded - lastLoaded) / dt)
-          lastLoaded = loaded
-          lastAt = now
           item.uploadedBytes = loaded
-          item.speed = item.speed > 0 ? item.speed * 0.7 + instant * 0.3 : instant
           item.lastProgressAt = now
+          // 阶段判断
+          if (loaded >= total && total > 0) {
+            item.phase = 'waiting'  // 已发送 100%，等待服务器响应
+          } else if (item.phase === 'preparing' || item.phase === 'queued') {
+            item.phase = 'uploading'
+          } else if (item.phase === 'stalled') {
+            // 从卡顿恢复
+            item.phase = 'uploading'
+          }
+          // 速度计算：至少 500ms 窗口，避免高频回调导致瞬时速度虚高
+          //（如 1ms 内上报 55KB 会算出 55MB/s 的离谱值）
+          const dt = (now - lastAt) / 1000
+          if (dt >= 0.5) {
+            const instant = Math.max(0, (loaded - lastLoaded) / dt)
+            lastLoaded = loaded
+            lastAt = now
+            // 平滑 + 上限钳制（1GB/s，防异常值）
+            const smoothed = item.speed > 0 ? item.speed * 0.7 + instant * 0.3 : instant
+            item.speed = Math.min(smoothed, 1024 * 1024 * 1024)
+          }
           void total
           // bump 内部已有 250ms 节流（PROGRESS_BUMP_MS），XHR 高频进度事件不会淹没 JS 线程
           bump()
@@ -448,6 +496,40 @@ export function useUploadManager(deps: UploadManagerDeps) {
         return
       }
       webDAVLog.error('[upload] 失败', { fileName: item.fileName, error: err?.message ?? err })
+      // 自动重试：网络错误时指数退避重试（最多 3 次）
+      // 不重试的：用户取消/暂停、409（已单独处理）、文件不存在
+      const errMsg = String(err?.message ?? err ?? '').toLowerCase()
+      const isNetworkError = /network|connection|timeout|lost|econn|enotfound|eai_again/.test(errMsg)
+      const autoRetryCount = (item as any).__autoRetry ?? 0
+      const MAX_AUTO_RETRY = 3
+      if (isNetworkError && autoRetryCount < MAX_AUTO_RETRY && stillMine()) {
+        const backoffMs = 5000 * Math.pow(2, autoRetryCount)  // 5s, 10s, 20s
+        ;(item as any).__autoRetry = autoRetryCount + 1
+        item.phase = 'preparing'
+        item.phaseDetail = `网络错误，${backoffMs / 1000} 秒后自动重试 (${autoRetryCount + 1}/${MAX_AUTO_RETRY})`
+        webDAVLog.info('[upload] 网络错误，自动重试', {
+          fileName: item.fileName,
+          retry: `${autoRetryCount + 1}/${MAX_AUTO_RETRY}`,
+          backoffMs,
+        })
+        bump()
+        // 等待后重试（期间用户可能暂停/删除，用 stillMine 检查）
+        await new Promise(resolve => setTimeout(resolve, backoffMs))
+        if (!stillMine()) return
+        // 用户已暂停队列：不自动重试，转为 paused 状态，等待用户手动恢复
+        if (queueStateRef.current === 'paused') {
+          webDAVLog.info('[upload] 自动重试前检测到队列已暂停，转为暂停状态', { fileName: item.fileName })
+          finishItem(item, 'paused')
+          return
+        }
+        // 重置进度状态，重试
+        item.uploadedBytes = 0
+        item.speed = 0
+        item.lastProgressAt = Date.now()
+        item.error = undefined
+        await uploadOne(item, gen)
+        return
+      }
       finishItem(item, 'failed', err?.message ?? String(err))
     }
   }, [bump, finishItem])
@@ -643,6 +725,11 @@ export function useUploadManager(deps: UploadManagerDeps) {
     it.error = undefined
     // 清除 409 重试标记，允许再次弹窗询问是否创建目录
     delete (it as any)[`__retry409_${it.id}`]
+    // 清除自动重试计数器，允许重新自动重试
+    delete (it as any).__autoRetry
+    // 重置阶段
+    ;(it as any).phase = 'queued'
+    ;(it as any).phaseDetail = ''
     bump(true)
     if (queueStateRef.current === 'idle') {
       void start()
