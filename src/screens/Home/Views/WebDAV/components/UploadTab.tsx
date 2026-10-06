@@ -1,5 +1,5 @@
 import { memo, useState } from 'react'
-import { ScrollView, StyleSheet, Switch, TouchableOpacity, View } from 'react-native'
+import { ScrollView, StyleSheet, Switch, TextInput, TouchableOpacity, View } from 'react-native'
 import Text from '@/components/common/Text'
 import Button from '@/components/common/Button'
 import CheckBox from '@/components/common/CheckBox'
@@ -96,6 +96,7 @@ export default memo(({ page }: { page: UploadTabProps }) => {
   const resumeEnabled = useSettingValue('webdav.uploadResume')
   const chunkedEnabled = useSettingValue('webdav.uploadChunked')
   const chunkSizeMB = useSettingValue('webdav.uploadChunkSizeMB')
+  const stallTimeoutSec = useSettingValue('webdav.uploadStallTimeoutSec')
 
   const [pickerExpanded, setPickerExpanded] = useState(false)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
@@ -251,6 +252,29 @@ export default memo(({ page }: { page: UploadTabProps }) => {
               </View>
             </View>
           ) : null}
+          {/* 看门狗超时（秒）：无进度超过此秒数则中断重试，0=关闭 */}
+          <View style={[styles.rowBetween, { marginTop: 8 }]}>
+            <View style={{ flex: 1 }}>
+              <Text size={designTypography.caption} color={theme['c-font-label']}>看门狗超时（秒）</Text>
+              <Text size={designTypography.caption} color={theme['c-font-label']} style={{ opacity: 0.7 }}>
+                无进度超此时中断，0=关闭
+              </Text>
+            </View>
+            <TextInput
+              style={[styles.timeoutInput, { borderColor: theme['c-border-background'], color: theme['c-font'] }]}
+              value={String(stallTimeoutSec ?? 15)}
+              keyboardType="number-pad"
+              editable={queueState !== 'uploading'}
+              onChangeText={(text) => {
+                const v = parseInt(text.replace(/[^0-9]/g, ''), 10)
+                if (!isNaN(v) && v >= 0 && v <= 3600) {
+                  void updateSetting({ 'webdav.uploadStallTimeoutSec': v })
+                } else if (text === '') {
+                  void updateSetting({ 'webdav.uploadStallTimeoutSec': 0 })
+                }
+              }}
+            />
+          </View>
         </ContentGlass>
 
         {/* 来源选择 */}
@@ -632,6 +656,15 @@ const styles = createStyle({
   stepValue: {
     minWidth: 40,
     textAlign: 'center',
+    fontWeight: '600',
+  },
+  timeoutInput: {
+    width: 70,
+    height: 36,
+    borderWidth: 1,
+    borderRadius: 8,
+    textAlign: 'center',
+    fontSize: 16,
     fontWeight: '600',
   },
   uploadSourceRow: {
