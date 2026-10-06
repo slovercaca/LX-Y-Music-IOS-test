@@ -1,14 +1,78 @@
 import { Buffer } from 'buffer'
+import { NativeModules, NativeEventEmitter } from 'react-native'
 import { existsFile, stat as statFile, readFile } from '@/utils/fs'
 import {
   getWebDAVMusicDir,
   getWebDAVLrcDir,
   getWebDAVRemoteUrl,
+  getWebDAVAuthHeaders,
   joinWebDAVRemotePath,
   getClient,
 } from './client'
 import { getStat } from './files'
 import { webDAVLog } from '@/utils/log'
+
+// 原生上传模块（iOS）：URLSession 流式上传，真实进度、可中断、低内存。
+// 不可用时（旧包/Android）降级到 webdav 库。
+const NativeUpload = (NativeModules as any)?.WebDAVUploadModule ?? null
+let nativeEmitter: NativeEventEmitter | null = null
+const getNativeEmitter = (): NativeEventEmitter | null => {
+  if (!NativeUpload) return null
+  if (!nativeEmitter) {
+    try {
+      nativeEmitter = new NativeEventEmitter(NativeUpload)
+    } catch {
+      return null
+    }
+  }
+  return nativeEmitter
+}
+
+/** 用原生模块上传（流式、真实进度、可中断） */
+const putViaNative = async(
+  url: string,
+  localPath: string,
+  headers: Record<string, string>,
+  onProgress: (loaded: number, total: number) => void,
+  onAbortHandle: PutFileOptions['onAbortHandle'],
+): Promise<number> => {
+  const uploadId = `wdu_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  const emitter = getNativeEmitter()
+  let abortRequested = false
+
+  // 订阅进度事件
+  const sub = emitter?.addListener('WebDAVUploadProgress', (e: any) => {
+    if (e?.uploadId !== uploadId) return
+    try {
+      onProgress(Number(e.totalBytesSent) || 0, Number(e.totalBytesExpectedToSend) || 0)
+    } catch { /* 忽略 */ }
+  })
+
+  // 透出 abort 句柄
+  try {
+    onAbortHandle?.({
+      abort: () => {
+        abortRequested = true
+        try {
+          NativeUpload.cancelUpload(uploadId)
+        } catch { /* 忽略 */ }
+      },
+    })
+  } catch { /* 忽略 */ }
+
+  try {
+    const result: any = await NativeUpload.uploadFile(url, localPath, headers, 'PUT', uploadId)
+    return Number(result?.statusCode ?? 0)
+  } catch (e: any) {
+    // 原生取消 -> 转为 UploadAbortedError
+    if (abortRequested || e?.code === 'E_CANCELLED') {
+      throw new UploadAbortedError()
+    }
+    throw e
+  } finally {
+    try { sub?.remove() } catch { /* 忽略 */ }
+  }
+}
 
 /**
  * 上传后校验远端文件大小：PROPFIND 取远端 size，与本地比对。
@@ -204,14 +268,47 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
     webDAVLog.warn('[upload] 文件大小与入队时不一致', { remotePath, expected: size, actual: actualSize })
   }
 
-  // URL 合法性校验（仅校验，不实际使用：上传走 client.putFileContents(remotePath)）
+  // URL 合法性校验
   const url = getWebDAVRemoteUrl(remotePath)
   if (!url || typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
     throw new Error(`上传地址非法：${url}`)
   }
 
+  // Test-v2：优先用原生模块（流式、真实进度、可中断、低内存）。
+  // 不可用时降级到 webdav 库。
+  if (NativeUpload) {
+    try {
+      // 构造请求头
+      const authHeaders = getWebDAVAuthHeaders()
+      const headers: Record<string, string> = {}
+      for (const key of Object.keys(authHeaders)) {
+        const v = (authHeaders as Record<string, unknown>)[key]
+        if (v !== undefined && v !== null && v !== '') headers[key] = String(v)
+      }
+      report(0, actualSize)
+      const statusCode = await putViaNative(url, localPath, headers, report, onAbortHandle)
+      if (statusCode >= 200 && statusCode < 300) {
+        report(actualSize, actualSize)
+      } else if (statusCode === 409) {
+        const lastSlash = remotePath.lastIndexOf('/')
+        const dirPath = lastSlash > 0 ? remotePath.substring(0, lastSlash) : '/'
+        throw new RemoteDirNotFoundError(dirPath)
+      } else {
+        throw new Error(`上传失败（HTTP ${statusCode}）`)
+      }
+      // 成功后校验远端大小
+      const ok = await verifyRemoteSize(remotePath, actualSize)
+      if (!ok) throw new Error('上传后校验失败：服务器文件大小与本地不一致')
+      return
+    } catch (e: any) {
+      // 用户取消直接抛出；其他错误降级到 webdav 库重试
+      if (e instanceof UploadAbortedError || e instanceof RemoteDirNotFoundError) throw e
+      webDAVLog.warn('[upload] 原生上传失败，降级到 webdav 库', { error: e?.message ?? e })
+    }
+  }
+
+  // 降级：webdav 库（JS 层，无原生桥接崩溃风险，但无真实进度、大内存）
   // 读文件为 Buffer（webdav 库需要）
-  // 注意：大文件会占内存，这是为可靠性的妥协
   report(0, actualSize)
   const base64 = await readFile(localPath, 'base64').catch(() => '')
   if (!base64) throw new Error(`本地文件读取失败：${localPath}`)
