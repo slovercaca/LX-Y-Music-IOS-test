@@ -35,7 +35,8 @@ export default {
     if (taskIndex > -1) {
       Object.assign(state.tasks[taskIndex], updatedFields)
       global.app_event.download_list_changed()
-      if (updatedFields.progress) {
+      if ('progress' in updatedFields) {
+        // P2: 用 in 判断，progress: 0 不会被当 falsy 跳过
         global.app_event.download_progress_update({ id, progress: updatedFields.progress })
       }
       if (updatedFields.status) {
