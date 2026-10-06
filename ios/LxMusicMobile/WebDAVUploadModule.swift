@@ -117,6 +117,8 @@ class WebDAVUploadModule: RCTEventEmitter {
     // 3. 构造请求
     var request = URLRequest(url: url)
     request.httpMethod = method.isEmpty ? "PUT" : method.uppercased()
+    // 禁用缓存，避免复用过期缓存的响应
+    request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
 
     // 请求头：过滤空 key/value（防 NSInvalidArgumentException）
     for (key, value) in headers {
@@ -125,6 +127,14 @@ class WebDAVUploadModule: RCTEventEmitter {
       if !k.isEmpty && !v.isEmpty {
         request.setValue(v, forHTTPHeaderField: k)
       }
+    }
+
+    // 强制关闭连接复用：NAS/家宽的 keep-alive 连接常被服务器端提前关闭，
+    // 复用这种半死连接会导致 "The network connection was lost" (-1005)。
+    // 上传是低频操作，不复用连接的开销可接受，换来稳定性。
+    // 若调用方已显式设置 Connection 头，则尊重调用方。
+    if request.value(forHTTPHeaderField: "Connection") == nil {
+      request.setValue("close", forHTTPHeaderField: "Connection")
     }
 
     // Content-Type 兜底：JS 未传时按扩展名推断（与 webdav 库行为对齐）

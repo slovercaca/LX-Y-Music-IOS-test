@@ -426,7 +426,12 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
     } catch (e: any) {
       // 用户取消直接抛出；其他错误降级到 webdav 库重试
       if (e instanceof UploadAbortedError || e instanceof RemoteDirNotFoundError) throw e
-      webDAVLog.warn('[upload] 原生上传失败，降级到 webdav 库', { error: e?.message ?? e })
+      webDAVLog.warn('[upload] 原生上传失败，降级到 webdav 库', {
+        error: e?.message ?? e,
+        // 脱敏 URL（去掉用户名密码），方便定位连的是内网还是外网地址
+        url: url.replace(/:\/\/[^@/]*@/, '://***@').split('?')[0],
+        code: (e as any)?.code,
+      })
     }
   }
 
