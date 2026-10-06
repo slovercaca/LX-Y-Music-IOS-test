@@ -242,6 +242,11 @@ declare global {
       'theme.glassUtility': boolean
 
       /**
+       * 上次动态背景 URL（P1-3 2026-10-06）：冷启动时先同步恢复，避免白屏闪烁。
+       */
+      'theme.lastDynamicBgPic': string
+
+      /**
        * 「底边不透明度」（0~100）：全软件半透明底（排行榜按钮、设置页开关行与操作按钮、
        * 首页卡片等）的浓淡，统一作用于主题色令牌 c-primary-light-900-alpha-200。
        * 默认 80，与历史外观一致（主题自带 alpha 0.80）。
@@ -260,6 +265,93 @@ declare global {
        * 默认 2（宽屏手机按宽度公式会误排 3 列，封面缩小且标题被截断，故默认两列）。
        */
       'theme.songlistColumns': 2 | 3
+
+      // P2-2（2026-10-06）：补全缺失的类型声明（对照 defaultSetting.ts）。
+      // 有索引签名 [key: string]: any 兜底，缺失不阻塞编译，此处为文档完整性。
+      'common.isAutoTheme': boolean
+      'common.isDarkMode': boolean
+      'common.langId': any
+      'common.apiSource': string
+      'common.sourceNameType': string
+      'common.shareType': string
+      'common.isAgreePact': boolean
+      'common.autoHidePlayBar': boolean
+      'common.drawerLayoutPosition': string
+      'common.showBackBtn': boolean
+      'common.showExitBtn': boolean
+      'common.wy_serpapi_key': string
+      'common.isEnableLog': boolean
+      'common.isEnableSyncLog': boolean
+      'common.isEnableUserApiLog': boolean
+      'common.isEnableWebDAVLog': boolean
+      'common.isEnableSearchLog': boolean
+      'common.isEnablePlayerLog': boolean
+      'common.logMaxLines': number
+      'common.bilibili_multi_page': boolean
+      'common.quality_show_highest': boolean
+      'common.navStatus': Record<string, any>
+      'common.navOrder': any[]
+      'common.navFlatOrder': any[]
+      'common.sectionExpandedStatus': Record<string, any>
+      'player.startupPushPlayDetailScreen': boolean
+      'player.togglePlayMethod': string
+      'player.playQuality': string
+      'player.isSavePlayTime': boolean
+      'player.volume': number
+      'player.playbackRate': number
+      'player.cacheLimit': number
+      'player.timeoutExit': string
+      'player.timeoutExitPlayed': boolean
+      'player.isAutoCleanPlayedList': boolean
+      'player.autoSkipOnError': boolean
+      'player.soundEffect.enabled': boolean
+      'player.soundEffect.preset': string
+      'player.soundEffect.convolution.fileName': string
+      'player.soundEffect.convolution.mainGain': number
+      'player.soundEffect.convolution.sendGain': number
+      'player.soundEffect.eq.31': number
+      'player.soundEffect.eq.62': number
+      'player.soundEffect.eq.125': number
+      'player.soundEffect.eq.250': number
+      'player.soundEffect.eq.500': number
+      'player.soundEffect.eq.1000': number
+      'player.soundEffect.eq.2000': number
+      'player.soundEffect.eq.4000': number
+      'player.soundEffect.eq.8000': number
+      'player.soundEffect.eq.16000': number
+      'player.isHandleAudioFocus': boolean
+      'player.isEnableAudioPreload': boolean
+      'player.cacheSize': string
+      'player.isEnableAudioOffload': boolean
+      'player.useNativeFlacPlayer': boolean
+      'player.isShowLyricTranslation': boolean
+      'player.isShowLyricRoma': boolean
+      'player.isShowNotificationImage': boolean
+      'player.isS2t': boolean
+      'player.startupAutoPlay': boolean
+      'playDetail.isCoverSpin': boolean
+      'playDetail.style.miniLyricAlign': string
+      'webdav.uploadResume': boolean
+      'webdav.uploadChunked': boolean
+      'webdav.uploadChunkSizeMB': number
+      'sync.webdav.syncSettings': boolean
+      'sync.webdav.lastSyncTimeSettings': number
+      'sync.webdav.lastSyncSettingsHash': string
+      'sync.webdav.syncUserApis': boolean
+      'sync.webdav.lastSyncTimeUserApis': number
+      'sync.webdav.lastSyncUserApisHash': string
+      'theme.id': string
+      'theme.lightId': string
+      'theme.darkId': string
+      'theme.dynamicBg': boolean
+      'theme.blur': number
+      'theme.fontShadow': boolean
+      'theme.glassOpacity': number
+      'theme.isLandscapeStretch': boolean
+      'theme.customBgPicPath': string
+      'theme.picOpacity': number
+      'theme.subContainerOpacity': number
+      'theme.lastDynamicBgPic': string
     }
   }
 }
