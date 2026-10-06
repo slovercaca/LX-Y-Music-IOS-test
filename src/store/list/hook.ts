@@ -46,12 +46,18 @@ export const useMusicList = () => {
   useEffect(() => {
     const handleToggle = (activeListId: string) => {
       void getListMusics(activeListId).then((list) => {
+        // P1（2026-10-06）：过期异步覆盖防护。快速连切 A→B 时，
+        // A 的读取可能晚于 B 返回，无条件 setList 会显示 A 的歌但当前是 B。
+        if (activeListId !== state.activeListId) return
         setList([...list])
       })
     }
     const handleChange = (ids: string[]) => {
       if (!ids.includes(state.activeListId)) return
-      void getListMusics(state.activeListId).then((list) => {
+      const requestId = state.activeListId
+      void getListMusics(requestId).then((list) => {
+        // P1（2026-10-06）：同上，返回时校验 id 未变
+        if (requestId !== state.activeListId) return
         setList([...list])
       })
     }
