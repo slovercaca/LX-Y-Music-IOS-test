@@ -677,6 +677,8 @@ export const addUserApi = async(script: string): Promise<LX.UserApi.UserApiInfo>
     [userApiPrefix, userApis],
     [`${userApiPrefix}${apiInfo.id}`, script],
   ])
+  // WebDAV 自动同步：插件变更后触发（懒加载防循环依赖）
+  void import('@/core/sync/webdavSync').then(m => m.markSettingsChanged()).catch(() => {})
   return apiInfo
 }
 export const removeUserApi = async(ids: string[]) => {
@@ -694,6 +696,8 @@ export const removeUserApi = async(ids: string[]) => {
   }
   await saveData(userApiPrefix, userApis)
   if (_ids.length) await removeDataMultiple(_ids)
+  // WebDAV 自动同步：插件变更后触发（懒加载防循环依赖）
+  void import('@/core/sync/webdavSync').then(m => m.markSettingsChanged()).catch(() => {})
   return [...userApis]
 }
 export const setUserApiAllowShowUpdateAlert = async(id: string, enable: boolean) => {
@@ -706,6 +710,10 @@ export const setUserApiAllowShowUpdateAlert = async(id: string, enable: boolean)
 export const setUserApiList = async(list: LX.UserApi.UserApiInfo[]) => {
   userApis = [...list]
   await saveData(userApiPrefix, userApis)
+  // WebDAV 自动同步：插件变更后触发（懒加载防循环依赖）
+  // 注意：syncSettingsAuto 下载远端覆盖本地时也会调这里，会触发 markSettingsChanged，
+  // 但 hash 未变，syncSettingsAuto 内 lastHash === localHash，不会重复上传，无限循环。
+  void import('@/core/sync/webdavSync').then(m => m.markSettingsChanged()).catch(() => {})
   return [...userApis]
 }
 

@@ -188,7 +188,7 @@ const defaultSetting: LX.AppSetting = {
   // 断点续传（Test-v2）：上传前检查远端已有大小，从断点继续。默认开。
   'webdav.uploadResume': true,
   // 分块上传（Test-v2）：大文件切块逐块传，单块失败只重传该块。默认关。
-  'webdav.uploadChunked': false,
+  'webdav.uploadChunked': true,
   // 分块大小 MB（Test-v2）：默认 5
   'webdav.uploadChunkSizeMB': 5,
   // 封面歌词来源（2026-10-04）：'file' = 从歌曲文件（同目录同名/通用封面、内嵌标签），
@@ -203,6 +203,16 @@ const defaultSetting: LX.AppSetting = {
   // 关 = 保持原有行为（cookie 不上传、不下载）。
   // 注意：cookie 是敏感凭证，开启后会以明文存放在你的 WebDAV 服务器上。
   'sync.webdav.syncCookies': false,
+  // 自动同步设置（2026-10-06）：默认开。开 = 自动同步时顺带同步设置（settings.json），
+  // 本地改设置后自动上传，云端更新后自动下载（last-write-wins）。
+  'sync.webdav.syncSettings': true,
+  'sync.webdav.lastSyncTimeSettings': 0,
+  'sync.webdav.lastSyncSettingsHash': '',
+  // 自动同步自定义音源/插件（2026-10-06）：默认开。开 = 自动同步时顺带同步
+  // 自定义音源（user_apis.json），本地装插件后自动上传，云端更新后自动下载。
+  'sync.webdav.syncUserApis': true,
+  'sync.webdav.lastSyncTimeUserApis': 0,
+  'sync.webdav.lastSyncUserApisHash': '',
 
   'theme.id': 'green',
   'theme.lightId': 'green',

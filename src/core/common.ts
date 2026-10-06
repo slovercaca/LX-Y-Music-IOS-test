@@ -29,6 +29,21 @@ export const initSetting = async() => {
  */
 export const updateSetting = (setting: Partial<LX.AppSetting>) => {
   settingActions.updateSetting(setting)
+  // WebDAV 设置自动同步（2026-10-06）：用户改设置后 3 秒防抖触发上传。
+  // 排除同步元数据键自身（lastSyncTime*/lastSync*Hash），否则上传成功后
+  // 更新时间戳又会触发新一轮同步，自循环。
+  // 懒加载 webdavSync 防循环依赖（webdavSync 反向 import 了 core/common）。
+  const keys = Object.keys(setting)
+  const isSyncMetaOnly = keys.length > 0 && keys.every(k =>
+    k === 'sync.webdav.lastSyncTimeSettings' ||
+    k === 'sync.webdav.lastSyncSettingsHash' ||
+    k === 'sync.webdav.lastSyncTimeUserApis' ||
+    k === 'sync.webdav.lastSyncUserApisHash' ||
+    k === 'sync.webdav.lastSyncTimeLists',
+  )
+  if (!isSyncMetaOnly) {
+    void import('@/core/sync/webdavSync').then(m => m.markSettingsChanged()).catch(() => {})
+  }
 }
 
 export const setLanguage = (locale: Parameters<typeof applyLanguage>[0]) => {

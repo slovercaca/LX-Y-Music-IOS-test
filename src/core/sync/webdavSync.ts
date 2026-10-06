@@ -114,6 +114,101 @@ async function uploadSettings(): Promise<number> {
   return file.lastModified
 }
 
+/**
+ * 自动同步设置（2026-10-06）：
+ * - 用内容 hash 检测本地是否有变化，避免无变化时重复上传（防双设备 ping-pong）
+ * - 时间戳 last-write-wins：远端新则下载，本地变则上传
+ * - hash 存的是过滤敏感键后的设置 JSON，确保上传/下载/比较用同一口径
+ */
+async function syncSettingsAuto(): Promise<void> {
+  if (settingState.setting['sync.webdav.syncSettings'] === false) return
+  const includeCookies = settingState.setting['sync.webdav.syncCookies'] === true
+  const { settings } = await getAllDataForSync(includeCookies)
+  const localHash = JSON.stringify(settings)
+  const lastHash = settingState.setting['sync.webdav.lastSyncSettingsHash'] ?? ''
+  const localTimestamp = settingState.setting['sync.webdav.lastSyncTimeSettings'] ?? 0
+
+  const remoteContent = await webdav.downloadFile(remoteSettingsPath())
+  if (remoteContent === null) {
+    // 云端没有：本地有变化才上传
+    if (lastHash !== localHash) {
+      webDAVLog.info('[Sync] 上传设置（云端无文件）')
+      const ts = await uploadSettings()
+      updateSetting({ 'sync.webdav.lastSyncTimeSettings': ts, 'sync.webdav.lastSyncSettingsHash': localHash })
+    }
+    return
+  }
+
+  let remoteData: any
+  try {
+    remoteData = JSON.parse(remoteContent)
+  } catch {
+    webDAVLog.warn('[Sync] 远端 settings.json 解析失败，跳过设置自动同步')
+    return
+  }
+  const remoteTimestamp = remoteData.lastModified ?? 0
+
+  if (remoteTimestamp > localTimestamp) {
+    // 远端更新：下载覆盖本地（走敏感键过滤，口径与上传一致）
+    webDAVLog.info('[Sync] 下载设置（远端更新）')
+    const filtered = filterSensitiveSettingsForSync(remoteData.data, includeCookies)
+    updateSetting(filtered)
+    updateSetting({
+      'sync.webdav.lastSyncTimeSettings': remoteTimestamp,
+      'sync.webdav.lastSyncSettingsHash': JSON.stringify(filtered),
+    })
+  } else if (lastHash !== localHash) {
+    // 本地有变化：上传
+    webDAVLog.info('[Sync] 上传设置（本地有变化）')
+    const ts = await uploadSettings()
+    updateSetting({ 'sync.webdav.lastSyncTimeSettings': ts, 'sync.webdav.lastSyncSettingsHash': localHash })
+  }
+}
+
+/**
+ * 自动同步自定义音源/插件（2026-10-06）：逻辑同 syncSettingsAuto，
+ * hash 口径为 getAllDataForSync 返回的 userApis（list + scripts）。
+ */
+async function syncUserApisAuto(): Promise<void> {
+  if (settingState.setting['sync.webdav.syncUserApis'] === false) return
+  const { userApis } = await getAllDataForSync()
+  const localHash = JSON.stringify(userApis)
+  const lastHash = settingState.setting['sync.webdav.lastSyncUserApisHash'] ?? ''
+  const localTimestamp = settingState.setting['sync.webdav.lastSyncTimeUserApis'] ?? 0
+
+  const remoteContent = await webdav.downloadFile(remoteUserApisPath())
+  if (remoteContent === null) {
+    if (lastHash !== localHash) {
+      webDAVLog.info('[Sync] 上传自定义音源（云端无文件）')
+      const ts = await uploadUserApis()
+      updateSetting({ 'sync.webdav.lastSyncTimeUserApis': ts, 'sync.webdav.lastSyncUserApisHash': localHash })
+    }
+    return
+  }
+
+  let remoteData: any
+  try {
+    remoteData = JSON.parse(remoteContent)
+  } catch {
+    webDAVLog.warn('[Sync] 远端 user_apis.json 解析失败，跳过音源自动同步')
+    return
+  }
+  const remoteTimestamp = remoteData.lastModified ?? 0
+
+  if (remoteTimestamp > localTimestamp) {
+    webDAVLog.info('[Sync] 下载自定义音源（远端更新）')
+    await overwriteUserApis(remoteData.data)
+    updateSetting({
+      'sync.webdav.lastSyncTimeUserApis': remoteTimestamp,
+      'sync.webdav.lastSyncUserApisHash': JSON.stringify(remoteData.data),
+    })
+  } else if (lastHash !== localHash) {
+    webDAVLog.info('[Sync] 上传自定义音源（本地有变化）')
+    const ts = await uploadUserApis()
+    updateSetting({ 'sync.webdav.lastSyncTimeUserApis': ts, 'sync.webdav.lastSyncUserApisHash': localHash })
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 合并
 // ---------------------------------------------------------------------------
@@ -292,9 +387,18 @@ export async function manualUploadSettingsAndApis(onProgress?: SyncProgressCallb
   toast('开始上传...')
   await runGuarded('上传', async() => {
     onProgress?.(0.1, '正在上传设置…')
-    await uploadSettings()
+    const settingsTs = await uploadSettings()
     onProgress?.(0.5, '正在上传自定义音源…')
-    await uploadUserApis()
+    const apisTs = await uploadUserApis()
+    // 同步 hash/时间戳，避免自动同步紧接着重复上传
+    const includeCookies = settingState.setting['sync.webdav.syncCookies'] === true
+    const { settings, userApis } = await getAllDataForSync(includeCookies)
+    updateSetting({
+      'sync.webdav.lastSyncTimeSettings': settingsTs,
+      'sync.webdav.lastSyncSettingsHash': JSON.stringify(settings),
+      'sync.webdav.lastSyncTimeUserApis': apisTs,
+      'sync.webdav.lastSyncUserApisHash': JSON.stringify(userApis),
+    })
     onProgress?.(1, '上传完成')
     toast('上传成功！')
   })
@@ -392,14 +496,21 @@ export async function manualDownloadLists(onProgress?: SyncProgressCallback): Pr
 // ---------------------------------------------------------------------------
 
 let listsChanged = false
+let settingsChanged = false
 
 void loadOperationQueue()
 
 const debouncedSync = debounce(() => {
-  if (!settingState.setting['sync.webdav.enable'] || !settingState.setting['sync.webdav.syncLists']) return
-  if (listsChanged) {
+  if (!settingState.setting['sync.webdav.enable']) return
+  // 歌单同步需要 syncLists 开；设置/插件同步有各自独立开关，
+  // 即使歌单同步关闭，只要设置/插件同步开也要跑
+  const needLists = settingState.setting['sync.webdav.syncLists'] && listsChanged
+  const needSettings = settingState.setting['sync.webdav.syncSettings'] !== false && settingsChanged
+  const needApis = settingState.setting['sync.webdav.syncUserApis'] !== false && settingsChanged
+  if (needLists || needSettings || needApis) {
     void triggerWebDAVSync(false).finally(() => {
       listsChanged = false
+      settingsChanged = false
     })
   }
 }, 3000)
@@ -407,6 +518,19 @@ const debouncedSync = debounce(() => {
 export const markListsChanged = (): void => {
   if (!settingState.setting['sync.webdav.enable']) return
   listsChanged = true
+  debouncedSync()
+}
+
+/**
+ * 标记设置/插件已变更（2026-10-06）：由 core/common.ts 的 updateSetting 统一调用，
+ * 3 秒防抖后触发 triggerWebDAVSync，自动上传设置与自定义音源。
+ * 注意：只标记，不立即同步；debouncedSync 内按开关决定是否真的跑。
+ */
+export const markSettingsChanged = (): void => {
+  if (!settingState.setting['sync.webdav.enable']) return
+  // 两个开关都关就不用标记了
+  if (settingState.setting['sync.webdav.syncSettings'] === false && settingState.setting['sync.webdav.syncUserApis'] === false) return
+  settingsChanged = true
   debouncedSync()
 }
 
@@ -554,6 +678,21 @@ export async function triggerWebDAVSync(isManual = false): Promise<void> {
       } else if (isManual) {
         webDAVLog.info('[Sync] Lists are up to date.')
         toast('歌单已是最新，无需同步')
+      }
+
+      // 自动同步设置与自定义音源（2026-10-06）：歌单同步完成后顺带执行，
+      // 各自有独立开关 sync.webdav.syncSettings / sync.webdav.syncUserApis，
+      // 内部用 hash 防重复上传、用时间戳做 last-write-wins。
+      // 注意：放在 failover 回调内，享受多服务器故障转移。
+      try {
+        await syncSettingsAuto()
+      } catch (error: any) {
+        webDAVLog.warn('[Sync] 设置自动同步失败', { error: error?.message ?? error })
+      }
+      try {
+        await syncUserApisAuto()
+      } catch (error: any) {
+        webDAVLog.warn('[Sync] 自定义音源自动同步失败', { error: error?.message ?? error })
       }
     })
   } catch (error: any) {
