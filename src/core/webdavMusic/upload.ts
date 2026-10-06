@@ -497,7 +497,9 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
   report(actualSize, actualSize)
 
   // 成功后校验远端大小
-  const ok = await verifyRemoteSize(remotePath, buffer.length)
+  // P1-10（2026-10-06）：用 stat 得到的 actualSize 而非 buffer.length。
+  // 文件在 stat 与 read 之间被修改时两者不一致，buffer.length 会导致误判。
+  const ok = await verifyRemoteSize(remotePath, actualSize)
   if (!ok) {
     throw new Error('上传后校验失败：服务器文件大小与本地不一致')
   }

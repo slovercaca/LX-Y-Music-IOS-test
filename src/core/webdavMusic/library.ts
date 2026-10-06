@@ -54,7 +54,7 @@ const getBaseName = (name: string): string => {
   return dot > 0 ? name.slice(0, dot) : name
 }
 
-/** 从「歌手 - 歌名」文件名解析出歌手/歌名 */
+/** 从「歌名 - 歌手」文件名解析出歌名/歌手（P2 2026-10-06：修正注释，原写反了） */
 const parseFileName = (fileName: string): { name: string, singer: string } => {
   const dotIndex = fileName.lastIndexOf('.')
   const rawName = dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName
@@ -432,7 +432,10 @@ export const fetchWebDAVLrc = async(musicInfo: LX.WebDAV.MusicInfo): Promise<str
   if (!lrcPath) return null
   try {
     const url = getWebDAVRemoteUrl(lrcPath)
-    const response = await fetch(url, { headers: getWebDAVAuthHeaders() })
+    // P2（2026-10-06）：不发送自定义 UA（Android Chrome UA 在 iOS 上可疑），
+    // 与 downloadToFileAtomic 的剥离逻辑一致
+    const { 'User-Agent': _ua, ...headersNoUA } = getWebDAVAuthHeaders()
+    const response = await fetch(url, { headers: headersNoUA })
     if (!response.ok) return null
     const text = await response.text()
     return text?.trim() ? text : null
