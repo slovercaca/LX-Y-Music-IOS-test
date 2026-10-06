@@ -1,4 +1,4 @@
-import { memo, useCallback } from 'react'
+import { memo, useCallback, useRef } from 'react'
 import { FlatList, RefreshControl, StyleSheet, TextInput, TouchableOpacity, View, type ListRenderItem } from 'react-native'
 import Text from '@/components/common/Text'
 import Button from '@/components/common/Button'
@@ -37,6 +37,13 @@ export default memo(({ page }: { page: WebDAVPage }) => {
     numColumns, rowWidth,
   } = page
 
+  // P2-5（2026-10-06）：selectedIds 是每次都变的新 Set 引用，放进 useCallback deps
+  // 会导致 renderSong 每次重建，SongItem 的 memo 失效。改用 ref 持有最新 Set，
+  // renderSong 保持稳定；FlatList 加 extraData={selectedIds} 触发选中态重渲染，
+  // memo 按 selected boolean 比对，只有真正变化的行才更新。
+  const selectedIdsRef = useRef(selectedIds)
+  selectedIdsRef.current = selectedIds
+
   const renderSong: ListRenderItem<LX.WebDAV.MusicInfo> = useCallback(
     ({ item, index }) => (
       <SongItem
@@ -46,12 +53,12 @@ export default memo(({ page }: { page: WebDAVPage }) => {
         rowWidth={rowWidth}
         onPress={handlePlay}
         onLongPress={handleLongPress}
-        selected={selectedIds.has(item.id)}
+        selected={selectedIdsRef.current.has(item.id)}
         isSelecting={isSelecting}
         onShowMenu={showMenu}
       />
     ),
-    [handlePlay, handleLongPress, showMenu, playMusicInfo?.id, rowWidth, selectedIds, isSelecting],
+    [handlePlay, handleLongPress, showMenu, playMusicInfo?.id, rowWidth, isSelecting],
   )
 
   // 多选工具栏
@@ -169,6 +176,9 @@ export default memo(({ page }: { page: WebDAVPage }) => {
         numColumns={numColumns}
         renderItem={renderSong}
         keyExtractor={item => item.id}
+        // P2-5：选中态变化时触发重渲染（renderSong 已用 ref 解耦 selectedIds，
+        // 靠 extraData 通知 FlatList；SongItem memo 按 selected boolean 比对）
+        extraData={selectedIds}
         style={{ flex: 1 }}
         // 限制渲染窗口 + 离屏行视图摘除（iOS 滚动掉帧主杠杆；getItemLayout 固定行高下回挂安全）
         initialNumToRender={20}
