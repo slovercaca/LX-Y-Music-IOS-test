@@ -61,7 +61,14 @@ const putViaNative = async(
   } catch { /* 忽略 */ }
 
   try {
-    const result: any = await NativeUpload.uploadFile(url, localPath, headers, 'PUT', uploadId)
+    // 单字典传参（避免多参数桥接越界）
+    const result: any = await NativeUpload.uploadFile({
+      url,
+      filePath: localPath,
+      headers,
+      method: 'PUT',
+      uploadId,
+    })
     return Number(result?.statusCode ?? 0)
   } catch (e: any) {
     // 原生取消 -> 转为 UploadAbortedError

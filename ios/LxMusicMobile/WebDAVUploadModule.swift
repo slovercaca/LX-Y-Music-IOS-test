@@ -66,26 +66,29 @@ class WebDAVUploadModule: RCTEventEmitter {
 
   // MARK: - 上传
 
-  /// 发起上传
-  @objc(uploadFile:filePath:headers:method:uploadId:resolver:rejecter:)
+  /// 发起上传（单字典传参，避免多参数桥接越界）
+  @objc(uploadFile:resolver:rejecter:)
   func uploadFile(
-    _ urlString: String,
-    filePath: String,
-    headers: [String: String],
-    method: String,
-    uploadId: String,
+    _ options: [String: Any],
     resolver resolve: @escaping RCTPromiseResolveBlock,
     rejecter reject: @escaping RCTPromiseRejectBlock
   ) {
     // 1. 参数校验
-    guard !uploadId.isEmpty else {
+    guard let uploadId = options["uploadId"] as? String, !uploadId.isEmpty else {
       reject("E_INVALID_ID", "uploadId 不能为空", nil)
       return
     }
-    guard let url = URL(string: urlString) else {
-      reject("E_INVALID_URL", "上传地址非法", nil)  // 不回显完整 URL（可能含敏感路径）
+    guard let urlString = options["url"] as? String,
+          let url = URL(string: urlString) else {
+      reject("E_INVALID_URL", "上传地址非法", nil)
       return
     }
+    guard let filePath = options["filePath"] as? String else {
+      reject("E_INVALID_PATH", "本地路径非法", nil)
+      return
+    }
+    let headers = options["headers"] as? [String: String] ?? [:]
+    let method = (options["method"] as? String) ?? "PUT"
 
     let fileURL = URL(fileURLWithPath: filePath)
     var isDir: ObjCBool = false
