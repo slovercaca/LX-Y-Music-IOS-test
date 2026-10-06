@@ -96,7 +96,7 @@ export const handleWebDAVDownload = async(
 
   if (!exists) {
     try {
-      const headers = getWebDAVAuthHeaders()
+      // P2（2026-10-06）：删除死变量 headers（downloadToFileAtomic 内部自取）
       const downloadUrl = getWebDAVDownloadUrl(musicInfo)
       await mkdir(musicDir)
       // 原子下载：校验 statusCode，防毒缓存（错误页面写入目标文件）
@@ -178,22 +178,43 @@ export const handleWebDAVBatchDownload = async(
       const fileName = musicInfo.meta.fileName
       if (!fileName) continue
       const musicDir = `${downloadDir}/music`
-      const filePath = `${musicDir}/${fileName}`
+      // P1-19：不同远端目录的同名文件，用父目录名区分本地文件名，避免互相覆盖。
+      // 如 /music/周杰伦/告白气球.flac → 周杰伦_告白气球.flac
+      let localFileName = fileName
+      const remotePath = musicInfo.meta.remotePath
+      if (remotePath) {
+        const segments = remotePath.split('/').filter(Boolean)
+        // 倒数第二段是父目录名（最后一段是文件名本身）
+        if (segments.length >= 2) {
+          const parentDir = segments[segments.length - 2].replace(/[/\\:*?"<>|]/g, '_')
+          if (parentDir && parentDir.toLowerCase() !== 'music') {
+            localFileName = `${parentDir}_${fileName}`
+          }
+        }
+      }
+      const filePath = `${musicDir}/${localFileName}`
 
       onProgress?.(currentIndex, songs.length, fileName)
 
+      // P1-19 兼容：老版本下载的文件用旧命名（无父目录前缀），
+      // 先检查旧路径，避免升级后重复下载。
+      const legacyFilePath = `${musicDir}/${fileName}`
       const fileExists = await existsFile(filePath).catch(() => false)
+      const legacyExists = localFileName !== fileName
+        ? await existsFile(legacyFilePath).catch(() => false)
+        : false
+      const effectiveFilePath = fileExists ? filePath : (legacyExists ? legacyFilePath : filePath)
 
-      if (musicInfo.meta.filePath && !fileExists) {
+      if (musicInfo.meta.filePath && !fileExists && !legacyExists) {
         webDAVLog.info('handleWebDAVBatchDownload: file was deleted, clearing old filePath', { oldPath: musicInfo.meta.filePath })
         // 传 null 显式清空（传 undefined 会被 update 判断跳过，永远清不掉）
         await updateWebDAVMusicMeta(musicInfo.id, { filePath: null })
       }
 
-      if (fileExists) {
-        webDAVLog.info('handleWebDAVBatchDownload: file already exists, skipping', { filePath })
-        downloadedPaths.push(filePath)
-        await updateWebDAVMusicMeta(musicInfo.id, { filePath })
+      if (fileExists || legacyExists) {
+        webDAVLog.info('handleWebDAVBatchDownload: file already exists, skipping', { filePath: effectiveFilePath })
+        downloadedPaths.push(effectiveFilePath)
+        await updateWebDAVMusicMeta(musicInfo.id, { filePath: effectiveFilePath })
         continue
       }
 
@@ -212,12 +233,12 @@ export const handleWebDAVBatchDownload = async(
 
         await applyMetadataAfterDownload(musicInfo, filePath)
 
-        // 歌词下载到 lrc/ 子目录
+        // 歌词下载到 lrc/ 子目录（文件名与本地音频对应，同样加父目录前缀防重名）
         if (musicInfo.meta.lrcPath) {
           try {
             const lrcDir = `${downloadDir}/lrc`
             await mkdir(lrcDir).catch(() => {})
-            const lrcFileName = fileName.replace(/\.[^/.]+$/, '.lrc')
+            const lrcFileName = localFileName.replace(/\.[^/.]+$/, '.lrc')
             const lrcFilePath = `${lrcDir}/${lrcFileName}`
             if (!await existsFile(lrcFilePath).catch(() => false)) {
               const lrcUrl = getWebDAVRemoteUrl(musicInfo.meta.lrcPath)
@@ -478,14 +499,16 @@ export const handleFetchWebDAVPicFromOnline = async(
 /** 从 WebDAV 列表中移除歌曲（只删本地记录，不删服务器文件） */
 export const handleWebDAVRemove = async(
   musicInfo: LX.WebDAV.MusicInfo,
-): Promise<void> => {
+): Promise<boolean> => {
   try {
     const config = await getWebDAVConfig()
     const songs = (config.songs || []).filter(s => s.id !== musicInfo.id)
     await saveWebDAVConfig({ ...config, songs })
     toast('已移除')
+    return true
   } catch (error: any) {
     webDAVLog.error('handleWebDAVRemove: failed', { error: error.message })
     toast(`移除失败：${error.message}`, 'long')
+    return false
   }
 }
