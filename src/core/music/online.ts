@@ -91,19 +91,27 @@ export const resolveMusicUrl = async({
 
   const isWySource = currentMusicInfo.source === 'wy'
   const hasFullDetails = currentMusicInfo.meta._full
-  if (!silent) console.log('播放：currentMusicInfo:', currentMusicInfo)
+  // P2: 生产环境不打印全量对象，__DEV__ 才打
+  if (!silent && typeof __DEV__ !== 'undefined' && __DEV__) console.log('播放：currentMusicInfo:', currentMusicInfo)
 
   if (isWySource && !hasFullDetails) {
-    const availableQualities = Object.keys(currentMusicInfo.meta._qualitys) as LX.Quality[]
-    const preferredQualityIndex = QUALITY_RANK.indexOf(preferredQuality)
-    const maxAvailableQualityIndex = Math.min(...availableQualities.map(q => QUALITY_RANK.indexOf(q)))
-
-    if (preferredQualityIndex < maxAvailableQualityIndex) {
-      if (!silent) console.log('用户想要的音质比当前已知的最好音质还要高，获取音质详情')
+    // P1（2026-10-06）：_qualitys 为 undefined 时 Object.keys 会抛 TypeError，
+    // 本意是"音质未知则拉详情"，加守卫直接走详情
+    if (!currentMusicInfo.meta._qualitys) {
+      if (!silent) console.log('音质信息缺失，获取音质详情')
       currentMusicInfo = await fetchAndApplyDetailedQuality(currentMusicInfo, 0, silent)
     } else {
-      if (!silent) console.log('用户想要的音质比当前已知的最好音质还要低，无需获取音质详情')
-      void fetchAndApplyDetailedQuality(currentMusicInfo, 0, silent)
+      const availableQualities = Object.keys(currentMusicInfo.meta._qualitys) as LX.Quality[]
+      const preferredQualityIndex = QUALITY_RANK.indexOf(preferredQuality)
+      const maxAvailableQualityIndex = Math.min(...availableQualities.map(q => QUALITY_RANK.indexOf(q)))
+
+      if (preferredQualityIndex < maxAvailableQualityIndex) {
+        if (!silent) console.log('用户想要的音质比当前已知的最好音质还要高，获取音质详情')
+        currentMusicInfo = await fetchAndApplyDetailedQuality(currentMusicInfo, 0, silent)
+      } else {
+        if (!silent) console.log('用户想要的音质比当前已知的最好音质还要低，无需获取音质详情')
+        void fetchAndApplyDetailedQuality(currentMusicInfo, 0, silent)
+      }
     }
   }
 

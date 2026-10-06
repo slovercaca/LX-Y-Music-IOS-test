@@ -210,7 +210,8 @@ export const overwriteList = async(
  */
 export const createList = async({
   name,
-  id = `userlist_${Date.now()}`,
+  // P2: 加随机后缀，同 1ms 内建两个歌单不再 id 冲突
+  id = `userlist_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
   list = [],
   source,
   sourceListId,

@@ -36,10 +36,11 @@ const runWithLimit = async(fn: () => Promise<string>): Promise<string> => {
   })
 }
 
-interface CoverSong { source: string, name: string, singer: string }
+interface CoverSong { source: string, name: string, singer: string, albumName?: string, songId?: string }
 
 const keyOf = (song: CoverSong): string =>
-  `${song.source}|${song.name}|${song.singer}`
+  // P2: key 加入 albumName/songId，同名同歌手多版本不再串封面
+  `${song.source}|${song.name}|${song.singer}|${song.albumName ?? ''}|${song.songId ?? ''}`
 
 export const getCachedCoverUrl = (song: CoverSong): string => {
   if (song.source === 'qs') return getCachedQsCover(song as LX.Music.MusicInfoOnline)

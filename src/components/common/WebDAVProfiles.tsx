@@ -44,6 +44,10 @@ export default memo(() => {
   const [profiles, setProfiles] = useState<WebDAVServerProfile[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [testingId, setTestingId] = useState<string | null>(null)
+  // P1-1（2026-10-06）：用 ref 做切换中的同步 guard。
+  // 原先用 state testingId 做 guard，但闭包捕获的是旧值，快速连点两配置时
+  // 第二次点击看到的还是 null，guard 失效导致并发切换。用 ref 则同步生效。
+  const testingIdRef = useRef<string | null>(null)
   const [editor, setEditor] = useState<EditorState | null>(null)
   const dialogRef = useRef<DialogType>(null)
 
@@ -120,8 +124,9 @@ export default memo(() => {
   }, [editor, profiles, activeProfile, refresh])
 
   const handleSwitch = useCallback(async(profile: WebDAVServerProfile) => {
-    if (testingId) return
+    if (testingIdRef.current) return
     if (activeProfile?.id === profile.id) return
+    testingIdRef.current = profile.id
     setTestingId(profile.id)
     toast('正在切换并测试连接...')
     try {
@@ -139,9 +144,10 @@ export default memo(() => {
       // 切换本身已生效（地址账号已写入），只是连不上：明确告诉用户，避免以为没切过去
       toast(`已切换到「${profile.name}」，但连接失败：${error.message}`, 'long')
     } finally {
+      testingIdRef.current = null
       setTestingId(null)
     }
-  }, [testingId, activeProfile, refresh])
+  }, [activeProfile, refresh])
 
   const handleDelete = useCallback(async(profile: WebDAVServerProfile) => {
     const ok = await confirmDialog({

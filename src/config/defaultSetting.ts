@@ -191,6 +191,9 @@ const defaultSetting: LX.AppSetting = {
   'webdav.uploadChunked': true,
   // 分块大小 MB（Test-v2）：默认 5
   'webdav.uploadChunkSizeMB': 5,
+  // 上传看门狗超时秒数（2026-10-06）：无进度超过此秒数则中断重试。
+  // 0 = 关闭看门狗（永不中断）。默认 15。
+  'webdav.uploadStallTimeoutSec': 15,
   // 封面歌词来源（2026-10-04）：'file' = 从歌曲文件（同目录同名/通用封面、内嵌标签），
   // 'online' = 从云端插件（按歌名/歌手在线匹配）。默认 file。
   'webdav.mediaSource': 'file',
@@ -243,6 +246,9 @@ const defaultSetting: LX.AppSetting = {
   // 与内容区玻璃独立，默认开；关 = 恢复各组件原来的纯色背景。
   'theme.glassUtility': true,
   'theme.isLandscapeStretch': false,
+  // P1-3（2026-10-06）：上次动态背景 URL，冷启动时先同步恢复，避免白屏闪烁。
+  // 原先不在 defaults 里，靠 updateSetting 全量写入才持久化，属定时炸弹。
+  'theme.lastDynamicBgPic': '',
   // 歌单页封面列数（手机竖屏）：2 / 3 个一排，默认 2。
   // iPad 与大屏仍在 List.tsx 里按可用宽度自适应多列。
   'theme.songlistColumns': 2,

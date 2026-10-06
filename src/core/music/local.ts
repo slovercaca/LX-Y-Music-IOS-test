@@ -55,7 +55,10 @@ const getOtherSourceByLocal = async <T>(
   if (handlerResult !== null) return handlerResult
 
   if (musicInfo.name.includes('-')) {
-    const [name, singer] = musicInfo.name.split('-').map((val) => val.trim())
+    // P2: singer 取第一段，歌名取剩余全部 join，"A - B - C" 不再丢第三段
+    const parts = musicInfo.name.split('-').map((val) => val.trim())
+    const singer = parts[0]
+    const name = parts.slice(1).join(' - ')
     result = await getOtherSource(
       {
         ...musicInfo,
@@ -86,7 +89,10 @@ const getOtherSourceByLocal = async <T>(
     fileName = fileName.substring(0, fileName.lastIndexOf('.'))
     if (fileName != musicInfo.name) {
       if (fileName.includes('-')) {
-        const [name, singer] = fileName.split('-').map((val) => val.trim())
+        // P2: singer 取第一段，歌名取剩余全部 join
+        const parts = fileName.split('-').map((val) => val.trim())
+        const singer = parts[0]
+        const name = parts.slice(1).join(' - ')
         result = await getOtherSource(
           {
             ...musicInfo,
