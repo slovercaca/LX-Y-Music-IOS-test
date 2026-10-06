@@ -367,6 +367,8 @@ export const getListMusics = async(listId: string): Promise<LX.Music.MusicInfo[]
 /**
  * Save songs in list
  * @param listData List data
+ * P2 注：大歌单在此处做整表 JSON.stringify，会阻塞 JS 线程。
+ * 真优化需分片增量写，此处仅标注，暂不改（改动风险大于收益）。
  */
 export const saveListMusics = async(
   listData: Array<{ id: string, musics: LX.Music.MusicInfo[] }>,
