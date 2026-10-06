@@ -175,6 +175,9 @@ export const setMusicUrl = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem
   void getMusicPlayUrl(musicInfo, isRefresh, false, quality).then(async(result) => {
     if (!result) return
     const currentTime = await currentTimePromise
+    // P1（2026-10-06）：await 期间用户可能已暂停/停止/切歌，加过期守卫，
+    // 否则取链返回后仍 setResource 起播
+    if (global.lx.isPlayedStop || diffCurrentMusicInfo(musicInfo)) return
     // 一次性消费：无论这次加载的是不是被恢复的那首歌，都清掉这个全局值
     pendingRestoreSeek = null
     currentStreamInfo.musicId = musicInfo.id
@@ -315,9 +318,12 @@ const handlePlay = async() => {
  */
 export const playListById = async(listId: string, id: string) => {
   const prevListId = playerState.playInfo.playerListId
-  setPlayListId(listId)
+  // P1（2026-10-06）：先校验歌曲存在，再 setPlayListId。
+  // 原顺序：id 不存在时提前 return，但 playerListId 已指新列表，
+  // 后续 playNext/playPrev 会用错误列表计算。
   const musicInfo = getList(listId).find(m => m.id == id)
   if (!musicInfo) return
+  setPlayListId(listId)
   setPlayMusicInfo(listId, musicInfo)
   if (settingState.setting['player.isAutoCleanPlayedList'] || prevListId != listId) clearPlayedList()
   clearTempPlayeList()
@@ -331,8 +337,12 @@ export const playListById = async(listId: string, id: string) => {
  */
 export const playList = async(listId: string, index: number) => {
   const prevListId = playerState.playInfo.playerListId
+  // P1（2026-10-06）：加越界校验。index 越界时 getList(listId)[index] 为 undefined，
+  // setPlayMusicInfo 的 null 分支会清空播放状态，但引擎旧歌可能还在播，UI/引擎错位。
+  const list = getList(listId)
+  if (index < 0 || index >= list.length) return
   setPlayListId(listId)
-  setPlayMusicInfo(listId, getList(listId)[index])
+  setPlayMusicInfo(listId, list[index])
   if (settingState.setting['player.isAutoCleanPlayedList'] || prevListId != listId) clearPlayedList()
   clearTempPlayeList()
   await handlePlay()
@@ -390,6 +400,7 @@ export const getNextPlayMusicInfo = async(): Promise<LX.Player.PlayMusicInfo | n
       const currentId = playMusicInfo.musicInfo.id
       if (playMusicInfo.listId == currentListId && !currentList.some(m => m.id === currentId)) {
         removePlayedList(index)
+        index-- // P2: splice 后元素前移，index-- 抵消 for 的 index++，避免跳过
         continue
       }
       break
@@ -486,6 +497,7 @@ export const playNext = async(isAutoToggle = false): Promise<void> => {
       const currentId = playMusicInfo.musicInfo.id
       if (playMusicInfo.listId == currentListId && !currentList.some(m => m.id === currentId)) {
         removePlayedList(index)
+        index-- // P2: splice 后元素前移，index-- 抵消 for 的 index++，避免跳过
         continue
       }
       break
@@ -539,7 +551,11 @@ export const playNext = async(isAutoToggle = false): Promise<void> => {
       nextIndex = -1
       return
   }
-  if (nextIndex < 0) return
+  if (nextIndex < 0) {
+    // P2: 顺序播放完最后一首，调 handleToggleStop 清理状态（之前直接 return 残留结尾状态）
+    void handleToggleStop()
+    return
+  }
 
   await handlePlayNext({
     musicInfo: filteredList[nextIndex],
@@ -710,6 +726,10 @@ export const pause = async() => {
   // E1 修复：暂停时清除 URL 失败遗留的 5s 兜底切歌定时器，
   // 否则用户暂停后 5s 照样被强制跳到下一首播放。
   clearDelayNextTimeout()
+  // P1（2026-10-06）：取消延迟重试定时器，否则暂停后到点自动起播
+  if (cancelDelayRetry) cancelDelayRetry()
+  // P1（2026-10-06）：清除 100s 取链看门狗，否则暂停后约 100s 看门狗回调 playNext 自动起播
+  clearLoadTimeout()
   // 2026-10-05 fix（逻辑-P1-1）：取消 200ms 内 pending 的切歌播放，
   // 否则用户快速"下一首→暂停"后音乐仍会自己响起来
   debouncePlay.cancel()
@@ -723,6 +743,10 @@ export const stop = async() => {
   clearManualPlayIntent()
   // E1 同类：用户主动停止后，不应再被失败遗留的 5s 兜底定时器强制切歌播放。
   clearDelayNextTimeout()
+  // P1（2026-10-06）：取消延迟重试定时器，否则停止后到点自动起播
+  if (cancelDelayRetry) cancelDelayRetry()
+  // P1（2026-10-06）：清除 100s 取链看门狗，否则停止后约 100s 看门狗回调 playNext 自动起播
+  clearLoadTimeout()
   // 2026-10-05 fix（逻辑-P1-1）：同 pause，取消 pending 的切歌播放
   debouncePlay.cancel()
   await setStop()

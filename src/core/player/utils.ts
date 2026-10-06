@@ -126,7 +126,8 @@ export const filterList = async({ playedList, listId, list, playerMusicInfo, isN
 
   if (!filteredList.length && playedList.length) {
     clearPlayedList()
-    return { filteredList: canPlayList, playerIndex }
+    // P2: 空列表时 playerIndex 保持 -1 不猜 0，避免随机播错位
+    return { filteredList: canPlayList, playerIndex: playerIndex < 0 ? -1 : playerIndex }
   }
   return { filteredList, playerIndex }
 }

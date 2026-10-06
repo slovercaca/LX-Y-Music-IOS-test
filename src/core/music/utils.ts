@@ -165,8 +165,12 @@ export const getOtherSource = async(
         userApiLog.info(`[在线匹配源] findMusic 返回结果，原始数量: ${otherSource.length}`)
 
         if (otherSourceCache.size > 10) {
-          userApiLog.info('[在线匹配源] 缓存数量超过10，清空缓存')
-          otherSourceCache.clear()
+          // P2: 改 LRU，删最旧的一半而非全清（Map 按插入顺序迭代）
+          userApiLog.info('[在线匹配源] 缓存数量超过10，清理最旧一半')
+          const keys = [...otherSourceCache.keys()]
+          for (let i = 0; i < Math.ceil(keys.length / 2); i++) {
+            otherSourceCache.delete(keys[i])
+          }
         }
 
         const source = otherSource.map(toNewMusicInfo) as LX.Music.MusicInfoOnline[]
@@ -646,6 +650,11 @@ export const getOnlineOtherSourceMusicUrl = async({
 
   return tryGetMusicUrlWithFallback(fallbackQualities)
     .then(({ url, type }) => {
+      // P1（2026-10-06）：空 url 不能当"换源成功"返回，抛错继续试下一个音源
+      if (!url || url.length < 10) {
+        userApiLog.warn('[换源播放]   换源返回空地址，继续试下一个音源')
+        throw new Error('invalid url')
+      }
       userApiLog.info('[换源播放] ========== 换源成功 ==========')
       userApiLog.info(`[换源播放] 最终音源: "${musicInfo.source}"`)
       userApiLog.info(`[换源播放] 歌曲: "${musicInfo.name}" - "${musicInfo.singer}"`)
@@ -784,8 +793,10 @@ export const handleGetOnlineMusicUrl = async({
 
     return reqPromise
       .then((result: { url: string, type: LX.Quality }) => {
+        // P1（2026-10-06）：空/过短 url 不能当成功返回，抛错走降级（低音质/换源）
         if (!result.url || result.url.length < 10) {
-          userApiLog.warn('[在线播放]   警告: 播放地址可能无效')
+          userApiLog.warn('[在线播放]   警告: 播放地址无效，走降级')
+          throw new Error('invalid url')
         }
         return result
       })

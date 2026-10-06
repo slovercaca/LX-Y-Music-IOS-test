@@ -90,7 +90,7 @@ export const getPlayHistoryByRange = async(startTime: number, endTime: number) =
  * （OnlineList 的 handleRemoveMusic 只处理平台歌单 id）。删完发
  * playHistoryUpdated，播放历史页据此自动刷新。
  */
-export const removePlayHistoryItems = async({
+export const removePlayHistoryItemsInternal = async({
   entryIds = [],
   musicIds = [],
 }: {
@@ -109,11 +109,29 @@ export const removePlayHistoryItems = async({
   return removed
 }
 
-/** 清空全部播放历史 */
-export const clearPlayHistory = async() => {
+// P1（2026-10-06）：走串行队列，避免与 addPlayHistory 的异步写入竞态
+//（add 未落盘时清空/删除，被删条目"复活"或清空失效）
+export const removePlayHistoryItems = async(params: {
+  entryIds?: string[]
+  musicIds?: string[]
+}): Promise<number> => {
+  const nextTask = addPlayHistoryQueue.catch(() => {}).then(async() => removePlayHistoryItemsInternal(params))
+  addPlayHistoryQueue = nextTask.then(() => undefined, () => undefined)
+  return nextTask
+}
+
+/** 清空全部播放历史（内部实现） */
+const clearPlayHistoryInternal = async() => {
   const history = await getPlayHistory()
   if (!history.length) return 0
   await savePlayHistory([])
   global.app_event.playHistoryUpdated()
   return history.length
+}
+
+// P1（2026-10-06）：走串行队列，原因同上
+export const clearPlayHistory = async() => {
+  const nextTask = addPlayHistoryQueue.catch(() => {}).then(async() => clearPlayHistoryInternal())
+  addPlayHistoryQueue = nextTask.then(() => undefined, () => undefined)
+  return nextTask
 }
