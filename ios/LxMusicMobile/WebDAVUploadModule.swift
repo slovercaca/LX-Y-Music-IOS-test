@@ -44,7 +44,10 @@ class WebDAVUploadModule: RCTEventEmitter {
     config.httpMaximumConnectionsPerHost = 6          // 与 JS 并发上限对齐
     config.timeoutIntervalForRequest = 60             // 单次请求 60s 无数据则超时
     config.timeoutIntervalForResource = 600           // 整个任务 10 分钟
-    config.waitsForConnectivity = true               // 无网时等待而非立即失败
+    // waitsForConnectivity = false：断网时立即失败（走 JS 自动重试），
+    // 而不是静默等待。静默等待期间无进度上报，会被 15s 看门狗误杀，
+    // 不如快速失败让重试逻辑接管。
+    config.waitsForConnectivity = false
     config.allowsCellularAccess = true               // 允许蜂窝（用户可在系统设置中限制）
     // HTTP/2 默认开启；TCP keepalive 由系统管理
     let queue = OperationQueue()

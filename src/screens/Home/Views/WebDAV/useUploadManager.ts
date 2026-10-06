@@ -353,13 +353,17 @@ export function useUploadManager(deps: UploadManagerDeps) {
         return
       }
       const noProgressMs = Date.now() - item.lastProgressAt
+      // 等待服务器响应阶段（字节已 100% 发送）：不按"无进度"处理。
+      // 此时无进度是正常的，服务器响应有原生层 60s 超时兜底。
+      // 若也按 15s 中断，小文件（瞬间发完）只要服务器响应慢一点就被误杀。
+      const isWaitingResponse = item.phase === 'waiting'
       // 10 秒无进度：标记为卡顿（UI 显示"网络卡顿…"而非误导性的"即将完成"）
-      if (item.status === 'uploading' && noProgressMs > STALL_WARN_MS && item.phase !== 'stalled') {
+      if (item.status === 'uploading' && !isWaitingResponse && noProgressMs > STALL_WARN_MS && item.phase !== 'stalled') {
         item.phase = 'stalled'
         item.phaseDetail = `已 ${Math.round(noProgressMs / 1000)} 秒无进度`
         bump()
       }
-      if (item.status === 'uploading' && noProgressMs > UPLOAD_STALL_MS) {
+      if (item.status === 'uploading' && !isWaitingResponse && noProgressMs > UPLOAD_STALL_MS) {
         webDAVLog.warn('[upload] 15s 无进度，看门狗中断', { fileName: item.fileName })
         // P1-2：只有真正有 abort 句柄时才中断并加 stale 标记。读文件阶段（XHR 未启动、无句柄）
         // 触发时，abort 是 no-op，若照样加标记，后续用户暂停会被误判为失败。
