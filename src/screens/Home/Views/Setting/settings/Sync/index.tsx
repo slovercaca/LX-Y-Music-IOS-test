@@ -38,6 +38,8 @@ export default memo(() => {
   const isFailoverEnabled = useSettingValue('sync.webdav.failoverEnabled')
   const isFailoverNotify = useSettingValue('sync.webdav.failoverNotify')
   const isSyncCookies = useSettingValue('sync.webdav.syncCookies')
+  const isSyncSettings = useSettingValue('sync.webdav.syncSettings')
+  const isSyncUserApis = useSettingValue('sync.webdav.syncUserApis')
 
   const lastSyncTimeLists = useSettingValue('sync.webdav.lastSyncTimeLists')
 
@@ -112,6 +114,14 @@ export default memo(() => {
 
   const handleSyncCookies = (enable: boolean) => {
     updateSetting({ 'sync.webdav.syncCookies': enable })
+  }
+
+  const handleSyncSettings = (enable: boolean) => {
+    updateSetting({ 'sync.webdav.syncSettings': enable })
+  }
+
+  const handleSyncUserApis = (enable: boolean) => {
+    updateSetting({ 'sync.webdav.syncUserApis': enable })
   }
 
   const handleTestConnection = useCallback(async() => {
@@ -285,6 +295,18 @@ export default memo(() => {
           label="同步平台 Cookie"
           helpDesc="开启后，WebDAV 同步设置时会包含各音乐平台的登录 Cookie（网易云/QQ音乐/酷狗/YouTube），换设备后无需重新登录。Cookie 为敏感凭证，将以明文存放在你的 WebDAV 服务器上，请确保服务器可信。"
           onChange={handleSyncCookies}
+        />
+        <CheckBoxItem
+          check={isSyncSettings !== false}
+          label="自动同步设置"
+          helpDesc="开启后，自动同步时会顺带同步应用设置（主题、播放、下载等）。本地修改后自动上传，云端更新后自动下载。"
+          onChange={handleSyncSettings}
+        />
+        <CheckBoxItem
+          check={isSyncUserApis !== false}
+          label="自动同步自定义音源"
+          helpDesc="开启后，自动同步时会顺带同步自定义音源/插件（脚本）。本地安装后自动上传，云端更新后自动下载。"
+          onChange={handleSyncUserApis}
         />
 
         <View style={{ opacity: isEnableWebdav ? 1 : 0.5 }}>

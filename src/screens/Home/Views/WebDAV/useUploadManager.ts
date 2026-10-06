@@ -344,8 +344,8 @@ export function useUploadManager(deps: UploadManagerDeps) {
     let lastAt = startAt
     /** 本轮是否仍有效：item 未被删除、未被新一轮接管（防 stale worker 重复结算） */
     const stillMine = () => itemsRef.current.get(item.id) === item && item.attempt === attempt
-    // 90 秒无进度看门狗：XHR 卡死时自动中断，转失败可重试（不无限卡"上传中"）
-    const UPLOAD_STALL_MS = 90000
+    // 15 秒无进度看门狗：XHR 卡死时自动中断，转失败可重试（不无限卡"上传中"）
+    const UPLOAD_STALL_MS = 15000
     const STALL_WARN_MS = 10000  // 10 秒无进度即显示"网络卡顿"
     const stallTimer = setInterval(() => {
       if (!stillMine()) {
@@ -360,7 +360,7 @@ export function useUploadManager(deps: UploadManagerDeps) {
         bump()
       }
       if (item.status === 'uploading' && noProgressMs > UPLOAD_STALL_MS) {
-        webDAVLog.warn('[upload] 90s 无进度，看门狗检查', { fileName: item.fileName })
+        webDAVLog.warn('[upload] 15s 无进度，看门狗中断', { fileName: item.fileName })
         // P1-2：只有真正有 abort 句柄时才中断并加 stale 标记。读文件阶段（XHR 未启动、无句柄）
         // 触发时，abort 是 no-op，若照样加标记，后续用户暂停会被误判为失败。
         const handle = abortHandlesRef.current.get(item.id)
@@ -376,7 +376,7 @@ export function useUploadManager(deps: UploadManagerDeps) {
           item.lastProgressAt = Date.now()
         }
       }
-    }, 15000)
+    }, 5000)
     try {
       // 阶段：准备中
       item.phase = 'preparing'
@@ -445,7 +445,7 @@ export function useUploadManager(deps: UploadManagerDeps) {
         // 看门狗中断：按失败处理（可重试），不是用户取消
         if (stallAbortedRef.current.has(item.id)) {
           stallAbortedRef.current.delete(item.id)
-          finishItem(item, 'failed', '上传停滞（90秒无进度），已中断，可重试')
+          finishItem(item, 'failed', '上传停滞（15秒无进度），已中断，可重试')
           return
         }
         // 用户单项暂停计 paused；队列整体暂停计 paused；其他（删除）计 cancelled

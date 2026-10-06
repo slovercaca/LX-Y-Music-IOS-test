@@ -220,12 +220,12 @@ export default memo(({ page }: { page: UploadTabProps }) => {
               </Text>
             </View>
             <Switch
-              value={chunkedEnabled === true}
+              value={chunkedEnabled !== false}
               onValueChange={(v) => { void updateSetting({ 'webdav.uploadChunked': v }) }}
               disabled={queueState === 'uploading'}
             />
           </View>
-          {chunkedEnabled === true ? (
+          {chunkedEnabled !== false ? (
             <View style={[styles.rowBetween, { marginTop: 8 }]}>
               <Text size={designTypography.caption} color={theme['c-font-label']}>分块大小</Text>
               <View style={styles.stepper}>

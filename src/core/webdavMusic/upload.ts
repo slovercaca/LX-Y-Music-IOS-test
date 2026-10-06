@@ -328,7 +328,7 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
 
       // 读取分块/断点续传设置
       const resumeEnabled = settingState.setting['webdav.uploadResume'] !== false
-      const chunkedEnabled = settingState.setting['webdav.uploadChunked'] === true
+      const chunkedEnabled = settingState.setting['webdav.uploadChunked'] !== false
       const chunkSizeMB = Number(settingState.setting['webdav.uploadChunkSizeMB'] ?? 5)
       const chunkSize = Math.max(1, Math.min(100, chunkSizeMB)) * 1024 * 1024
 
