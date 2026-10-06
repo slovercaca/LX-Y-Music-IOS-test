@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		9D3D00A6E5604DF4A7840340 /* WebDAVUploadModule.mm in Sources */ = {isa = PBXBuildFile; fileRef = 0BF0F3438F3346CA85F95245 /* WebDAVUploadModule.mm */; };
+		D3543C83867C44DFA1150598 /* WebDAVUploadModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF3AE23E652940938F596864 /* WebDAVUploadModule.swift */; };
 		00E356F31AD99517003FC87E /* LxMusicMobileTests.m in Sources */ = {isa = PBXBuildFile; fileRef = 00E356F21AD99517003FC87E /* LxMusicMobileTests.m */; };
 		0C80B921A6F3F58F76C31292 /* libPods-LxMusicMobile.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 5DCACB8F33CDC322A6C60F78 /* libPods-LxMusicMobile.a */; };
 		11D2C601B4A24A5E9B5B0001 /* CoreMotion.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 11D2C600B4A24A5E9B5B0001 /* CoreMotion.framework */; };
@@ -31,6 +33,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0BF0F3438F3346CA85F95245 /* WebDAVUploadModule.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = WebDAVUploadModule.mm; path = LxMusicMobile/WebDAVUploadModule.mm; sourceTree = "<group>"; };
+		AF3AE23E652940938F596864 /* WebDAVUploadModule.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = WebDAVUploadModule.swift; path = LxMusicMobile/WebDAVUploadModule.swift; sourceTree = "<group>"; };
 		00E356EE1AD99517003FC87E /* LxMusicMobileTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LxMusicMobileTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		00E356F11AD99517003FC87E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		00E356F21AD99517003FC87E /* LxMusicMobileTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LxMusicMobileTests.m; sourceTree = "<group>"; };
@@ -97,6 +101,8 @@
 			children = (
 				13B07FAF1A68108700A75B9A /* AppDelegate.h */,
 				13B07FB01A68108700A75B9A /* AppDelegate.mm */,
+				0BF0F3438F3346CA85F95245 /* WebDAVUploadModule.mm */,
+				AF3AE23E652940938F596864 /* WebDAVUploadModule.swift */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				11F1A0A5A0F340D5B1E6A001 /* icomoon.ttf */,
 				22D0B000A0F340D5B1E6A003 /* user-api-preload.js */,
@@ -407,6 +413,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				13B07FBC1A68108700A75B9A /* AppDelegate.mm in Sources */,
+				9D3D00A6E5604DF4A7840340 /* WebDAVUploadModule.mm in Sources */,
+				D3543C83867C44DFA1150598 /* WebDAVUploadModule.swift in Sources */,
 				13B07FC11A68108700A75B9A /* main.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
