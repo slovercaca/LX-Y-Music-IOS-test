@@ -180,4 +180,42 @@ const initDownloadPath = async(_setting: LX.AppSetting) => {
   } catch (err) {
     console.error('[Download Path] Failed to migrate stray download files:', err)
   }
+
+  // 3) 修复已被旧版迁移写坏的任务路径（P0，2026-10-12）。
+  // 旧版无条件改写 task.filePath，导致部分任务指向不存在的位置。
+  // 按文件名在下载目录/旧目录/Documents 根逐个找回，修复任务路径。
+  try {
+    const tasks = await getDownloadTasks()
+    let repaired = false
+    const legacyPath = `${RNFS.DocumentDirectoryPath}/LX-Y Music`
+    const docRoot = RNFS.DocumentDirectoryPath
+    for (const task of tasks) {
+      const filePath = task.filePath
+      if (!filePath) continue
+      if (await existsFile(filePath).catch(() => false)) continue
+      const baseName = filePath.split('/').pop()
+      if (!baseName) continue
+      const candidates = [
+        `${defaultPath}/${baseName}`,
+        `${legacyPath}/${baseName}`,
+        `${docRoot}/${baseName}`,
+      ]
+      for (const candidate of candidates) {
+        if (candidate === filePath) continue
+        if (await existsFile(candidate).catch(() => false)) {
+          console.log('[Download Path] Repaired task path:', filePath, '->', candidate)
+          task.filePath = candidate
+          repaired = true
+          break
+        }
+      }
+    }
+    if (repaired) {
+      await saveDownloadTasks(tasks)
+      downloadActions.setTasks(await getDownloadTasks())
+      console.log('[Download Path] Repaired broken download task paths.')
+    }
+  } catch (err) {
+    console.error('[Download Path] Failed to repair download task paths:', err)
+  }
 }
