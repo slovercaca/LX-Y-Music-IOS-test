@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { confirmDialog, toast } from '@/utils/tools'
+import { confirmDialog, overwriteConfirmDialog, toast } from '@/utils/tools'
 import { selectFile, stat, unlink } from '@/utils/fs'
 import { saveData, getData, removeData } from '@/plugins/storage'
 import { useSettingValue } from '@/store/setting/hook'
@@ -9,6 +9,7 @@ import settingState from '@/store/setting/state'
 import {
   buildUploadRemotePath,
   findLocalLyricFile,
+  findLocalCoverFile,
   putFileWithProgress,
   UploadAbortedError,
   RemoteDirNotFoundError,
@@ -50,6 +51,8 @@ export interface UploadManagerDeps {
   getTargetDir: () => string
   /** 是否同时上传歌词 */
   getWithLyrics: () => boolean
+  /** 是否同时上传封面（2026-10-13） */
+  getWithCover: () => boolean
   /** 连接预检（不通直接抛错） */
   testConnection: () => Promise<void>
   /** 远端存在性检查（冲突预检用） */
@@ -217,6 +220,7 @@ export function useUploadManager(deps: UploadManagerDeps) {
   }>) => {
     const targetDir = depsRef.current.getTargetDir()
     const withLyrics = depsRef.current.getWithLyrics()
+    const withCover = depsRef.current.getWithCover()
     let added = 0
     const now = Date.now()
     for (const r of raw) {
@@ -232,7 +236,10 @@ export function useUploadManager(deps: UploadManagerDeps) {
         const pathExt = fileNameOf(r.localPath).match(/\.([a-z0-9]+)$/i)?.[1]
         if (pathExt) fileName = `${fileName}.${pathExt}`
       }
-      const kind = extOf(fileName) === 'lrc' ? 'lrc' : 'audio'
+      // 2026-10-13：封面图片单独成 kind，上传到 picture/ 目录
+      const PIC_EXTS_UPLOAD = ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif', 'tif', 'tiff', 'heic', 'heif', 'avif']
+      const ext = extOf(fileName)
+      const kind = ext === 'lrc' ? 'lrc' : PIC_EXTS_UPLOAD.includes(ext) ? 'picture' : 'audio'
       const remotePath = buildUploadRemotePath(targetDir, fileName, kind)
       // 按 本地路径+远端路径 去重（同一文件重复添加直接跳过）
       let dup = false
@@ -293,6 +300,40 @@ export function useUploadManager(deps: UploadManagerDeps) {
               addedAt: Date.now(),
             }
             itemsRef.current.set(lrcId, lrcItem)
+            bump(true)
+          }).catch(() => {})
+        })
+      }
+
+      // 音频入队时自动配对同名封面（2026-10-13）：本地 music/、picture/ 结构兼容查找，
+      // 上传到远端 picture/ 目录
+      if (kind === 'audio' && withCover) {
+        const base = fileName.replace(/\.[^/.]+$/, '')
+        void findLocalCoverFile(r.localPath, base).then(coverPath => {
+          if (!coverPath) return
+          const coverName = fileNameOf(coverPath)
+          const coverRemote = buildUploadRemotePath(targetDir, coverName, 'picture')
+          for (const it of itemsRef.current.values()) {
+            if (it.localPath === coverPath && it.remotePath === coverRemote) return
+          }
+          void stat(coverPath).then(st => {
+            const coverId = newId()
+            const coverItem: WebDAVUploadQueueItem = {
+              id: coverId,
+              localPath: coverPath,
+              fileName: coverName,
+              size: (st as { size?: number })?.size || 0,
+              kind: 'picture',
+              remotePath: coverRemote,
+              targetDir,
+              status: 'queued',
+              uploadedBytes: 0,
+              speed: 0,
+              lastProgressAt: 0,
+              isTempFile: false,
+              addedAt: Date.now(),
+            }
+            itemsRef.current.set(coverId, coverItem)
             bump(true)
           }).catch(() => {})
         })
@@ -643,20 +684,54 @@ export function useUploadManager(deps: UploadManagerDeps) {
       return
     }
 
-    // 3. 冲突预检（一次问清）
-    const conflicts: string[] = []
+    // 3. 冲突预检（2026-10-13：逐个确认，支持"后续全部覆盖/跳过"）
+    // 为避免并发上传时弹窗乱序，预检阶段串行处理
+    let overwriteAll: boolean | null = null // null=逐个问，true=后续全部覆盖，false=后续全部跳过
+    const toUpload: typeof activeReady = []
+    const skippedByUser: string[] = []
     for (const it of activeReady) {
-      if (await depsRef.current.checkRemoteExists(it.remotePath).catch(() => false)) {
-        conflicts.push(it.fileName)
+      const exists = await depsRef.current.checkRemoteExists(it.remotePath).catch(() => false)
+      if (!exists) {
+        toUpload.push(it)
+        continue
+      }
+      if (overwriteAll === true) {
+        toUpload.push(it)
+        continue
+      }
+      if (overwriteAll === false) {
+        skippedByUser.push(it.fileName)
+        it.status = 'cancelled'
+        continue
+      }
+      // 逐个询问
+      const choice = await overwriteConfirmDialog({
+        message: `服务器上已存在「${it.fileName}」，如何处理？`,
+      })
+      if (choice === null) {
+        // 用户关闭弹窗：取消整个上传
+        toast('已取消上传')
+        return
+      }
+      if (choice === 'overwrite' || choice === 'overwrite-all') {
+        toUpload.push(it)
+        if (choice === 'overwrite-all') overwriteAll = true
+      } else {
+        skippedByUser.push(it.fileName)
+        it.status = 'cancelled'
+        if (choice === 'skip-all') overwriteAll = false
       }
     }
-    if (conflicts.length > 0) {
-      const confirmed = await confirmDialog({
-        title: '文件已存在',
-        message: `服务器上已有 ${conflicts.length} 个同名文件${conflicts.length <= 3 ? `：${conflicts.join('、')}` : ''}，上传将覆盖它们。继续吗？`,
-        confirmButtonText: '覆盖并上传',
-      })
-      if (!confirmed) return
+    if (skippedByUser.length > 0) {
+      webDAVLog.info('[upload] 用户跳过已存在文件', { count: skippedByUser.length })
+    }
+    // 用过滤后的列表继续
+    activeReady.length = 0
+    activeReady.push(...toUpload)
+    if (activeReady.length === 0) {
+      bump(true)
+      toast(skippedByUser.length > 0 ? '所有冲突文件均已跳过' : '无文件可上传')
+      return
     }
 
     // 4. 大文件提醒

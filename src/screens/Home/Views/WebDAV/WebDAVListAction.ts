@@ -88,9 +88,10 @@ export const handleWebDAVDownload = async(
     return undefined
   }
 
-  // 歌曲下载到 music/ 子文件夹，歌词下载到 lrc/ 子文件夹
+  // 歌曲下载到 music/ 子文件夹，歌词下载到 lrc/ 子文件夹，封面下载到 picture/ 子文件夹（2026-10-13）
   const musicDir = `${downloadDir}/music`
   const lrcDir = `${downloadDir}/lrc`
+  const picDir = `${downloadDir}/picture`
   const filePath = `${musicDir}/${fileName}`
   const exists = await existsFile(filePath).catch(() => false)
 
@@ -129,6 +130,29 @@ export const handleWebDAVDownload = async(
       }
 
       await applyMetadataAfterDownload(musicInfo, filePath)
+
+      // 2026-10-13：同时下载封面到 picture/（如果服务器上有匹配的封面），
+      // 文件名与音频同基名，供离线自动加载
+      if (musicInfo.meta.picPath) {
+        try {
+          await mkdir(picDir)
+          const picExt = musicInfo.meta.picPath.split('.').pop()?.toLowerCase() || 'jpg'
+          const picFileName = `${fileName.replace(/\.[^/.]+$/, '')}.${picExt}`
+          const picFilePath = `${picDir}/${picFileName}`
+          const picExists = await existsFile(picFilePath).catch(() => false)
+          if (!picExists) {
+            const picUrl = getWebDAVRemoteUrl(musicInfo.meta.picPath)
+            await downloadToFileAtomic({
+              url: picUrl,
+              targetPath: picFilePath,
+              statusError: (statusCode) => `封面下载失败（${statusCode}）`,
+              moveError: '封面下载失败（文件落盘失败）',
+            })
+          }
+        } catch {
+          // 封面下载失败不影响歌曲
+        }
+      }
     } catch (error: any) {
       webDAVLog.error('handleWebDAVDownload: download failed', { fileName, error: error.message })
       toast(`下载失败：${error.message}`, 'long')
@@ -254,6 +278,28 @@ export const handleWebDAVBatchDownload = async(
             }
           } catch {
             // 歌词下载失败不影响歌曲
+          }
+        }
+
+        // 2026-10-13：封面下载到 picture/ 子目录（文件名与本地音频对应，同样加父目录前缀防重名）
+        if (musicInfo.meta.picPath) {
+          try {
+            const picDir = `${downloadDir}/picture`
+            await mkdir(picDir).catch(() => {})
+            const picExt = musicInfo.meta.picPath.split('.').pop()?.toLowerCase() || 'jpg'
+            const picFileName = `${localFileName.replace(/\.[^/.]+$/, '')}.${picExt}`
+            const picFilePath = `${picDir}/${picFileName}`
+            if (!await existsFile(picFilePath).catch(() => false)) {
+              const picUrl = getWebDAVRemoteUrl(musicInfo.meta.picPath)
+              await downloadToFileAtomic({
+                url: picUrl,
+                targetPath: picFilePath,
+                statusError: (statusCode) => `封面下载失败（${statusCode}）`,
+                moveError: '封面下载失败（文件落盘失败）',
+              })
+            }
+          } catch {
+            // 封面下载失败不影响歌曲
           }
         }
 
