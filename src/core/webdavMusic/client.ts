@@ -240,3 +240,14 @@ export const getWebDAVLrcDir = (remoteDir: string): string => {
   if (musicDir === '/music') return '/lrc'
   return `${musicDir.substring(0, musicDir.lastIndexOf('/'))}/lrc`
 }
+
+/**
+ * 统一目录语义：封面目录，永远是音频目录的兄弟 picture/（2026-10-13）。
+ * 如 /music → /picture；/备份/music → /备份/picture；/ → /picture。
+ * 规则与 lrc/ 完全一致：只存封面图片，按音频基名匹配。
+ */
+export const getWebDAVPictureDir = (remoteDir: string): string => {
+  const musicDir = getWebDAVMusicDir(remoteDir)
+  if (musicDir === '/music') return '/picture'
+  return `${musicDir.substring(0, musicDir.lastIndexOf('/'))}/picture`
+}

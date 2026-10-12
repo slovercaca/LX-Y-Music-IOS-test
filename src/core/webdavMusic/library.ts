@@ -37,7 +37,7 @@ const audioExts = new Set([
 ])
 
 // 网盘内可作为封面的图片扩展名 + 目录级通用封面文件名
-const picExts = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'])
+const picExts = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'heic', 'heif', 'avif'])
 const genericPicNames = new Set(['cover', 'folder', 'front', 'album', 'back', 'poster', 'thumb'])
 
 // ---------------------------------------------------------------------------
@@ -178,6 +178,21 @@ const loadLrcDirInto = async(lrcDirPath: string, lrcMap: Map<string, string>): P
   }
 }
 
+/** 读取某目录下的图片，记入 picMap（2026-10-13：picture/ 目录封面匹配，规则与 lrc 一致） */
+const loadPictureDirInto = async(picDirPath: string, picMap: Map<string, string>): Promise<void> => {
+  try {
+    const entries = await listRemoteEntries(picDirPath)
+    for (const entry of entries) {
+      if (entry.type !== 'file') continue
+      if (!picExts.has(getExt(entry.name))) continue
+      const base = getBaseName(entry.name).toLowerCase()
+      if (!picMap.has(base)) picMap.set(base, entry.path)
+    }
+  } catch {
+    // picture 目录读取失败不影响主流程
+  }
+}
+
 const scanFolder = async(
   folder: LX.WebDAV.DriveFolder | null,
   onProgress?: (count: number, folderPath: string) => void,
@@ -194,6 +209,10 @@ const scanFolder = async(
   const lrcSubdir = entries.find(e => e.type === 'directory' && e.name.toLowerCase() === 'lrc')
   if (lrcSubdir) await loadLrcDirInto(lrcSubdir.path, media.lrcMap)
 
+  // 2026-10-13：picture/ 放封面——子目录 picture/ 也纳入匹配（规则与 lrc/ 一致）
+  const picSubdir = entries.find(e => e.type === 'directory' && e.name.toLowerCase() === 'picture')
+  if (picSubdir) await loadPictureDirInto(picSubdir.path, media.picMap)
+
   // 扫描的如果是 music 目录本身，歌词在兄弟 lrc/ 目录（如 /music ↔ /lrc），也纳入匹配，
   // 否则上传后"歌词进 lrc/"但扫描 /music 时永远匹配不上
   const folderBase = basePath.split('/').filter(Boolean).pop()?.toLowerCase()
@@ -203,6 +222,9 @@ const scanFolder = async(
       const parentEntries = await listRemoteEntries(parentPath)
       const siblingLrc = parentEntries.find(e => e.type === 'directory' && e.name.toLowerCase() === 'lrc')
       if (siblingLrc) await loadLrcDirInto(siblingLrc.path, media.lrcMap)
+      // 2026-10-13：封面在兄弟 picture/ 目录（如 /music ↔ /picture），同样纳入匹配
+      const siblingPic = parentEntries.find(e => e.type === 'directory' && e.name.toLowerCase() === 'picture')
+      if (siblingPic) await loadPictureDirInto(siblingPic.path, media.picMap)
     } catch {
       // 父目录不可读不影响主流程
     }

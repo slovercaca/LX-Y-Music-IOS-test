@@ -5,6 +5,7 @@ import settingState from '@/store/setting/state'
 import {
   getWebDAVMusicDir,
   getWebDAVLrcDir,
+  getWebDAVPictureDir,
   getWebDAVRemoteUrl,
   getWebDAVAuthHeaders,
   joinWebDAVRemotePath,
@@ -142,7 +143,7 @@ export type WebDAVUploadStatus =
   | 'cancelled'
 
 /** 队列项文件种类：音频进 music/，歌词进 lrc/（兄弟目录） */
-export type WebDAVUploadKind = 'audio' | 'lrc'
+export type WebDAVUploadKind = 'audio' | 'lrc' | 'picture'
 
 export interface WebDAVUploadQueueItem {
   /** 本地唯一 id */
@@ -220,15 +221,20 @@ export class RemoteDirNotFoundError extends Error {
 
 /**
  * 按文件种类计算远端完整路径（上传队列在入队时即算好，UI 可直接展示）：
- * - audio → getWebDAVMusicDir(targetDir)/fileName
- * - lrc   → getWebDAVLrcDir(targetDir)/fileName（音频目录的兄弟 lrc/）
+ * - audio   → getWebDAVMusicDir(targetDir)/fileName
+ * - lrc     → getWebDAVLrcDir(targetDir)/fileName（音频目录的兄弟 lrc/）
+ * - picture → getWebDAVPictureDir(targetDir)/fileName（音频目录的兄弟 picture/，2026-10-13）
  */
 export const buildUploadRemotePath = (
   uploadTargetDir: string,
   fileName: string,
   kind: WebDAVUploadKind,
 ): string => {
-  const dir = kind === 'lrc' ? getWebDAVLrcDir(uploadTargetDir) : getWebDAVMusicDir(uploadTargetDir)
+  const dir = kind === 'lrc'
+    ? getWebDAVLrcDir(uploadTargetDir)
+    : kind === 'picture'
+      ? getWebDAVPictureDir(uploadTargetDir)
+      : getWebDAVMusicDir(uploadTargetDir)
   return joinWebDAVRemotePath(dir, fileName)
 }
 
@@ -250,6 +256,30 @@ export const findLocalLyricFile = async(audioLocalPath: string, baseName: string
   ]
   for (const p of candidates) {
     if (await existsFile(p).catch(() => false)) return p
+  }
+  return null
+}
+
+/**
+ * 为本地音频查找同名封面（本地文件结构 music/、picture/ 与 lrc/ 兼容，2026-10-13）：
+ * 1. 音频同目录 `<dir>/<base>.<picExt>`
+ * 2. 音频目录的 picture/ 子目录 `<dir>/picture/<base>.<picExt>`
+ * 3. 父目录的 picture/ `<parent>/picture/<base>.<picExt>`（下载目录结构：music/ 与 picture/ 并列）
+ * 找不到返回 null。
+ */
+const PIC_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif', 'tif', 'tiff', 'heic', 'heif', 'avif']
+export const findLocalCoverFile = async(audioLocalPath: string, baseName: string): Promise<string | null> => {
+  const localDir = audioLocalPath.substring(0, audioLocalPath.lastIndexOf('/'))
+  const parentDir = localDir.substring(0, localDir.lastIndexOf('/'))
+  const dirs = [localDir, `${localDir}/picture`, `${parentDir}/picture`]
+  for (const dir of dirs) {
+    for (const ext of PIC_EXTS) {
+      const p = `${dir}/${baseName}.${ext}`
+      if (await existsFile(p).catch(() => false)) return p
+      // 大小写变体（如 .JPG）
+      const pUpper = `${dir}/${baseName}.${ext.toUpperCase()}`
+      if (pUpper !== p && await existsFile(pUpper).catch(() => false)) return pUpper
+    }
   }
   return null
 }

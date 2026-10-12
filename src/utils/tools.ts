@@ -319,6 +319,61 @@ export const confirmDialog = async({
   })
 }
 
+/**
+ * 上传覆盖四选项弹窗（2026-10-13）：
+ * 返回 'overwrite'（覆盖）| 'skip'（跳过）| 'overwrite-all'（后续全部覆盖）| 'skip-all'（后续全部跳过）| null（取消/关闭）
+ */
+export type OverwriteChoice = 'overwrite' | 'skip' | 'overwrite-all' | 'skip-all'
+export const overwriteConfirmDialog = async({
+  title = '文件已存在',
+  message = '',
+  bgClose = true,
+}: {
+  title?: string
+  message?: string
+  bgClose?: boolean
+} = {}): Promise<OverwriteChoice | null> => {
+  return new Promise<OverwriteChoice | null>((resolve) => {
+    Alert.alert(
+      title,
+      message,
+      [
+        {
+          text: '跳过',
+          onPress() {
+            resolve('skip')
+          },
+        },
+        {
+          text: '后续全部跳过',
+          onPress() {
+            resolve('skip-all')
+          },
+        },
+        {
+          text: '覆盖',
+          onPress() {
+            resolve('overwrite')
+          },
+        },
+        {
+          text: '后续全部覆盖',
+          style: 'destructive',
+          onPress() {
+            resolve('overwrite-all')
+          },
+        },
+      ],
+      {
+        cancelable: bgClose,
+        onDismiss() {
+          resolve(null)
+        },
+      },
+    )
+  })
+}
+
 export const tipDialog = async({
   title = '',
   message = '',
