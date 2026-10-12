@@ -97,8 +97,9 @@ export function useWebDAVPage() {
 
   // ---------------- 上传 ----------------
   // 上传队列由 useUploadManager 管理（显式状态机：idle/uploading/paused）。
-  // 这里只保留"同时上传歌词"开关与目标目录派生。
+  // 这里只保留"同时上传歌词/封面"开关与目标目录派生。
   const [uploadWithLyrics, setUploadWithLyrics] = useState(true)
+  const [uploadWithCover, setUploadWithCover] = useState(true)
 
   // ---------------- 配置 ----------------
   const webdavPassword = useSettingValue('sync.webdav.password')
@@ -193,6 +194,7 @@ export function useWebDAVPage() {
   const uploadManager = useUploadManager({
     getTargetDir: () => uploadTargetDir,
     getWithLyrics: () => uploadWithLyrics,
+    getWithCover: () => uploadWithCover,
     testConnection,
     checkRemoteExists: checkWebDAVRemoteExists,
     onQueueDrained: (summary) => { void handleUploadDrainedRescan(summary) },
@@ -859,6 +861,7 @@ export function useWebDAVPage() {
     headerText,
     // 上传（新管理器：队列/并发/真实进度/历史；旧的零散 state 已移除）
     uploadTargetDir, uploadWithLyrics, setUploadWithLyrics,
+    uploadWithCover, setUploadWithCover,
     uploadManager,
     // 菜单 / 弹窗
     webDAVListMenuRef, metadataEditTypeRef, handleUpdateMetadata,

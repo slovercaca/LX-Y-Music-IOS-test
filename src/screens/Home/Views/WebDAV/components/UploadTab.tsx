@@ -24,6 +24,8 @@ export interface UploadTabProps {
   uploadTargetDir: string
   uploadWithLyrics: boolean
   setUploadWithLyrics: (v: boolean | ((p: boolean) => boolean)) => void
+  uploadWithCover: boolean
+  setUploadWithCover: (v: boolean | ((p: boolean) => boolean)) => void
   uploadManager: ReturnType<typeof useUploadManager>
 }
 
@@ -89,7 +91,7 @@ const ItemStatusLine = ({ item }: { item: WebDAVUploadQueueItem }) => {
  */
 export default memo(({ page }: { page: UploadTabProps }) => {
   const theme = useTheme()
-  const { activeTab, selectTab, uploadTargetDir, uploadWithLyrics, setUploadWithLyrics } = page
+  const { activeTab, selectTab, uploadTargetDir, uploadWithLyrics, setUploadWithLyrics, uploadWithCover, setUploadWithCover } = page
   const mgr = page.uploadManager
   const { items, stats, queueState, history, selectedIds, concurrency } = mgr
   // 分块/断点续传开关
@@ -469,6 +471,21 @@ export default memo(({ page }: { page: UploadTabProps }) => {
             勾选后，音频入队时自动查找同名歌词，一并上传到 lrc/ 目录
           </Text>
 
+          {/* 封面选项（2026-10-13） */}
+          <TouchableOpacity
+            style={styles.lyricsRow}
+            activeOpacity={0.7}
+            onPress={() => { setUploadWithCover(v => !v) }}
+          >
+            <CheckBox check={uploadWithCover} onChange={setUploadWithCover} />
+            <Text size={designTypography.body} color={theme['c-font']} style={styles.lyricsLabel}>
+              同时上传封面（图片）
+            </Text>
+          </TouchableOpacity>
+          <Text size={designTypography.caption} color={theme['c-font-label']} style={styles.tip}>
+            勾选后，音频入队时自动查找同名封面，一并上传到 picture/ 目录
+          </Text>
+
           {/* 队列项 */}
           {items.length === 0 ? (
             <Text size={designTypography.caption} color={theme['c-font-label']} style={styles.emptyText}>
@@ -490,14 +507,16 @@ export default memo(({ page }: { page: UploadTabProps }) => {
                         styles.kindBadge,
                         { backgroundColor: item.kind === 'lrc'
                           ? theme['c-primary-light-900-alpha-300']
-                          : theme['c-button-background'] },
+                          : item.kind === 'picture'
+                            ? theme['c-primary-light-900-alpha-300']
+                            : theme['c-button-background'] },
                       ]}
                     >
                       <Text
                         size={designTypography.caption}
-                        color={item.kind === 'lrc' ? theme['c-primary'] : theme['c-font-label']}
+                        color={item.kind === 'lrc' || item.kind === 'picture' ? theme['c-primary'] : theme['c-font-label']}
                       >
-                        {item.kind === 'lrc' ? '歌词' : '音频'}
+                        {item.kind === 'lrc' ? '歌词' : item.kind === 'picture' ? '封面' : '音频'}
                       </Text>
                     </View>
                     <Text size={designTypography.body} color={theme['c-font']} numberOfLines={1} style={styles.flex1}>
