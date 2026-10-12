@@ -163,9 +163,11 @@ const initDownloadPath = async(_setting: LX.AppSetting) => {
           if (lrcPath !== filePath && (await existsFile(lrcPath).catch(() => false))) {
             await moveFile(lrcPath, targetPath.replace(/\.[^/.]+$/, '.lrc')).catch(() => {})
           }
+          // P0（2026-10-12）：只有文件真实存在并移动成功，才改写任务路径。
+          // 之前无条件改写，导致源文件不存在时任务指向一个空位置，离线无法播放。
+          task.filePath = targetPath
+          changed = true
         }
-        task.filePath = targetPath
-        changed = true
       } catch (moveErr) {
         console.warn(`[Download Path] Failed to move ${filePath} to ${targetPath}:`, moveErr)
       }

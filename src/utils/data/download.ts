@@ -14,6 +14,9 @@ export const normalizeDownloadTasks = (tasks: LX.Download.DownloadTask[]): LX.Do
 export const normalizeDownloadTasksForSync = (tasks: LX.Download.DownloadTask[]): LX.Download.DownloadTask[] =>
   tasks.map(task => ({
     ...task,
+    // P1（2026-10-12）：filePath 是本机绝对路径（含 iOS 沙盒 UUID），
+    // 同步到异设备/重装后必失效。同步时剥离，接收端按需重建。
+    filePath: '',
     status: 'paused',
     errorMsg: '',
     isRemoteSynced: false,

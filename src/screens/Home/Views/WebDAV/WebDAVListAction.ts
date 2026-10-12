@@ -79,7 +79,7 @@ const applyMetadataAfterDownload = async(
  */
 export const handleWebDAVDownload = async(
   musicInfo: LX.WebDAV.MusicInfo,
-): Promise<string | undefined> => {
+): Promise<{ picUrl?: string, filePath: string } | undefined> => {
   const downloadDir = getDefaultDownloadDir()
   const fileName = musicInfo.meta.fileName
 
@@ -141,13 +141,15 @@ export const handleWebDAVDownload = async(
     if (picPath) {
       const newPicUrl = picPath.startsWith('/') ? `file://${picPath}` : picPath
       await updateWebDAVMusicMeta(musicInfo.id, { picUrl: newPicUrl })
-      return newPicUrl
+      // P1（2026-10-12）：返回 filePath，调用方同步到列表内存状态，
+      // 否则同一会话内点播用的是旧对象，离线无法播放。
+      return { picUrl: newPicUrl, filePath }
     }
   } catch {
     // ignore
   }
 
-  return undefined
+  return { filePath }
 }
 
 /**

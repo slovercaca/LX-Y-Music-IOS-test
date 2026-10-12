@@ -569,10 +569,18 @@ export function useWebDAVPage() {
   }, [patchSongInList])
 
   const handleDownload = useCallback((info: WebDAVSelectInfo) => {
-    void handleWebDAVDownload(info.musicInfo).then((newPicUrl) => {
-      if (newPicUrl) {
-        patchSongInList(info.musicInfo.id, song => ({ ...song, meta: { ...song.meta, picUrl: newPicUrl } }))
-      }
+    // P1（2026-10-12）：下载后把 filePath 同步到列表内存状态，
+    // 否则同一会话内点播拿的是旧对象（filePath 为空），离线无法播放。
+    void handleWebDAVDownload(info.musicInfo).then((result) => {
+      if (!result) return
+      patchSongInList(info.musicInfo.id, song => ({
+        ...song,
+        meta: {
+          ...song.meta,
+          filePath: result.filePath,
+          ...(result.picUrl ? { picUrl: result.picUrl } : {}),
+        },
+      }))
     })
   }, [patchSongInList])
 
