@@ -560,3 +560,80 @@ export const handleWebDAVRemove = async(
     return false
   }
 }
+
+/**
+ * 批量从在线获取封面（2026-10-18）。
+ * 对无封面的歌曲在线搜索匹配，下载到本地 picture/ 目录并更新。
+ * 并发 4，避免请求风暴。
+ */
+export const handleBatchFetchCoversFromOnline = async(
+  songs: LX.WebDAV.MusicInfo[],
+  onProgress?: (current: number, total: number, currentSong: string) => void,
+): Promise<{ success: number, failed: number }> => {
+  const downloadDir = getDefaultDownloadDir()
+  const picDir = `${downloadDir}/picture`
+  await mkdir(picDir).catch(() => {})
+
+  let success = 0
+  let failed = 0
+  let index = 0
+  const total = songs.length
+
+  const workers = Array.from({ length: 4 }, async() => {
+    while (index < total) {
+      const i = index++
+      const musicInfo = songs[i]
+      // 已有封面跳过
+      if (musicInfo.meta.picUrl) {
+        continue
+      }
+      onProgress?.(i + 1, total, musicInfo.name || '')
+      try {
+        const searchResult = await findMusic({
+          name: musicInfo.name || '',
+          singer: musicInfo.singer || '',
+          albumName: musicInfo.meta.albumName || '',
+          interval: musicInfo.interval || '',
+          source: 'kw',
+        })
+        if (searchResult.length === 0) {
+          failed++
+          continue
+        }
+        const matched = searchResult[0] as LX.Music.MusicInfoOnline
+        const result = await handleGetOnlinePicUrl({
+          musicInfo: matched,
+          isRefresh: true,
+          onToggleSource: () => {},
+          allowToggleSource: false,
+        })
+        if (!result.url) {
+          failed++
+          continue
+        }
+        // 下载到本地 picture/
+        const picExt = result.url.split('.').pop()?.split('?')[0]?.toLowerCase() || 'jpg'
+        // 限制扩展名在允许列表内，防止奇怪的 URL 后缀
+        const safeExt = ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif'].includes(picExt) ? picExt : 'jpg'
+        const baseName = (musicInfo.meta.fileName || musicInfo.name).replace(/\.[^/.]+$/, '').replace(/[\\/:*?"<>|]/g, '_')
+        const picFilePath = `${picDir}/${baseName}.${safeExt}`
+        if (!await existsFile(picFilePath).catch(() => false)) {
+          await downloadToFileAtomic({
+            url: result.url,
+            targetPath: picFilePath,
+            statusError: (statusCode) => `封面下载失败（${statusCode}）`,
+            moveError: '封面下载失败（文件落盘失败）',
+          })
+        }
+        const picUrl = `file://${picFilePath}`
+        await updateWebDAVMusicMeta(musicInfo.id, { picUrl })
+        success++
+      } catch (err: any) {
+        webDAVLog.warn('handleBatchFetchCoversFromOnline: failed', { song: musicInfo.name, error: err?.message })
+        failed++
+      }
+    }
+  })
+  await Promise.all(workers)
+  return { success, failed }
+}

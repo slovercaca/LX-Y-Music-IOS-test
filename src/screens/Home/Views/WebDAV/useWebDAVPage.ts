@@ -28,6 +28,7 @@ import { updateSetting } from '@/core/common'
 import {
   handleWebDAVDownload,
   handleFetchWebDAVPicFromOnline,
+  handleBatchFetchCoversFromOnline,
   handleWebDAVRemove,
   handleWebDAVDownloadAndImport,
 } from './WebDAVListAction'
@@ -496,6 +497,37 @@ export function useWebDAVPage() {
     })
   }, [filteredSongs])
 
+  // 批量获取在线封面（2026-10-18）：对选中歌曲（未选中时对全部无封面歌曲）在线拉封面
+  const handleBatchFetchCovers = useCallback(() => {
+    const targets = selectedIds.size > 0
+      ? filteredSongs.filter(s => selectedIds.has(s.id) && !s.meta.picUrl)
+      : filteredSongs.filter(s => !s.meta.picUrl)
+    if (!targets.length) {
+      toast(selectedIds.size > 0 ? '选中的歌曲都有封面了' : '所有歌曲都有封面了')
+      return
+    }
+    void confirmDialog({
+      title: '批量获取封面',
+      message: `将为 ${targets.length} 首无封面的歌曲在线搜索封面，存到本地 picture/ 目录。继续吗？`,
+      confirmButtonText: '开始获取',
+    }).then((confirmed) => {
+      if (!confirmed) return
+      exitSelectMode()
+      setBatchLoadingText('正在获取封面 0/' + targets.length)
+      void handleBatchFetchCoversFromOnline(targets, (current, total, songName) => {
+        setBatchLoadingText(`正在获取封面 ${current}/${total}`)
+      }).then(({ success, failed }) => {
+        setBatchLoadingText('')
+        toast(`封面获取完成：成功 ${success}，失败 ${failed}`)
+        // 刷新列表显示新封面
+        void loadConfig()
+      }).catch((err: any) => {
+        setBatchLoadingText('')
+        toast(`获取失败：${err?.message || err}`, 'long')
+      })
+    })
+  }, [filteredSongs, selectedIds, exitSelectMode, loadConfig])
+
   // 批量下载选中歌曲
   const handleDownloadSelected = useCallback(() => {
     const selected = filteredSongs.filter(s => selectedIds.has(s.id))
@@ -851,7 +883,7 @@ export function useWebDAVPage() {
     loading, songs, filteredSongs, scannedAt, scanText, batchLoadingText,
     searchVisible, searchText, setSearchText,
     handleToggleSearch, handleClearSearch,
-    handleScan, handleBatchDownload, handleRefresh, handleUpload,
+    handleScan, handleBatchDownload, handleBatchFetchCovers, handleRefresh, handleUpload,
     handlePlay, handleLongPress, showMenu,
     // 多选
     isSelecting, selectedIds, exitSelectMode, toggleSelectAll, handleDownloadSelected,

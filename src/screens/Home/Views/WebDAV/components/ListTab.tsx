@@ -29,7 +29,7 @@ export default memo(({ page }: { page: WebDAVPage }) => {
     handleToggleSearch, handleClearSearch,
     filterPath, handleSetFilterPath, selectedFolder,
     scanText, headerText, batchLoadingText,
-    handleScan, handleBatchDownload, handleUpload, handleRefresh,
+    handleScan, handleBatchDownload, handleBatchFetchCovers, handleUpload, handleRefresh,
     handlePlay, handleLongPress, showMenu,
     isSelecting, selectedIds, exitSelectMode, toggleSelectAll,
     handleDownloadSelected, handleAddSelectedToPlaylist,
@@ -161,6 +161,13 @@ export default memo(({ page }: { page: WebDAVPage }) => {
                 onPress={handleBatchDownload}
               >
                 <Text color={theme['c-primary-font']}>扫描并下载</Text>
+              </Button>
+              <Button
+                style={{ ...styles.scanButton, backgroundColor: theme['c-button-background'], marginLeft: 8 }}
+                disabled={loading || !!batchLoadingText}
+                onPress={handleBatchFetchCovers}
+              >
+                <Text color={theme['c-button-font']}>获取封面</Text>
               </Button>
               <Button
                 style={{ ...styles.scanButton, backgroundColor: theme['c-button-background'], marginLeft: 8 }}
