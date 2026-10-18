@@ -21,6 +21,7 @@ import ListMusicMultiAdd, {
 import { createStyle } from '@/utils/tools'
 import { View, Keyboard } from 'react-native'
 import ActiveList, { type ActiveListType } from './ActiveList'
+import OfflineModeToggle from '@/components/common/OfflineModeToggle'
 import MultiSelectTopBar, { type SelectMode } from '@/components/common/MultiSelectTopBar'
 import ListSearchBar from './ListSearchBar'
 
@@ -203,6 +204,10 @@ export default ({ onBack, listId }: MusicListProps) => {
             比「推荐」页标题高一个安全区（iPhone 59~62pt）贴住状态栏。 */}
         <View>
           <PageTopInset withSafeAreaTop />
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingBottom: 8 }}>
+            <View style={{ flex: 1 }} />
+            <OfflineModeToggle />
+          </View>
           <ActiveList
             ref={activeListRef}
             onShowSearchBar={handleToggleSearch}

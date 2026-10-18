@@ -12,6 +12,9 @@ import {
 import * as localPlay from './localPlay'
 import { handleGetOnlinePicUrl } from './utils'
 import { webDAVLog } from '@/core/webdavMusic/logger'
+import settingState from '@/store/setting/state'
+import downloadState from '@/store/download/state'
+import { existsFile } from '@/utils/fs'
 
 export { handleGetOnlinePicUrl }
 
@@ -42,6 +45,66 @@ const getTaskTarget = (musicInfo: LX.Download.ListItem): localPlay.LocalPlayTarg
     picUrl: inner?.meta?.picUrl ?? null,
     quality: 'quality' in musicInfo ? (musicInfo as any).quality : undefined,
   }
+}
+
+/**
+ * 2026-10-18 离线模式：为在线歌曲查找本地已下载文件。
+ * 匹配规则：优先按 ID 精确匹配，其次按歌名+歌手归一化匹配。
+ * 返回存在的文件路径，找不到返回 null。
+ */
+const findOfflineLocalFile = async(song: LX.Music.MusicInfo): Promise<string | null> => {
+  const normalize = (s: string) => (s || '').trim().toLowerCase()
+  const songName = normalize(song.name)
+  const songSinger = normalize(song.singer)
+  for (const task of downloadState.tasks) {
+    if (task.status !== 'completed' || !task.filePath) continue
+    const ti = task.musicInfo
+    if (!ti) continue
+    // ID 精确匹配
+    if (ti.id && song.id && ti.id === song.id) {
+      if (await existsFile(task.filePath).catch(() => false)) return task.filePath
+      continue
+    }
+    // 歌名+歌手匹配
+    if (normalize(ti.name) === songName && normalize(ti.singer) === songSinger && songName) {
+      if (await existsFile(task.filePath).catch(() => false)) return task.filePath
+    }
+  }
+  return null
+}
+
+/**
+ * 2026-10-18 离线模式：为在线歌曲查找本地封面。
+ * 优先顺序：下载任务的 picUrl（本地文件）> 本地 picture/ 目录同名封面。
+ */
+const findOfflineLocalPic = async(song: LX.Music.MusicInfo): Promise<string | null> => {
+  const normalize = (s: string) => (s || '').trim().toLowerCase()
+  const songName = normalize(song.name)
+  const songSinger = normalize(song.singer)
+  const PIC_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif', 'tif', 'tiff', 'heic', 'heif', 'avif']
+  for (const task of downloadState.tasks) {
+    if (task.status !== 'completed' || !task.filePath) continue
+    const ti = task.musicInfo
+    if (!ti) continue
+    const matched = (ti.id && song.id && ti.id === song.id) ||
+      (normalize(ti.name) === songName && normalize(ti.singer) === songSinger && songName)
+    if (!matched) continue
+    // 1. 任务自带的本地封面
+    const taskPic = (ti.meta as any)?.picUrl
+    if (taskPic && taskPic.startsWith('file://')) return taskPic
+    // 2. 本地 picture/ 目录同名封面
+    const audioDir = task.filePath.substring(0, task.filePath.lastIndexOf('/'))
+    const parentDir = audioDir.substring(0, audioDir.lastIndexOf('/'))
+    const base = task.fileName.replace(/\.[^/.]+$/, '')
+    for (const dir of [audioDir, `${audioDir}/picture`, `${parentDir}/picture`]) {
+      for (const ext of PIC_EXTS) {
+        const p = `${dir}/${base}.${ext}`
+        if (await existsFile(p).catch(() => false)) return `file://${p}`
+      }
+    }
+    // 当前任务无封面，继续检查其他匹配的任务
+  }
+  return null
 }
 
 export const getMusicUrl = async({
@@ -92,6 +155,15 @@ export const getMusicUrl = async({
       isRefresh,
     })
   } else {
+    // 2026-10-18 离线模式：优先用本地已下载文件
+    if (settingState.setting['player.offlineMode'] === true) {
+      const localPath = await findOfflineLocalFile(musicInfo as LX.Music.MusicInfo)
+      if (localPath) {
+        webDAVLog.info('index.ts: 离线模式使用本地文件', { songId: (musicInfo as any).id, localPath })
+        return localPath
+      }
+      throw new Error('离线模式：该歌曲未下载')
+    }
     return getOnlineMusicUrl({ musicInfo, isRefresh, quality, onToggleSource, allowToggleSource })
   }
 }
@@ -155,6 +227,13 @@ export const getPicPath = async({
       isRefresh,
     })
   } else {
+    // 2026-10-18 离线模式：优先用本地 picture/ 缓存的封面
+    if (settingState.setting['player.offlineMode'] === true) {
+      const localPic = await findOfflineLocalPic(musicInfo as LX.Music.MusicInfo)
+      if (localPic) return localPic
+      // 没有本地封面时返回空，不尝试在线获取
+      return ''
+    }
     return getOnlinePicUrl({ musicInfo, isRefresh, listId, onToggleSource })
   }
 }

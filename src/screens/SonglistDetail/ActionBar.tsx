@@ -11,6 +11,7 @@ import { handleCollect, handlePlay } from './listAction'
 import songlistState from '@/store/songlist/state'
 import { useI18n } from '@/lang'
 import { useListInfo } from './state'
+import OfflineModeToggle from '@/components/common/OfflineModeToggle'
 
 export default memo(({ onBack }: { onBack?: () => void }) => {
   const theme = useTheme()
@@ -68,6 +69,9 @@ export default memo(({ onBack }: { onBack?: () => void }) => {
           {t('collect_songlist')}
         </Text>
       </Button>
+      <View style={{ justifyContent: 'center' }}>
+        <OfflineModeToggle />
+      </View>
       <Button
         onPress={onBack}
         style={StyleSheet.compose(styles.controlBtn, {

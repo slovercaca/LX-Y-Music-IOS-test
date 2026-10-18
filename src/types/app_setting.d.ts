@@ -302,6 +302,7 @@ declare global {
       'player.cacheLimit': number
       'player.timeoutExit': string
       'player.timeoutExitPlayed': boolean
+      'player.offlineMode': boolean
       'player.isAutoCleanPlayedList': boolean
       'player.autoSkipOnError': boolean
       'player.soundEffect.enabled': boolean

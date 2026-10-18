@@ -98,6 +98,8 @@ const defaultSetting: LX.AppSetting = {
   'player.cacheLimit': 0,
   'player.timeoutExit': '',
   'player.timeoutExitPlayed': true,
+  // 2026-10-18：离线模式。开启后播放时优先使用本地已下载文件，封面优先用本地缓存
+  'player.offlineMode': false,
   'player.isAutoCleanPlayedList': false,
   'player.autoSkipOnError': true,
   'player.soundEffect.enabled': false,
