@@ -1,5 +1,6 @@
 import { memo, useState, useEffect, useRef, useMemo } from 'react'
 import { View, TouchableOpacity, Animated, Easing } from 'react-native'
+import Text from '@/components/common/Text'
 import * as Progress from 'react-native-progress'
 import { Icon } from '@/components/common/Icon'
 import { useTheme } from '@/store/theme/hook'
@@ -17,24 +18,32 @@ export default memo(() => {
   const [activeTasks, setActiveTasks] = useState<Map<string, DownloadTask>>(new Map())
   const scaleAnim = useRef(new Animated.Value(0)).current
 
-  const { totalProgress, isCompleted } = useMemo(() => {
-    if (activeTasks.size === 0) return { totalProgress: 0, isCompleted: true }
+  const { totalProgress, isCompleted, hasError, pendingCount } = useMemo(() => {
+    if (activeTasks.size === 0) return { totalProgress: 0, isCompleted: true, hasError: false, pendingCount: 0 }
 
-    const allFinished = Array.from(activeTasks.values()).every(t => t.status === 'completed' || t.status === 'error')
+    const taskList = Array.from(activeTasks.values())
+    const hasError = taskList.some(t => t.status === 'error')
+    const pendingCount = taskList.filter(t => t.status === 'downloading' || t.status === 'waiting').length
+    const allFinished = taskList.every(t => t.status === 'completed' || t.status === 'error' || t.status === 'paused')
     // 全部结束时直接画满圈：失败任务的 percent 可能停在 30%~40%，
     // 若继续取平均值会出现「勾已完成、圆环却只画了一小截」的矛盾状态。
-    if (allFinished) return { totalProgress: 1, isCompleted: true }
+    if (allFinished) return { totalProgress: 1, isCompleted: true, hasError, pendingCount }
 
     let currentProgress = 0
-    for (const task of activeTasks.values()) {
+    for (const task of taskList) {
       currentProgress += task.progress.percent
     }
     // 收敛到 [0,1]：原生下载回调的 percent 可能越界，react-native-progress
     // 的插值不接受越界输入，会导致圆环画过头。
     const totalProgress = clamp01(currentProgress / activeTasks.size)
 
-    return { totalProgress, isCompleted: allFinished }
+    return { totalProgress, isCompleted: allFinished, hasError, pendingCount }
   }, [activeTasks])
+
+  // 状态色：有失败用警示红（D7——此前失败也显示绿色对勾，像全部成功）；
+  // 全部成功才用成功绿
+  const successColor = (theme as unknown as Record<string, string>)['c-success']
+  const settledColor = hasError ? '#e5484d' : successColor
 
   useEffect(() => {
     const handleTaskAdd = (task: LX.Download.DownloadTask) => {
@@ -77,25 +86,34 @@ export default memo(() => {
   }, [isVisible, scaleAnim])
 
   useEffect(() => {
-    if (isVisible && isCompleted && activeTasks.size > 0) {
+    if (isVisible && isCompleted && !hasError && activeTasks.size > 0) {
       Animated.sequence([
         Animated.timing(scaleAnim, { toValue: 1.2, duration: 200, useNativeDriver: true }),
         Animated.timing(scaleAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
       ]).start()
     }
-  }, [isCompleted, isVisible, activeTasks.size, scaleAnim])
+  }, [isCompleted, hasError, isVisible, activeTasks.size, scaleAnim])
+
+  // 全部结算后停留 4 秒自动收起（D16）：此前要么点一下才消失、要么永久悬浮遮挡
+  useEffect(() => {
+    if (!isVisible || !isCompleted || activeTasks.size === 0) return
+    const timer = setTimeout(() => {
+      Animated.timing(scaleAnim, {
+        toValue: 0,
+        duration: 300,
+        easing: Easing.inOut(Easing.ease),
+        useNativeDriver: true,
+      }).start(() => {
+        setIsVisible(false)
+        setActiveTasks(new Map())
+      })
+    }, 4000)
+    return () => { clearTimeout(timer) }
+  }, [isVisible, isCompleted, activeTasks.size, scaleAnim])
 
 
   const handlePress = () => {
-    Animated.timing(scaleAnim, {
-      toValue: 0,
-      duration: 300,
-      easing: Easing.inOut(Easing.ease),
-      useNativeDriver: true,
-    }).start(() => {
-      setIsVisible(false)
-      setActiveTasks(new Map())
-    })
+    // 只跳转到下载管理查看详情，不再顺手把球清掉（D16：点一下就消失且看不到进度汇总）
     navigations.pushDownloadManagerScreen(commonState.componentIds[commonState.componentIds.length - 1]?.id)
   }
 
@@ -118,14 +136,19 @@ export default memo(() => {
           size={50}
           progress={totalProgress}
           showsText={false}
-          color={isCompleted ? (theme as unknown as Record<string, string>)['c-success'] : theme['c-primary']}
+          color={isCompleted ? settledColor : theme['c-primary']}
           unfilledColor="rgba(0,0,0,0.2)"
           borderWidth={0}
           thickness={3}
         />
         <View style={styles.iconContainer}>
-          <Icon name={isCompleted ? 'checkbox-marked' : 'download-2'} size={22} color={isCompleted ? (theme as unknown as Record<string, string>)['c-success'] : theme['c-primary-font-active']} />
+          <Icon name={isCompleted ? (hasError ? 'close' : 'checkbox-marked') : 'download-2'} size={22} color={isCompleted ? settledColor : theme['c-primary-font-active']} />
         </View>
+        {pendingCount > 0 ? (
+          <View style={styles.badge}>
+            <Text size={9} color="#fff">{pendingCount > 99 ? '99+' : pendingCount}</Text>
+          </View>
+        ) : null}
       </TouchableOpacity>
     </Animated.View>
   )
@@ -143,6 +166,18 @@ const styles = createStyle({
     left: 0,
     right: 0,
     bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  badge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    backgroundColor: '#e5484d',
     justifyContent: 'center',
     alignItems: 'center',
   },

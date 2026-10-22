@@ -90,6 +90,16 @@ export default memo(() => {
       toast('请填写服务器地址')
       return
     }
+    // W9：地址格式校验——拼错协议/漏协议的地址先拦下来，别存进去到处报错
+    let normalizedUrl = url
+    try {
+      const parsed = new URL(url)
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('protocol')
+      normalizedUrl = url.replace(/\/+$/, '')
+    } catch {
+      toast('服务器地址格式不对，应以 http:// 或 https:// 开头', 'long')
+      return
+    }
     if (!username) {
       toast('请填写用户名')
       return
@@ -103,7 +113,7 @@ export default memo(() => {
       const saved = await saveWebDAVServerProfile({
         id: editor.id,
         name,
-        url,
+        url: normalizedUrl,
         username,
         password: editor.password,
       })
@@ -139,7 +149,7 @@ export default memo(() => {
       }
       await refresh()
       await testConnection()
-      toast(`已切换到「${profile.name}」，连接成功`)
+      toast(`已切换到「${profile.name}」，连接成功。歌曲列表仍是上一台服务器的，请重新扫描`, 'long')
     } catch (error: any) {
       // 切换本身已生效（地址账号已写入），只是连不上：明确告诉用户，避免以为没切过去
       toast(`已切换到「${profile.name}」，但连接失败：${error.message}`, 'long')

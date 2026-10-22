@@ -8,6 +8,7 @@ import { addTempPlayList } from '@/core/player/tempPlayList'
 import { useHorizontalMode } from '@/utils/hooks'
 import { usePlayMusicInfo } from '@/store/player/hook'
 import playerState from '@/store/player/state'
+import settingState from '@/store/setting/state'
 import {
   fetchWebDAVPic,
   getWebDAVConfig,
@@ -31,7 +32,9 @@ import {
   handleBatchFetchCoversFromOnline,
   handleWebDAVRemove,
   handleWebDAVDownloadAndImport,
+  requestCancelWebDAVBatchDownload,
 } from './WebDAVListAction'
+import { friendlyWebDAVError } from '@/core/webdavMusic/client'
 import type { WebDAVListMenuType, SelectInfo as WebDAVSelectInfo } from './WebDAVListMenu'
 import { useUploadManager } from './useUploadManager'
 
@@ -88,6 +91,8 @@ export function useWebDAVPage() {
   const selectedMusicInfoRef = useRef<LX.WebDAV.MusicInfo | null>(null)
   // P1-15：目录加载请求序号，防快速切换时后发先至显示错乱
   const loadFoldersRequestIdRef = useRef(0)
+  // 扫描取消令牌（W7）：「取消」按钮置 true，扫描循环逐目录检查
+  const scanCancelRef = useRef(false)
 
   // ---------------- 目录浏览 ----------------
   const [folderStack, setFolderStack] = useState<LX.WebDAV.DriveFolder[]>([])
@@ -177,13 +182,15 @@ export function useWebDAVPage() {
       setLoading(true)
       setScanText('正在刷新列表...')
       try {
-        const config = await scanWebDAVSongs(selectedFolder, (count, path) => {
+        scanCancelRef.current = false
+        const { config } = await scanWebDAVSongs(selectedFolder, (count, path) => {
           setScanText(`已找到 ${count} 首，正在扫描：${path}`)
-        })
+        }, () => scanCancelRef.current)
         setSongs(config.songs ?? [])
         setScannedAt(config.scannedAt)
       } catch (err: any) {
-        toast(err?.message ?? String(err), 'long')
+        webDAVLog.warn('[WebDAV] 上传后重扫失败', { error: err?.message ?? err })
+        toast(friendlyWebDAVError(err), 'long')
       } finally {
         setScanText('')
         setLoading(false)
@@ -281,14 +288,22 @@ export function useWebDAVPage() {
 
   const handleTestConnection = useCallback(async() => {
     if (isTesting) return
+    // W5：先收键盘触发 InputItem 提交，等设置落库后再测，
+    // 否则刚填的地址/密码还没保存，测的是旧凭据
+    Keyboard.dismiss()
+    await new Promise(resolve => setTimeout(resolve, 250))
+    if (!settingState.setting['sync.webdav.url'] || !settingState.setting['sync.webdav.username']) {
+      toast('请先填写服务器地址与用户名', 'long', 'top')
+      return
+    }
     setIsTesting(true)
     try {
       await testConnection()
       // 顶部弹窗，3.5 秒后自动消失
       toast('WebDAV 连接成功！', 'long', 'top')
     } catch (error: any) {
-      // P2-6（2026-10-06）：非 Error 时 error.message 为 undefined，显示兜底文案
-      toast(`WebDAV 连接失败：${error?.message ?? '连接失败'}`, 'long', 'top')
+      webDAVLog.warn('[WebDAV] 连接测试失败', { error: error?.message ?? error })
+      toast(`WebDAV 连接失败：${friendlyWebDAVError(error)}`, 'long', 'top')
     } finally {
       setIsTesting(false)
     }
@@ -347,33 +362,49 @@ export function useWebDAVPage() {
 
   // ================= 扫描 / 刷新 =================
 
+  // 扫描执行体：handleScan（带根目录确认）与下拉刷新（W17：下拉 = 远端重新扫描）共用。
+  // 结果如实区分：完整 / 部分（有目录读失败）/ 已取消（W3/W7），错误用友好文案（W10）。
+  const executeScan = useCallback(() => {
+    scanCancelRef.current = false
+    setLoading(true)
+    setScanText('开始扫描...')
+    void scanWebDAVSongs(selectedFolder, (count, path) => {
+      setScanText(`已找到 ${count} 首，正在扫描：${path}`)
+    }, () => scanCancelRef.current)
+      .then(({ config, skippedDirs, cancelled }) => {
+        const scannedSongs = config.songs ?? []
+        setSongs(scannedSongs)
+        setScanText('')
+        if (cancelled) {
+          toast(`已取消扫描：已找到 ${scannedSongs.length} 首（本次结果未保存）`, 'long')
+          return
+        }
+        setScannedAt(config.scannedAt)
+        setActiveTab('list')
+        // W23：扫描完立即把已知的网盘封面补进列表，不必等下次进页面
+        void syncSongsCover(scannedSongs)
+        if (skippedDirs.length > 0) {
+          toast(`扫描完成：${scannedSongs.length} 首（${skippedDirs.length} 个文件夹读取失败，已跳过）`, 'long')
+        } else {
+          toast(`扫描完成：${scannedSongs.length} 首`)
+        }
+      })
+      .catch((err: any) => {
+        webDAVLog.warn('[WebDAV] 扫描失败', { error: err?.message ?? err })
+        const message = friendlyWebDAVError(err)
+        setScanTextTemp(message)
+        toast(message, 'long')
+      })
+      .finally(() => {
+        setLoading(false)
+      })
+  }, [selectedFolder, syncSongsCover])
+
   const handleScan = useCallback(() => {
     if (!hasConfig) {
       toast(global.i18n.t('webdav_upload_config_first'))
       setActiveTab('config')
       return
-    }
-    const runScan = () => {
-      setLoading(true)
-      setScanText('开始扫描...')
-      void scanWebDAVSongs(selectedFolder, (count, path) => {
-        setScanText(`已找到 ${count} 首，正在扫描：${path}`)
-      })
-        .then((config) => {
-          setSongs(config.songs ?? [])
-          setScannedAt(config.scannedAt)
-          setScanText('')
-          setActiveTab('list')
-          toast(`扫描完成：${(config.songs ?? []).length} 首`)
-        })
-        .catch((err: any) => {
-          const message = err.message ?? String(err)
-          setScanTextTemp(message)
-          toast(message, 'long')
-        })
-        .finally(() => {
-          setLoading(false)
-        })
     }
     if (!selectedFolder) {
       void confirmDialog({
@@ -382,62 +413,31 @@ export function useWebDAVPage() {
           '根目录扫描会递归读取所有子目录。文件夹很多时可能较慢。确定继续扫描根目录？',
         confirmButtonText: '继续扫描',
       }).then((confirmed) => {
-        if (confirmed) runScan()
+        if (confirmed) executeScan()
       })
       return
     }
-    runScan()
-  }, [hasConfig, selectedFolder])
+    executeScan()
+  }, [hasConfig, selectedFolder, executeScan])
 
-  // 下拉刷新 = 重新读取**已下载到本地**文件的标签（联网扫描请用「扫描」按钮）。
-  // 旧实现对所有歌曲都拿 meta.filePath 去 readMetadata —— 未下载时那是远程路径，
-  // 必然读失败，却照样弹「标签加载完成」，看着像刷新了其实什么都没做。
+  // 下拉刷新 = 远端重新扫描（W17）。旧行为「重读本地文件标签」名不符实：
+  // 下拉的人想看的是服务器最新列表。未配置时给出明确提示。
   const handleRefresh = useCallback(() => {
-    const localSongs = songs.filter(song => !!song.meta.filePath)
-    if (!localSongs.length) {
-      toast('没有已下载到本地的歌曲；联网扫描请点「扫描」', 'long')
+    if (!hasConfig) {
+      toast('未配置 WebDAV：请到「配置」页填写服务器地址与用户名', 'long')
       return
     }
-    setLoading(true)
-    setScanText(`正在读取 ${localSongs.length} 首本地文件的标签...`)
-    void Promise.all(
-      localSongs.map(async(song) => {
-        if (!song.meta.filePath) return song
-        try {
-          const fileMetadata = await readMetadata(song.meta.filePath).catch(() => null)
-          const picPath = await readPic(song.meta.filePath).catch(() => null)
-          if (fileMetadata) {
-            const updates: Record<string, any> = {}
-            if (fileMetadata.albumName) updates.albumName = fileMetadata.albumName
-            if (fileMetadata.name && !song.name) updates.name = fileMetadata.name
-            if (fileMetadata.singer && !song.singer) updates.singer = fileMetadata.singer
-            if (picPath) {
-              const newPicUrl = picPath.startsWith('/') ? `file://${picPath}` : picPath
-              updates.picUrl = newPicUrl
-            }
-            if (Object.keys(updates).length > 0) {
-              await updateWebDAVMusicMeta(song.id, updates)
-            }
-          }
-        } catch {
-          // ignore
-        }
-        return song
-      }),
-    ).then(async() => {
-      return getWebDAVConfig()
-    }).then((config) => {
-      setSongs(config.songs ?? [])
-      setScanText('')
-      toast(`已更新 ${localSongs.length} 首本地文件的标签`)
-    }).catch((err: any) => {
-      const message = err.message ?? String(err)
-      setScanTextTemp(message)
-      toast(message, 'long')
-    }).finally(() => {
-      setLoading(false)
-    })
-  }, [songs])
+    if (loading) return
+    executeScan()
+  }, [hasConfig, loading, executeScan])
+
+  // 取消当前长操作（W7）：扫描置取消令牌；批量下载/封面走各自取消入口
+  const handleCancelOperation = useCallback(() => {
+    scanCancelRef.current = true
+    requestCancelWebDAVBatchDownload()
+    setBatchLoadingText('')
+    setScanText('正在取消...')
+  }, [])
 
   // ================= 播放 / 菜单 =================
 
@@ -460,9 +460,11 @@ export function useWebDAVPage() {
         })
         return
       }
-      const index = songs.findIndex(item => item.id === musicInfo.id)
+      // W22：队列与索引都用筛选后列表——用户看到什么就播什么，
+      // 旧实现用全量 songs，搜索后点一首却从全库位置开播
+      const index = filteredSongs.findIndex(item => item.id === musicInfo.id)
       if (index < 0) return
-      void overwriteListMusics(LIST_IDS.TEMP, songs).then(() => {
+      void overwriteListMusics(LIST_IDS.TEMP, filteredSongs).then(() => {
         void playList(LIST_IDS.TEMP, index).then(() => {
           void (async() => {
             const config = await getWebDAVConfig()
@@ -473,7 +475,7 @@ export function useWebDAVPage() {
         })
       })
     },
-    [songs, syncSongsCover, isSelecting],
+    [filteredSongs, syncSongsCover, isSelecting],
   )
 
   // 长按进入多选模式
@@ -497,33 +499,55 @@ export function useWebDAVPage() {
     })
   }, [filteredSongs])
 
-  // 批量获取在线封面（2026-10-18）：对选中歌曲（未选中时对全部无封面歌曲）在线拉封面
+  // 批量获取在线封面（2026-10-22 修正）：在线找封面后上传到 WebDAV 的 picture/，
+  // 不是存 iOS 本地；本机显示走既有封面缓存。判定"无封面"以远端 picPath 为准。
   const handleBatchFetchCovers = useCallback(() => {
+    const noCover = (s: LX.WebDAV.MusicInfo) => !s.meta.picPath && !s.meta.customPicPath
     const targets = selectedIds.size > 0
-      ? filteredSongs.filter(s => selectedIds.has(s.id) && !s.meta.picUrl)
-      : filteredSongs.filter(s => !s.meta.picUrl)
+      ? filteredSongs.filter(s => selectedIds.has(s.id) && noCover(s))
+      : filteredSongs.filter(noCover)
     if (!targets.length) {
-      toast(selectedIds.size > 0 ? '选中的歌曲都有封面了' : '所有歌曲都有封面了')
+      toast(selectedIds.size > 0 ? '选中的歌曲在网盘都有封面了' : '所有歌曲在网盘都有封面了')
       return
     }
     void confirmDialog({
       title: '批量获取封面',
-      message: `将为 ${targets.length} 首无封面的歌曲在线搜索封面，存到本地 picture/ 目录。继续吗？`,
+      message: `将为 ${targets.length} 首网盘无封面的歌曲在线搜索封面，并上传到 WebDAV 的 picture/ 目录，供所有设备使用。封面为自动匹配，可能不准确。继续吗？`,
       confirmButtonText: '开始获取',
     }).then((confirmed) => {
       if (!confirmed) return
       exitSelectMode()
-      setBatchLoadingText('正在获取封面 0/' + targets.length)
+      setBatchLoadingText('正在获取并上传封面 0/' + targets.length)
       void handleBatchFetchCoversFromOnline(targets, (current, total, songName) => {
-        setBatchLoadingText(`正在获取封面 ${current}/${total}`)
-      }).then(({ success, failed }) => {
+        setBatchLoadingText(`正在获取并上传封面 ${current}/${total}`)
+      }).then(async({ success, failed, failures, failedSongs }) => {
         setBatchLoadingText('')
-        toast(`封面获取完成：成功 ${success}，失败 ${failed}`)
+        // W15：失败给明细并可只重试失败项，不再只报一个数字
+        if (failed > 0 && failedSongs.length > 0) {
+          const detail = failures.slice(0, 5).map(f => `${f.name}（${f.reason}）`).join('；')
+          const retry = await confirmDialog({
+            title: '部分封面获取失败',
+            message: `成功 ${success}，失败 ${failed}：${detail}${failures.length > 5 ? '…' : ''}。是否只重试失败的歌曲？`,
+            cancelButtonText: '不了',
+            confirmButtonText: '重试失败项',
+          }).catch(() => false)
+          if (retry) {
+            setBatchLoadingText('正在重试获取封面 0/' + failedSongs.length)
+            const retryResult = await handleBatchFetchCoversFromOnline(failedSongs, (current, total) => {
+              setBatchLoadingText(`正在重试获取封面 ${current}/${total}`)
+            }).catch(() => null)
+            setBatchLoadingText('')
+            if (retryResult) toast(`重试完成：成功 ${retryResult.success}，失败 ${retryResult.failed}`)
+          }
+        } else {
+          toast(`封面上传完成：成功 ${success}，失败 ${failed}`)
+        }
         // 刷新列表显示新封面
         void loadConfig()
       }).catch((err: any) => {
         setBatchLoadingText('')
-        toast(`获取失败：${err?.message || err}`, 'long')
+        webDAVLog.warn('[WebDAV] 批量获取封面失败', { error: err?.message ?? err })
+        toast(`获取失败：${friendlyWebDAVError(err)}`, 'long')
       })
     })
   }, [filteredSongs, selectedIds, exitSelectMode, loadConfig])
@@ -698,11 +722,21 @@ export function useWebDAVPage() {
   }, [loadConfig])
 
   const handleRemove = useCallback((info: WebDAVSelectInfo) => {
-    void handleWebDAVRemove(info.musicInfo).then((success) => {
-      // P1-13：只在真正删除成功时更新 UI，避免持久化失败时 UI 与数据不一致
-      if (success) {
-        setSongs(prevSongs => prevSongs.filter(song => song.id !== info.musicInfo.id))
-      }
+    // W16：菜单写的是「从列表移除」——确认框把范围说清：不删服务器文件、
+    // 不删已下载的本地文件，重新扫描还会回来
+    void confirmDialog({
+      title: '从列表移除',
+      message: `将《${info.musicInfo.name}》从列表中移除。不会删除服务器上的文件，也不会删除已下载到本地的文件；重新扫描后它还会出现。`,
+      cancelButtonText: '取消',
+      confirmButtonText: '移除',
+    }).then((confirmed) => {
+      if (!confirmed) return
+      void handleWebDAVRemove(info.musicInfo).then((success) => {
+        // P1-13：只在真正删除成功时更新 UI，避免持久化失败时 UI 与数据不一致
+        if (success) {
+          setSongs(prevSongs => prevSongs.filter(song => song.id !== info.musicInfo.id))
+        }
+      })
     })
   }, [])
 
@@ -721,13 +755,14 @@ export function useWebDAVPage() {
 
       setLoading(true)
       setScanText('开始扫描...')
+      scanCancelRef.current = false
       void scanWebDAVSongs(selectedFolder, (count, path) => {
         setScanText(`已找到 ${count} 首，正在扫描：${path}`)
-      })
-        .then((config) => {
+      }, () => scanCancelRef.current)
+        .then(({ config, cancelled }) => {
           const scannedSongs = config.songs ?? []
           setSongs(scannedSongs)
-          setScannedAt(config.scannedAt)
+          if (!cancelled) setScannedAt(config.scannedAt)
           setScanText('')
 
           if (scannedSongs.length === 0) {
@@ -738,7 +773,8 @@ export function useWebDAVPage() {
           void handleWebDAVDownloadAndImport(scannedSongs, setBatchLoadingText)
         })
         .catch((err: any) => {
-          const message = err.message ?? String(err)
+          webDAVLog.warn('[WebDAV] 扫描并下载失败', { error: err?.message ?? err })
+          const message = friendlyWebDAVError(err)
           setScanTextTemp(message)
           toast(message, 'long')
         })
@@ -883,7 +919,7 @@ export function useWebDAVPage() {
     loading, songs, filteredSongs, scannedAt, scanText, batchLoadingText,
     searchVisible, searchText, setSearchText,
     handleToggleSearch, handleClearSearch,
-    handleScan, handleBatchDownload, handleBatchFetchCovers, handleRefresh, handleUpload,
+    handleScan, handleBatchDownload, handleBatchFetchCovers, handleRefresh, handleUpload, handleCancelOperation,
     handlePlay, handleLongPress, showMenu,
     // 多选
     isSelecting, selectedIds, exitSelectMode, toggleSelectAll, handleDownloadSelected,

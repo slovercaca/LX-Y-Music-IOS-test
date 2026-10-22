@@ -19,7 +19,7 @@ import { createStyle } from '@/utils/tools'
 import { updateSetting } from '@/core/common'
 import { useTheme } from '@/store/theme/hook'
 import { useSettingValue } from '@/store/setting/hook'
-import { AnimatedColorText } from '@/components/common/Text'
+import Text, { AnimatedColorText } from '@/components/common/Text'
 import { setSpText } from '@/utils/pixelRatio'
 import settingState from '@/store/setting/state'
 import playerState from '@/store/player/state'
@@ -853,6 +853,11 @@ export default ({ active = true, pagerHeight = 0 }: { active?: boolean, pagerHei
         // 禁用 removeClippedSubviews：iOS FlatList 在动态行高下回收屏幕外行后，
         // 配合 getItemLayout 估算高度常导致歌词行重绘失败 / 出现空白缺失。
         removeClippedSubviews={false}
+        ListEmptyComponent={(
+          <View style={styles.emptyWrap}>
+            <Text size={15}>暂无歌词</Text>
+          </View>
+        )}
         {...panResponder.panHandlers}
       />
     </View>
@@ -860,6 +865,11 @@ export default ({ active = true, pagerHeight = 0 }: { active?: boolean, pagerHei
 }
 
 const styles = createStyle({
+  emptyWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 40,
+  },
   line: {
     paddingTop: 12,
     paddingBottom: 12,

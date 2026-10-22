@@ -25,7 +25,7 @@ import { requestMsg } from '@/utils/message'
 import { getRandom } from '@/utils/common'
 import { filterList } from './utils'
 import BackgroundTimer from 'react-native-background-timer'
-import { checkIgnoringBatteryOptimization, checkNotificationPermission, debounceBackgroundTimer } from '@/utils/tools'
+import { checkIgnoringBatteryOptimization, checkNotificationPermission, debounceBackgroundTimer, toast } from '@/utils/tools'
 import { LIST_IDS } from '@/config/constant'
 import { addListMusics, removeListMusics } from '@/core/list'
 import { addDislikeInfo } from '@/core/dislikeList'
@@ -59,7 +59,17 @@ const createDelayNextTimeout = (delay: number) => {
   }
 }
 const { addDelayNextTimeout, clearDelayNextTimeout } = createDelayNextTimeout(5000)
-const { addDelayNextTimeout: addLoadTimeout, clearDelayNextTimeout: clearLoadTimeout } = createDelayNextTimeout(100000)
+
+/** 播放失败错误 → 用户能看懂的文案（原始英文/技术串只进日志，不直接展示） */
+export const friendlyPlayError = (err: any): string => {
+  const msg = String(err?.message ?? err ?? '')
+  if (msg.includes('离线模式')) return msg
+  if (/network|fetch|socket|timeout|超时/i.test(msg)) return '网络异常，请检查网络后重试'
+  if (/source|api|音源/i.test(msg)) return '该歌曲暂无可用音源，可切换音源或稍后再试'
+  if (/404|not found/i.test(msg)) return '该歌曲已下架或链接失效'
+  return '播放失败'
+}
+const { addDelayNextTimeout: addLoadTimeout, clearDelayNextTimeout: clearLoadTimeout } = createDelayNextTimeout(20000)
 
 const createGettingUrlId = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem) => {
   const tInfo = 'progress' in musicInfo ? musicInfo.metadata.musicInfo.meta.toggleMusicInfo : musicInfo.meta.toggleMusicInfo
@@ -185,8 +195,9 @@ export const setMusicUrl = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem
     currentStreamInfo.quality = result.quality
     setResource(musicInfo, result.url, currentTime, result.quality)
   }).catch((err: any) => {
-    setStatusText(err.message as string)
+    setStatusText(friendlyPlayError(err))
     global.app_event.error()
+    toast(`《${musicInfo.name}》播放失败，已自动跳过`, 'short')
     addDelayNextTimeout()
   }).finally(() => {
     if (musicInfo === playerState.playMusicInfo.musicInfo) {

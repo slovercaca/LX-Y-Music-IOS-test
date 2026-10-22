@@ -13,6 +13,7 @@ import {
 import { getLocalFilePath } from '@/utils/music'
 import { readLyric, readPic } from '@/utils/localMediaMetadata'
 import { stat, existsFile, readDir, readFile } from '@/utils/fs'
+import { findLyricForAudio, findPictureForAudio } from '@/utils/localLibrary'
 import { searchMusic } from '@/utils/musicSdk'
 import { toNewMusicInfo } from '@/utils'
 import settingState from '@/store/setting/state'
@@ -269,6 +270,13 @@ export const getPicUrl = async({
         webDAVLog?.warn('getPicUrl: fetchWebDAVPic failed', { err })
       }
 
+      // 本地已下载文件的同名 picture/ 封面（下载目录结构 music/ ↔ picture/）
+      const localFilePath = (musicInfo.meta as any).filePath as string | undefined
+      if (localFilePath && (await existsFile(localFilePath).catch(() => false))) {
+        const sidecarPic = await findPictureForAudio(localFilePath).catch(() => null)
+        if (sidecarPic) return `file://${sidecarPic}`
+      }
+
       const { picCachePath, readPic: extractPic } = await import('@/utils/localMediaMetadata')
 
       const audioFileName = (musicInfo.meta as any).fileName?.replace(/\.[^/.]+$/, '') || musicInfo.name
@@ -395,15 +403,22 @@ const getMusicFileLyric = async(filePath: string) => {
   }
 }
 
-// 读取音频文件同目录的同名 .lrc 歌词（离线可用）
+// 读取音频同名 .lrc 歌词（离线可用）：同目录 → lrc/ 子目录 → 父目录 lrc/
+// （统一结构 music/ ↔ lrc/，与 localPlay 走同一套查找）
 const getSidecarLyric = async(filePath: string): Promise<string | null> => {
   if (!filePath) return null
-  const base = filePath.substring(0, filePath.lastIndexOf('.'))
-  if (!base) return null
-  for (const ext of ['.lrc', '.LRC']) {
+  const lrcPath = await findLyricForAudio(filePath).catch(() => null)
+  if (lrcPath) {
     try {
-      if (await existsFile(`${base}${ext}`)) {
-        const content = await readFile(`${base}${ext}`)
+      const content = await readFile(lrcPath)
+      if (content) return content
+    } catch {}
+  }
+  const base = filePath.substring(0, filePath.lastIndexOf('.'))
+  if (base) {
+    try {
+      if (await existsFile(`${base}.LRC`)) {
+        const content = await readFile(`${base}.LRC`)
         if (content) return content
       }
     } catch {}

@@ -8,7 +8,7 @@ import { useTheme } from '@/store/theme/hook'
 import playerState from '@/store/player/state'
 import listState from '@/store/list/state'
 import { usePlayerMusicInfo, useTempPlayList, usePlayInfo } from '@/store/player/hook'
-import { createStyle, toast } from '@/utils/tools'
+import { confirmDialog, createStyle, toast } from '@/utils/tools'
 import { scaleSizeH } from '@/utils/pixelRatio'
 import { LIST_ITEM_HEIGHT, LIST_IDS } from '@/config/constant'
 import MusicAddModal, { type MusicAddModalType } from '@/components/MusicAddModal'
@@ -306,11 +306,23 @@ export default forwardRef<PlayerPlaylistType, {}>((props, ref) => {
 
   const onRemove = useCallback((info: SelectInfo) => {
     if (isTempMode) {
+      // 临时队列移除只是排队调整，误触成本低，保持直接移除
       removeTempPlayList(info.index)
-    } else {
-      const listId = playerState.playInfo.playerListId
-      if (listId) void removeListMusics(listId, [info.musicInfo.id])
+      return
     }
+    // 普通歌单：左滑删的是歌单里的歌（持久数据），与临时队列同手势不同后果，
+    // 必须先确认（2026-10-22 人性化 P11）
+    const listId = playerState.playInfo.playerListId
+    if (!listId) return
+    void confirmDialog({
+      title: '从歌单中删除',
+      message: `确定要将《${info.musicInfo.name}》从当前歌单中删除吗？`,
+      cancelButtonText: '取消',
+      confirmButtonText: '删除',
+      destructive: true,
+    }).then((confirm) => {
+      if (confirm) void removeListMusics(listId, [info.musicInfo.id])
+    })
   }, [isTempMode])
 
   const handlePanelHide = () => {

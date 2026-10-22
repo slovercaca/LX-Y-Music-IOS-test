@@ -21,6 +21,7 @@ export default memo(() => {
         check={isWriteEmbedLyrics}
         onChange={handleUpdate}
         label={t('setting_download_write_embed_lyric')}
+        helpDesc="把歌词直接写进歌曲文件内部（内嵌歌词），文件拷到其他播放器也能显示歌词。与「下载歌词文件」是两回事：那个是单独的 .lrc 文件。"
         // disabled={!isEnable}
       />
     </View>

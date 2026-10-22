@@ -19,6 +19,7 @@ export default memo(() => {
       <CheckBoxItem
         check={startupPushPlayDetailScreen}
         label={t('setting_basic_startup_push_play_detail_screen')}
+        helpDesc="开启后每次打开 App 会直接进入全屏播放页，而不是首页。"
         onChange={setStartupPushPlayDetailScreen}
       />
     </View>

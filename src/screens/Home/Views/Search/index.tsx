@@ -183,6 +183,7 @@ export default () => {
     setSelectedList(null)
     setSource(source)
     searchInfo.current.source = source
+    global.app_event.emit('searchSourceChanged', source)
     void saveSearchSetting({ source: source as LX.OnlineSource })
     if (searchState.searchText) {
       listRef.current?.loadList(searchState.searchText, source, searchInfo.current.searchType)

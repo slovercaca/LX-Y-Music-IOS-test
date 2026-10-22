@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { View, Text, StyleSheet } from 'react-native'
 import state from '@/store/theme/state'
+import commonState from '@/store/common/state'
 import { Navigation } from 'react-native-navigation'
 import { shadow } from '@/utils/shadow'
 
@@ -30,10 +31,13 @@ const Toast = ({ componentId, message = '', duration = 2000, position = 'bottom'
   if (position === 'top') rootStyle.push(styles.rootTop)
   else if (position === 'center') rootStyle.push(styles.rootCenter)
 
+  // S11：字号跟随全局字体大小设置（此前写死 14，大字体用户看不清）
+  const fontScale = commonState.fontSize || 1
+
   return (
     <View style={rootStyle}>
       <View style={{ ...styles.toast, backgroundColor: theme['c-primary'] }}>
-        <Text style={styles.text} numberOfLines={4}>
+        <Text style={{ ...styles.text, fontSize: 14 * fontScale }} numberOfLines={6}>
           {message}
         </Text>
       </View>
@@ -46,7 +50,8 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
     alignItems: 'center',
-    paddingBottom: 80,
+    // S11：底部悬浮播放器 + Tab 合计约 150pt，80 会被遮住下半截
+    paddingBottom: 160,
   },
   rootTop: {
     justifyContent: 'flex-start',

@@ -36,6 +36,19 @@ const LIST = [
     size: 1.3,
     name: 'setting_basic_font_size_130',
   },
+  // S14：大字体需求（长辈/弱视）补到 160%
+  {
+    size: 1.4,
+    name: 'setting_basic_font_size_140',
+  },
+  {
+    size: 1.5,
+    name: 'setting_basic_font_size_150',
+  },
+  {
+    size: 1.6,
+    name: 'setting_basic_font_size_160',
+  },
 ] as const
 
 type SIZE_TYPE = (typeof LIST)[number]['size']

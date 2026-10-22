@@ -1,7 +1,7 @@
 import { memo, useCallback, useMemo, useState } from 'react'
 import { Animated, View, type LayoutChangeEvent } from 'react-native'
 
-import { ProgressTouchArea, useProgressDrag, useSmoothProgressAnim } from './progressCore'
+import { DragTimeBubble, ProgressTouchArea, useProgressDrag, useSmoothProgressAnim } from './progressCore'
 import { clamp01, createStyle } from '@/utils/tools'
 import { useTheme } from '@/store/theme/hook'
 
@@ -131,6 +131,7 @@ const Progress = ({
           />
         )}
       </View>
+      <DragTimeBubble dragProgressAnim={dragProgressAnim} draging={draging} progress={progress} duration={duration} barWidth={barWidth} />
       {seekEnabled ? (
         <ProgressTouchArea
           onDragState={onDragState}

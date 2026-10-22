@@ -8,7 +8,7 @@ import { Icon } from '@/components/common/Icon'
 import { useTheme } from '@/store/theme/hook'
 import { useSettingValue } from '@/store/setting/hook'
 import { updateSetting } from '@/core/common'
-import { createStyle } from '@/utils/tools'
+import { confirmDialog, createStyle } from '@/utils/tools'
 import { designRadius, designSpacing, designTypography } from '@/theme/DesignTokens'
 import { getWebDAVMusicDir } from '@/core/webdavMusic/drive'
 import TabsHeader from './TabsHeader'
@@ -61,7 +61,8 @@ const ItemStatusLine = ({ item }: { item: WebDAVUploadQueueItem }) => {
         : ''
       text = [sizeText, speedText, etaText].filter(Boolean).join(' · ')
     } else {
-      text = `正在上传到服务器…（${formatUploadSize(item.size)}）`
+      // W6：降级通道无实时进度时显示如实说明（由传输层回填 phaseDetail），不伪造百分比
+      text = phaseDetail || `正在上传到服务器…（${formatUploadSize(item.size)}）`
     }
     if (!text) text = '正在连接…'
   } else if (item.status === 'failed' && item.error) {
@@ -147,7 +148,7 @@ export default memo(({ page }: { page: UploadTabProps }) => {
             {getWebDAVMusicDir(uploadTargetDir)}
           </Text>
           <Text size={designTypography.caption} color={theme['c-font-label']} style={styles.tip}>
-            音频进 music/，歌词进同级的 lrc/
+            音频进 music/，歌词进同级的 lrc/，封面进同级的 picture/。已加入队列的文件按入队时的这个目录上传，之后再切换目录不影响它们。
           </Text>
         </ContentGlass>
 
@@ -412,6 +413,12 @@ export default memo(({ page }: { page: UploadTabProps }) => {
             </View>
           ) : null}
 
+          {stats.total > 0 ? (
+            <Text size={designTypography.caption} color={theme['c-font-label']} style={styles.tip}>
+              上传队列仅在本次打开 App 期间有效：中途退出 App，未完成的上传需要重新添加（已传到服务器的部分下次可断点续传）。
+            </Text>
+          ) : null}
+
           {/* 开始/暂停/继续（内容流内按钮，不再悬浮底部） */}
           <View style={styles.controlRow}>
             {queueState === 'uploading' ? (
@@ -434,8 +441,21 @@ export default memo(({ page }: { page: UploadTabProps }) => {
             )}
             <Button
               style={[styles.controlBtn, { backgroundColor: theme['c-button-background'], marginLeft: designSpacing.md }]}
-              onPress={mgr.clearAll}
-              disabled={stats.total === 0 || hasActive}
+              onPress={() => {
+                // W25：有排队/上传中也允许清空（管理器内部会先暂停再清），
+                // 用确认说明后果，不再直接禁用让人没法放弃整批
+                void confirmDialog({
+                  title: '清空上传队列',
+                  message: hasActive
+                    ? '将停止正在进行的上传并清空整个队列，未传完的文件需要重新添加。已上传成功的不受影响。确定吗？'
+                    : '将清空整个队列，未上传的文件需要重新添加。确定吗？',
+                  cancelButtonText: '取消',
+                  confirmButtonText: '清空',
+                }).then((confirmed) => {
+                  if (confirmed) mgr.clearAll()
+                })
+              }}
+              disabled={stats.total === 0}
             >
               <Text color={theme['c-button-font']}>清空队列</Text>
             </Button>

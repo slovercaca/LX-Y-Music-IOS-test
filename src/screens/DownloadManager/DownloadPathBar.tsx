@@ -24,6 +24,9 @@ export default memo(() => {
       <Text style={styles.pathText} color={theme['c-font-label']} numberOfLines={2}>
         {t('setting_download_path_label', { path: downloadPath || defaultDownloadPath })}
       </Text>
+      <Text style={styles.pathText} color={theme['c-font-label']}>
+        在「文件」App 里找歌时，歌曲位于该路径的 music 文件夹内。
+      </Text>
     </View>
   )
 })

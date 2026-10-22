@@ -23,7 +23,8 @@ export default memo(() => {
     updateSetting({ 'player.isHandleAudioFocus': !playAlongWithOthers })
     // 切换后重新初始化播放器，让 iOS 音频会话分类（mixWithOthers）立即生效。
     await reloadConfig().catch(() => {})
-    toast(t('setting_play_handle_audio_focus_tip'))
+    // S13：这里已 reloadConfig 立即生效，不用原先那条「重启应用后生效」的文案
+    toast('设置已生效')
   }
 
   return (

@@ -2,7 +2,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import { Pressable, TouchableOpacity, View } from 'react-native'
 import { type InitState } from '@/store/hotSearch/state'
 import Text from '@/components/common/Text'
-import { createStyle } from '@/utils/tools'
+import { createStyle, confirmDialog } from '@/utils/tools'
 import { designSpacing, designTypography, designRadius } from '@/theme/DesignTokens'
 import { useTheme } from '@/store/theme/hook'
 import { useI18n } from '@/lang'
@@ -85,8 +85,17 @@ export default forwardRef<HistorySearchType, HistorySearchProps>((props, ref) =>
   )
 
   const handleClear = () => {
-    clearHistoryList()
-    setList([])
+    // S-N7：清空不可恢复，先确认（此前点橡皮擦图标立即全清）
+    void confirmDialog({
+      message: '确定要清空全部搜索历史吗？清空后无法恢复。',
+      confirmButtonText: '清空',
+      cancelButtonText: '取消',
+      destructive: true,
+    }).then((ok) => {
+      if (!ok) return
+      clearHistoryList()
+      setList([])
+    })
   }
 
   const handleRemove = useCallback((keyword: string) => {

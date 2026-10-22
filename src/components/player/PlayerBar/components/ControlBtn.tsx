@@ -4,7 +4,6 @@ import { useIsPlay } from '@/store/player/hook'
 import { useTheme } from '@/store/theme/hook'
 import { playNext, playPrev, togglePlay } from '@/core/player/player'
 import { createStyle } from '@/utils/tools'
-import { useHorizontalMode } from '@/utils/hooks'
 
 const BTN_SIZE = 24
 const handlePlayPrev = () => {
@@ -54,17 +53,10 @@ const TogglePlayBtn = () => {
 }
 
 export default () => {
-  const isHorizontalMode = useHorizontalMode()
   return (
     <>
-      {/* <TouchableOpacity activeOpacity={0.5} onPress={toggleNextPlayMode}>
-        <Text style={{ ...styles.cotrolBtn }}>
-          <Icon name={playModeIcon} style={{ color: theme.secondary10 }} size={18} />
-        </Text>
-      </TouchableOpacity>
-    */}
-      {/* {btnPrev} */}
-      {isHorizontalMode ? <PlayPrevBtn /> : null}
+      {/* 竖屏此前不显示上一首（只能进详情页切歌），2026-10-22 起与横屏一致常显 */}
+      <PlayPrevBtn />
       <TogglePlayBtn />
       <PlayNextBtn />
     </>

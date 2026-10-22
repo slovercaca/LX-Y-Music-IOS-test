@@ -17,7 +17,7 @@ import {
   type WebDAVUploadHistoryItem,
   type WebDAVUploadQueueState,
 } from '@/core/webdavMusic/upload'
-import { ensureRemoteDir } from '@/core/webdavMusic/files'
+import { checkWebDAVRemoteState, ensureRemoteDir } from '@/core/webdavMusic/files'
 import { contentTypeForExt } from '@/core/webdavMusic/library'
 import { webDAVLog } from '@/core/webdavMusic/logger'
 
@@ -26,6 +26,25 @@ const UPLOAD_HISTORY_KEY = '@webdav_upload_history_v1'
 const HISTORY_LIMIT = 100
 /** 进度 UI 刷新节流 */
 const PROGRESS_BUMP_MS = 250
+
+// W14：409「是否自动创建目录」按目录去重：并发项共享同一个询问 Promise，
+// 第一个问、其余等结果；结果短暂保留 2 秒，覆盖同一批的后续 409
+const dirCreateAskCache = new Map<string, Promise<boolean>>()
+const askCreateRemoteDir = (dirPath: string): Promise<boolean> => {
+  const cached = dirCreateAskCache.get(dirPath)
+  if (cached) return cached
+  const asking = confirmDialog({
+    title: '文件夹不存在',
+    message: `远端文件夹不存在：\n${dirPath}\n\n是否自动创建？`,
+    confirmButtonText: '自动创建并上传',
+    cancelButtonText: '取消',
+  }).then(c => !!c).catch(() => false)
+  dirCreateAskCache.set(dirPath, asking)
+  void asking.then(() => {
+    setTimeout(() => { dirCreateAskCache.delete(dirPath) }, 2000)
+  })
+  return asking
+}
 
 /** 上传阶段（用于详细状态显示） */
 export type UploadPhase =
@@ -222,6 +241,8 @@ export function useUploadManager(deps: UploadManagerDeps) {
     const withLyrics = depsRef.current.getWithLyrics()
     const withCover = depsRef.current.getWithCover()
     let added = 0
+    let paired = 0
+    const pairingPromises: Array<Promise<void>> = []
     const now = Date.now()
     for (const r of raw) {
       // P0-1：localPath 为空时跳过，否则后续 readFile(null) 直接触发原生 NSDictionary 崩溃。
@@ -275,76 +296,83 @@ export function useUploadManager(deps: UploadManagerDeps) {
       // 音频入队时自动配对同名歌词（本地 music/ 与 lrc/ 结构兼容查找）
       if (kind === 'audio' && withLyrics) {
         const base = fileName.replace(/\.[^/.]+$/, '')
-        void findLocalLyricFile(r.localPath, base).then(lrcPath => {
+        pairingPromises.push((async() => {
+          const lrcPath = await findLocalLyricFile(r.localPath, base).catch(() => null)
           if (!lrcPath) return
           const lrcName = fileNameOf(lrcPath)
           const lrcRemote = buildUploadRemotePath(targetDir, lrcName, 'lrc')
           for (const it of itemsRef.current.values()) {
             if (it.localPath === lrcPath && it.remotePath === lrcRemote) return
           }
-          void stat(lrcPath).then(st => {
-            const lrcId = newId()
-            const lrcItem: WebDAVUploadQueueItem = {
-              id: lrcId,
-              localPath: lrcPath,
-              fileName: lrcName,
-              size: (st as { size?: number })?.size || 0,
-              kind: 'lrc',
-              remotePath: lrcRemote,
-              targetDir,
-              status: 'queued',
-              uploadedBytes: 0,
-              speed: 0,
-              lastProgressAt: 0,
-              isTempFile: false,
-              addedAt: Date.now(),
-            }
-            itemsRef.current.set(lrcId, lrcItem)
-            bump(true)
-          }).catch(() => {})
-        })
+          const st = await stat(lrcPath).catch(() => null)
+          if (!st) return
+          const lrcId = newId()
+          const lrcItem: WebDAVUploadQueueItem = {
+            id: lrcId,
+            localPath: lrcPath,
+            fileName: lrcName,
+            size: (st as { size?: number })?.size || 0,
+            kind: 'lrc',
+            remotePath: lrcRemote,
+            targetDir,
+            status: 'queued',
+            uploadedBytes: 0,
+            speed: 0,
+            lastProgressAt: 0,
+            isTempFile: false,
+            addedAt: Date.now(),
+          }
+          itemsRef.current.set(lrcId, lrcItem)
+          paired++
+        })())
       }
 
       // 音频入队时自动配对同名封面（2026-10-13）：本地 music/、picture/ 结构兼容查找，
       // 上传到远端 picture/ 目录
       if (kind === 'audio' && withCover) {
         const base = fileName.replace(/\.[^/.]+$/, '')
-        void findLocalCoverFile(r.localPath, base).then(coverPath => {
+        pairingPromises.push((async() => {
+          const coverPath = await findLocalCoverFile(r.localPath, base).catch(() => null)
           if (!coverPath) return
           const coverName = fileNameOf(coverPath)
           const coverRemote = buildUploadRemotePath(targetDir, coverName, 'picture')
           for (const it of itemsRef.current.values()) {
             if (it.localPath === coverPath && it.remotePath === coverRemote) return
           }
-          void stat(coverPath).then(st => {
-            const coverId = newId()
-            const coverItem: WebDAVUploadQueueItem = {
-              id: coverId,
-              localPath: coverPath,
-              fileName: coverName,
-              size: (st as { size?: number })?.size || 0,
-              kind: 'picture',
-              remotePath: coverRemote,
-              targetDir,
-              status: 'queued',
-              uploadedBytes: 0,
-              speed: 0,
-              lastProgressAt: 0,
-              isTempFile: false,
-              addedAt: Date.now(),
-            }
-            itemsRef.current.set(coverId, coverItem)
-            bump(true)
-          }).catch(() => {})
-        })
+          const st = await stat(coverPath).catch(() => null)
+          if (!st) return
+          const coverId = newId()
+          const coverItem: WebDAVUploadQueueItem = {
+            id: coverId,
+            localPath: coverPath,
+            fileName: coverName,
+            size: (st as { size?: number })?.size || 0,
+            kind: 'picture',
+            remotePath: coverRemote,
+            targetDir,
+            status: 'queued',
+            uploadedBytes: 0,
+            speed: 0,
+            lastProgressAt: 0,
+            isTempFile: false,
+            addedAt: Date.now(),
+          }
+          itemsRef.current.set(coverId, coverItem)
+          paired++
+        })())
       }
     }
-    if (added > 0) {
-      bump(true)
-      toast(`已加入上传队列 ${added} 个`)
-    } else {
-      toast('没有新文件加入（可能已在队列中）')
-    }
+    // W13：等歌词/封面配对全部落定后再报最终数——旧实现配对是异步补入的，
+    // 用户立刻点「开始上传」会漏传尚未配对完的歌词/封面
+    void Promise.all(pairingPromises).then(() => {
+      const totalAdded = added + paired
+      if (totalAdded > 0) {
+        bump(true)
+        toast(`已加入上传队列 ${totalAdded} 个`)
+      } else {
+        toast('没有新文件加入（可能已在队列中）')
+      }
+    })
   }, [bump])
 
   // ---------------- 上传执行 ----------------
@@ -433,6 +461,11 @@ export function useUploadManager(deps: UploadManagerDeps) {
         remotePath: item.remotePath,
         localPath: item.localPath,
         size: item.size,
+        forceFresh: !!(item as any).forceFresh,
+        onPhaseNote: (note) => {
+          item.phaseDetail = note
+          bump()
+        },
         contentType: contentTypeForExt(extOf(item.fileName)),
         onAbortHandle: (handle) => {
           // 只保留本轮的句柄：stale worker 的句柄不覆盖
@@ -511,12 +544,8 @@ export function useUploadManager(deps: UploadManagerDeps) {
       if (err instanceof RemoteDirNotFoundError) {
         const dirPath = err.dirPath
         try {
-          const confirmed = await confirmDialog({
-            title: '文件夹不存在',
-            message: `远端文件夹不存在：\n${dirPath}\n\n是否自动创建？`,
-            confirmButtonText: '自动创建并上传',
-            cancelButtonText: '取消',
-          })
+          // W14：同一目录只问一次——并发上传多首到同一缺失目录时，其余项等第一个的答案
+          const confirmed = await askCreateRemoteDir(dirPath)
           if (confirmed) {
             // 用户确认：创建目录后重试本项（仅重试一次，避免死循环）
             try {
@@ -689,13 +718,23 @@ export function useUploadManager(deps: UploadManagerDeps) {
     let overwriteAll: boolean | null = null // null=逐个问，true=后续全部覆盖，false=后续全部跳过
     const toUpload: typeof activeReady = []
     const skippedByUser: string[] = []
+    const unknownSkipped: string[] = []
     for (const it of activeReady) {
-      const exists = await depsRef.current.checkRemoteExists(it.remotePath).catch(() => false)
+      // W2：三态检查——网络/服务器异常导致「查不到」时不能当作不存在直接传，
+      // 否则会绕过覆盖确认误覆盖已有文件；这类项跳过并明确告知
+      const remoteState = await checkWebDAVRemoteState(it.remotePath)
+      if (remoteState === 'unknown') {
+        unknownSkipped.push(it.fileName)
+        it.status = 'cancelled'
+        continue
+      }
+      const exists = remoteState === 'exists'
       if (!exists) {
         toUpload.push(it)
         continue
       }
       if (overwriteAll === true) {
+        (it as any).forceFresh = true // W1：明确覆盖 → 从头传，不按大小续传
         toUpload.push(it)
         continue
       }
@@ -714,6 +753,7 @@ export function useUploadManager(deps: UploadManagerDeps) {
         return
       }
       if (choice === 'overwrite' || choice === 'overwrite-all') {
+        (it as any).forceFresh = true // W1：明确覆盖 → 从头传，不按大小续传
         toUpload.push(it)
         if (choice === 'overwrite-all') overwriteAll = true
       } else {
@@ -724,6 +764,9 @@ export function useUploadManager(deps: UploadManagerDeps) {
     }
     if (skippedByUser.length > 0) {
       webDAVLog.info('[upload] 用户跳过已存在文件', { count: skippedByUser.length })
+    }
+    if (unknownSkipped.length > 0) {
+      toast(`有 ${unknownSkipped.length} 个文件无法确认服务器上是否已存在，已跳过以免误覆盖：${unknownSkipped.slice(0, 3).join('、')}${unknownSkipped.length > 3 ? '…' : ''}`, 'long')
     }
     // 用过滤后的列表继续
     activeReady.length = 0

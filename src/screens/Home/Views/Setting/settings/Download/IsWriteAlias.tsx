@@ -20,6 +20,7 @@ export default memo(() => {
         check={isWriteAlias}
         onChange={handleUpdate}
         label={t('setting_download_write_alias')}
+        helpDesc="把歌手/歌曲的别名写入歌曲文件的标签里，其他播放器里也能看到别名。只影响之后下载的歌曲。"
         disabled={!isWriteTags}
       />
     </View>

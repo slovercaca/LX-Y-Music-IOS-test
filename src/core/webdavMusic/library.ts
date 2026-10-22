@@ -193,10 +193,18 @@ const loadPictureDirInto = async(picDirPath: string, picMap: Map<string, string>
   }
 }
 
+export interface ScanContext {
+  /** 读取失败被跳过的子目录（W3：扫描结束要如实告诉用户，不再假装完整） */
+  skippedDirs: string[]
+  /** 取消令牌（W7）：返回 true 时尽快停下并返回已扫到的部分 */
+  shouldCancel?: () => boolean
+}
+
 const scanFolder = async(
   folder: LX.WebDAV.DriveFolder | null,
   onProgress?: (count: number, folderPath: string) => void,
   parentLrcMap?: Map<string, string>,
+  ctx?: ScanContext,
 ): Promise<LX.WebDAV.MusicInfo[]> => {
   const result: LX.WebDAV.MusicInfo[] = []
   const basePath = folder?.path ?? '/'
@@ -251,6 +259,7 @@ const scanFolder = async(
 
   // 第二遍：递归子目录 + 收集音频
   for (const entry of entries) {
+    if (ctx?.shouldCancel?.()) break
     if (entry.type === 'directory') {
       try {
         result.push(
@@ -259,11 +268,13 @@ const scanFolder = async(
             onProgress,
             // 把当前目录的歌词映射传给子目录
             media.lrcMap,
+            ctx,
           )),
         )
       } catch (error: any) {
         webDAVLog.error('scanFolder recursive error', { path: entry.path, status: error?.status })
-        // 403 等错误的目录直接跳过，不中断整棵扫描
+        // 403 等错误的目录跳过不中断整棵扫描，但要记录（W3：结束提示区分完整/部分）
+        ctx?.skippedDirs.push(entry.path)
       }
       onProgress?.(result.length, entry.path)
       continue
@@ -282,11 +293,22 @@ const scanFolder = async(
   return result
 }
 
+export interface ScanResult {
+  config: LX.WebDAV.Config
+  /** 读取失败被跳过的子目录路径（W3） */
+  skippedDirs: string[]
+  /** 是否被用户取消（取消时不落盘，避免半截结果覆盖完整库） */
+  cancelled: boolean
+}
+
 export const scanWebDAVSongs = async(
   folder: LX.WebDAV.DriveFolder | null,
   onProgress?: (count: number, folderPath: string) => void,
-): Promise<LX.WebDAV.Config> => {
-  const songs = await scanFolder(folder, onProgress)
+  shouldCancel?: () => boolean,
+): Promise<ScanResult> => {
+  const ctx: ScanContext = { skippedDirs: [], shouldCancel }
+  const songs = await scanFolder(folder, onProgress, undefined, ctx)
+  const cancelled = !!shouldCancel?.()
   songs.sort((a, b) => b.meta.lastModifiedTime - a.meta.lastModifiedTime)
 
   const config = await getWebDAVConfig()
@@ -333,8 +355,9 @@ export const scanWebDAVSongs = async(
   config.selectedFolder = folder
   config.songs = mergedSongs
   config.scannedAt = Date.now()
-  await saveWebDAVConfig(config)
-  return config
+  // 取消的扫描只是半截结果：只回给界面展示，不落盘覆盖已保存的完整库
+  if (!cancelled) await saveWebDAVConfig(config)
+  return { config, skippedDirs: ctx.skippedDirs, cancelled }
 }
 
 // ---------------------------------------------------------------------------
@@ -373,6 +396,8 @@ export interface WebDAVMusicMetaUpdate {
   /** 手动指定的本地封面/歌词文件路径（每首歌单独配置，允许用 '' 清除） */
   customPicPath?: string
   customLrcPath?: string
+  /** 网盘内封面远程路径（批量获取封面上传到 picture/ 后回写，与扫描匹配字段一致） */
+  picPath?: string
 }
 
 export const updateWebDAVMusicMeta = async(
@@ -404,6 +429,11 @@ export const updateWebDAVMusicMeta = async(
   if (update.customLrcPath !== undefined) {
     if (update.customLrcPath) song.meta.customLrcPath = update.customLrcPath
     else delete song.meta.customLrcPath
+  }
+
+  if (update.picPath !== undefined) {
+    if (update.picPath) song.meta.picPath = update.picPath
+    else delete song.meta.picPath
   }
 
   config.songs[songIndex] = song

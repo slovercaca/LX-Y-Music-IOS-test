@@ -125,7 +125,9 @@ export const findActiveWebDAVProfile = (
   const url = String(settings['sync.webdav.url'] || '').trim()
   const username = String(settings['sync.webdav.username'] || '').trim()
   if (!url) return null
-  const matches = (p: WebDAVServerProfile) => p.url.trim() === url && p.username.trim() === username
+  const password = String(settings['sync.webdav.password'] || '')
+  // 密码也纳入判定（W19）：同地址同用户名、只是密码不同（改过密码留了两条）时不再高亮错配置
+  const matches = (p: WebDAVServerProfile) => p.url.trim() === url && p.username.trim() === username && p.password === password
   if (activeId) {
     const pinned = profiles.find(p => p.id === activeId)
     if (pinned && matches(pinned)) return pinned

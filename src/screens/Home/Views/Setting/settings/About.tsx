@@ -1,11 +1,11 @@
 import { memo, useEffect, useState } from 'react'
-import { View, TouchableOpacity, Image } from 'react-native'
+import { View, TouchableOpacity } from 'react-native'
 
 import Section from '../components/Section'
 
 import { createStyle, openUrl } from '@/utils/tools'
 import { useTheme } from '@/store/theme/hook'
-import { designRadius, designSpacing, designTypography } from '@/theme/DesignTokens'
+import { designSpacing, designTypography } from '@/theme/DesignTokens'
 import Text from '@/components/common/Text'
 import { getVersionInfo } from '@/utils/nativeModules/utils'
 
@@ -30,6 +30,9 @@ export default memo(() => {
     })
   }, [])
   const openHomePage = () => {
+    void openUrl('https://github.com/slovercaca/LX-Y-Music-IOS-test')
+  }
+  const openOriginRepo = () => {
     void openUrl('https://github.com/1970905901/LX-Y-Music-IOS#readme')
   }
   const openUpstreamIos = () => {
@@ -53,72 +56,50 @@ export default memo(() => {
         </Text>
       </View>
       <View style={styles.part}>
-        <Text style={{ ...styles.text, color: theme['c-font'] }}>本软件(LX-Y Music)完全免费，代码已开源。开源地址：</Text>
+        <Text style={{ ...styles.text, color: theme['c-font'] }}>
+          本软件是 LX-Y Music 的 iOS 二次修改版（代号 Sea），完全免费、代码开源。项目地址：
+        </Text>
         <TouchableOpacity onPress={openHomePage}>
-          <Text style={textLinkStyle}>https://github.com/1970905901/LX-Y-Music-IOS</Text>
+          <Text style={textLinkStyle}>https://github.com/slovercaca/LX-Y-Music-IOS-test</Text>
         </TouchableOpacity>
       </View>
       <View style={styles.part}>
         <Text style={{ ...styles.text, color: theme['c-font'] }}>
-          由于软件开发的初衷仅是为了对新技术的学习与研究，因此软件直至停止维护都将会一直保持纯净。
+          本版在原项目基础上调整了界面效果（液态玻璃）、WebDAV 音乐库、下载与本地文件管理、离线模式等功能，仅以个人学习与使用为目的发布。
         </Text>
       </View>
       <View style={styles.part}>
         <Text style={{ ...styles.text, color: theme['c-font'] }}>
-          目前本项目的原始发布地址<Text style={styles.boldText}>只有 GitHub 和 QQ 群 1013518794</Text>
-          ，其他渠道均为第三方转载发布，可信度请自行鉴别。
-        </Text>
-      </View>
-      <View style={styles.part}>
-        <Text style={{ ...styles.text, color: theme['c-font'] }}>
-          <Text style={styles.boldText}>
-            本项目没有微信公众号之类的所谓「官方账号」，也未在小米、华为、vivo
-            等应用商店发布同名应用，谨防被骗！
-          </Text>
+          本项目唯一的发布地址是上面的 GitHub 仓库，其他渠道均为第三方转载，可信度请自行鉴别；本项目没有微信公众号等「官方账号」，也未在任何应用商店发布。
         </Text>
       </View>
       <View style={styles.part}>
         <Text style={{ ...styles.text, color: theme['c-font'] }}>
           若你使用过程中遇到<Text style={styles.boldText}>广告</Text>或者
           <Text style={styles.boldText}>引流</Text>
-          （如需要加群、关注公众号之类才能使用或者升级）的信息，则表明你当前运行的软件是「第三方修改版」。
+          （如需要加群、关注公众号之类才能使用或者升级）的信息，则表明你当前运行的软件是被第三方再次修改过的版本，与本项目无关。
         </Text>
       </View>
       <View style={styles.part}>
         <Text style={{ ...styles.text, color: theme['c-font'] }}>
           若在升级新版本时提示「<Text style={styles.boldText}>签名不一致</Text>
-          」，则表明你手机上的旧版本或者将要安装的新版本中
-          <Text style={styles.boldText}>有一方</Text>是「
-          <Text style={styles.boldText}>第三方修改版</Text>」。
+          」，说明手机上的旧版本与将要安装的新版本不是同一来源，请确认下载来源后再安装。
         </Text>
       </View>
       <View style={styles.part}>
         <Text style={styles.boldText}>致谢</Text>
         <Text style={{ ...styles.text, color: theme['c-font'] }}>
-          本软件基于以下上游项目构建，在此致以诚挚的感谢：
+          本软件基于以下上游项目构建（依 Apache 2.0 协议署名），在此致以诚挚的感谢：
         </Text>
+        <TouchableOpacity onPress={openOriginRepo}>
+          <Text style={textLinkStyle}>1970905901/LX-Y-Music-IOS（原项目）</Text>
+        </TouchableOpacity>
         <TouchableOpacity onPress={openUpstreamIos}>
           <Text style={textLinkStyle}>Q-1515/lx-music-mobile (ios-adaptation)</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={openUpstreamDebug}>
           <Text style={textLinkStyle}>WalnutBai/lx-lxwalnut-music-mobile (main-debug)</Text>
         </TouchableOpacity>
-      </View>
-      <View style={styles.part}>
-        <Text style={{ ...styles.text, color: theme['c-font'] }}>
-          QQ交流群：<Text style={styles.boldText}>1013518794</Text>
-        </Text>
-      </View>
-      <View style={styles.part}>
-        <Text style={styles.boldText}>赞赏支持</Text>
-        <Text style={{ ...styles.text, color: theme['c-font'] }}>
-          若你觉得本软件不错，欢迎赞赏支持开发者：
-        </Text>
-        <Image
-          source={require('@/resources/images/reward-qrcode.jpg')}
-          style={styles.rewardImage}
-          resizeMode="contain"
-        />
       </View>
     </Section>
   )
@@ -142,12 +123,5 @@ const styles = createStyle({
     fontSize: designTypography.body,
     fontWeight: 'bold',
     lineHeight: 24,
-  },
-  rewardImage: {
-    width: 200,
-    height: 200,
-    marginTop: designSpacing.xs,
-    borderRadius: designRadius.md,
-    alignSelf: 'center',
   },
 })

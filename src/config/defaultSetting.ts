@@ -100,6 +100,9 @@ const defaultSetting: LX.AppSetting = {
   'player.timeoutExitPlayed': true,
   // 2026-10-18：离线模式。开启后播放时优先使用本地已下载文件，封面优先用本地缓存
   'player.offlineMode': false,
+  // 2026-10-22：自动缓存在线歌单封面。在线获取到的封面自动存到本地 picture/，
+  // 之后各处控件优先读本地缓存
+  'player.autoCacheOnlinePic': true,
   'player.isAutoCleanPlayedList': false,
   'player.autoSkipOnError': true,
   'player.soundEffect.enabled': false,
@@ -189,7 +192,7 @@ const defaultSetting: LX.AppSetting = {
   'webdav.uploadConcurrency': 2,
   // 断点续传（Test-v2）：上传前检查远端已有大小，从断点继续。默认开。
   'webdav.uploadResume': true,
-  // 分块上传（Test-v2）：大文件切块逐块传，单块失败只重传该块。默认关。
+  // 分块上传（Test-v2）：大文件切块逐块传，单块失败只重传该块。默认开。
   'webdav.uploadChunked': true,
   // 分块大小 MB（Test-v2）：默认 5
   'webdav.uploadChunkSizeMB': 5,
@@ -259,6 +262,8 @@ const defaultSetting: LX.AppSetting = {
   'theme.subContainerOpacity': 50,
 }
 
+// 新年彩蛋：1-2 月【新安装】的默认主题为新年主题（仅默认值，用户改过即以用户设置
+// 为准，不会覆盖已有用户的选择）
 if (new Date().getMonth() < 2) {
   defaultSetting['theme.id'] = 'happy_new_year'
 }

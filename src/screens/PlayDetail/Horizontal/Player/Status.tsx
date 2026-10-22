@@ -11,7 +11,7 @@ export default () => {
   // const status = playerStatus.isPlay ? text : playerStatus.statusText
 
   return (
-    <Text numberOfLines={1} size={13}>
+    <Text numberOfLines={2} size={13}>
       {statusText}
     </Text>
   )

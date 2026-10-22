@@ -15,23 +15,17 @@
 export const DEBUG_MODE = false
 
 const localAnnouncement = {
-  // 内容有更新时改这里（例如 local-20261001-1），用于让已看过旧公告的机器也能看到新公告
-  announcementId: 'local-qqgroup-1013518794',
-  title: '🎉 欢迎使用 LX-Y Music',
+  // 内容有更新时改这里，用于让已看过旧公告的机器也能看到新公告
+  announcementId: 'local-welcome-sea-20261022-v2',
+  title: '🎉 欢迎使用 LX-Y Music（Sea 二改版）',
   content: [
-    '加入 QQ 群 **1013518794** 与开发者和音乐爱好者交流，点击下方「复制群号」按钮即可复制群号。',
+    '本软件完全免费且开源，如果你是付费购买的，请注意辨别。',
     '',
-    '赞赏支持：若你觉得本软件不错，欢迎赞赏支持开发者。',
+    '本版本基于 LX-Y Music 二次修改：液态玻璃界面、WebDAV 音乐库、下载与本地文件统一管理（music / lrc / picture）、离线模式等。',
+    '',
+    '在「设置 → 播放」中可开启封面自动缓存；本地歌曲在「本地与下载」页统一管理。祝听歌愉快。',
   ].join('\n'),
-  // 赞赏码用 App 内置图片（src/resources/images/reward-qrcode.jpg），由弹窗直接渲染，
-  // 不走图片地址，因此这里不设置 image。
-  showRewardQrcode: true,
   buttons: [
-    {
-      text: '复制群号',
-      enabled: true,
-      url: 'qq-group:1013518794',
-    },
     {
       text: '关闭',
       enabled: true,

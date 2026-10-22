@@ -197,6 +197,8 @@ const initDownloadPath = async(_setting: LX.AppSetting) => {
       if (!baseName) continue
       const candidates = [
         `${defaultPath}/${baseName}`,
+        `${defaultPath}/music/${baseName}`,
+        `${defaultPath}/本地/${baseName}`,
         `${legacyPath}/${baseName}`,
         `${docRoot}/${baseName}`,
       ]
@@ -217,5 +219,72 @@ const initDownloadPath = async(_setting: LX.AppSetting) => {
     }
   } catch (err) {
     console.error('[Download Path] Failed to repair download task paths:', err)
+  }
+
+  // 4) 统一本地库结构（2026-10-22）：根目录平铺的音频/歌词/封面分别搬进
+  //    music/、lrc/、picture/；旧「本地」子文件夹（旧版“本地”页扫描目录）
+  //    里的文件一并归位。搬移后同步改写下载任务 filePath，保证继续可播。
+  //    幂等：已在子目录内的不动；目标同名已存在时跳过（不覆盖）。
+  try {
+    const root = (_setting['download.path'] ?? '').trim() || defaultPath
+    const musicDir = `${root}/music`
+    const lrcDir = `${root}/lrc`
+    const pictureDir = `${root}/picture`
+    await mkdir(musicDir).catch(() => {})
+    await mkdir(lrcDir).catch(() => {})
+    await mkdir(pictureDir).catch(() => {})
+
+    const audioExts = new Set(['mp3', 'flac', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'wma', 'ape'])
+    const picExts = new Set(['jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif', 'tif', 'tiff', 'heic', 'heif', 'avif'])
+    const moved = new Map<string, string>()
+
+    const sweepDir = async(dir: string) => {
+      const items = await readDir(dir).catch(() => [])
+      for (const item of items) {
+        if (!item.isFile) continue
+        const ext = item.name.split('.').pop()?.toLowerCase() || ''
+        const targetDir = audioExts.has(ext) ? musicDir : ext === 'lrc' ? lrcDir : picExts.has(ext) ? pictureDir : null
+        if (!targetDir) continue
+        if (item.path.startsWith(`${targetDir}/`)) continue
+        const targetPath = `${targetDir}/${item.name}`
+        if (await existsFile(targetPath).catch(() => false)) continue
+        try {
+          await moveFile(item.path, targetPath)
+          moved.set(item.path, targetPath)
+        } catch (moveErr) {
+          console.warn(`[Download Path] Structure migrate failed ${item.path} -> ${targetPath}:`, moveErr)
+        }
+      }
+    }
+
+    await sweepDir(root)
+    // 旧「本地」子文件夹（root 本身已是该文件夹时不重复处理）
+    const legacyLocalDir = `${root}/本地`
+    if (legacyLocalDir !== root) await sweepDir(legacyLocalDir)
+
+    if (moved.size > 0) {
+      const tasks = await getDownloadTasks()
+      let changed = false
+      for (const task of tasks) {
+        const next = task.filePath ? moved.get(task.filePath) : undefined
+        if (next) {
+          task.filePath = next
+          changed = true
+        }
+      }
+      if (changed) {
+        await saveDownloadTasks(tasks)
+        downloadActions.setTasks(await getDownloadTasks())
+      }
+      console.log(`[Download Path] Structure migrated ${moved.size} files into music/lrc/picture.`)
+      // 一次性提示标记（D17）：文件被搬走后用户在「文件」App 里会以为歌丢了，
+      // 由本地列表页消费该标记弹一次说明后清除
+      try {
+        const { saveData } = await import('@/plugins/storage')
+        await saveData('library_structure_migrated_notice', true)
+      } catch {}
+    }
+  } catch (err) {
+    console.error('[Download Path] Failed to migrate library structure:', err)
   }
 }

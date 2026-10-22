@@ -15,12 +15,14 @@ import IsShowBluetoothLyric from './IsShowBluetoothLyric'
 import IsS2T from './IsS2T'
 import ClearCache from './ClearCache'
 import IsAutoPlayOnStartup from './IsAutoPlayOnStartup'
+import IsAutoCacheOnlinePic from './IsAutoCacheOnlinePic'
 
 export default memo(() => {
   return (
     <Section sectionId="setting_player">
       <IsSavePlayTime />
       <IsAutoPlayOnStartup />
+      <IsAutoCacheOnlinePic />
       <IsAutoCleanPlayedList />
       <IsAutoSkipOnError />
       <IsHandleAudioFocus />

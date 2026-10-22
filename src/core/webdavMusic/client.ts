@@ -64,6 +64,20 @@ export const resetClient = (): void => {
   cachedKey = ''
 }
 
+/** WebDAV 原始异常 → 用户能看懂的话 + 下一步（W10）：原文只进日志，不直接展示 */
+export const friendlyWebDAVError = (err: any): string => {
+  const status = err?.status ?? err?.response?.status
+  const msg = String(err?.message ?? err ?? '')
+  if (status === 401) return '账号或密码错误，请检查配置'
+  if (status === 403) return '没有权限访问该目录（403）'
+  if (status === 404) return '路径不存在（404），请检查地址与目录'
+  if (status === 409) return '目录冲突（409），上级目录可能不存在'
+  if (/timeout|timed out|超时/i.test(msg)) return '服务器响应超时，请检查网络与地址'
+  if (/network|fetch|socket|ENOTFOUND|ECONN/i.test(msg)) return '无法连接服务器，请检查地址与网络'
+  if (/certificate|ssl|tls/i.test(msg)) return '证书错误：自签证书的服务器需要在配置里开启允许自签'
+  return '操作失败，请稍后重试'
+}
+
 /** 连通性测试：读根目录，成功返回 true，失败抛错（15 秒超时防 hang） */
 export const testConnection = async(): Promise<boolean> => {
   const client = getClient()

@@ -15,6 +15,7 @@ import { webDAVLog } from '@/core/webdavMusic/logger'
 import settingState from '@/store/setting/state'
 import downloadState from '@/store/download/state'
 import { existsFile } from '@/utils/fs'
+import { findPictureForAudio, findLibraryPicture, coverBaseForSong, cacheCoverToLibrary } from '@/utils/localLibrary'
 
 export { handleGetOnlinePicUrl }
 
@@ -74,14 +75,14 @@ const findOfflineLocalFile = async(song: LX.Music.MusicInfo): Promise<string | n
 }
 
 /**
- * 2026-10-18 离线模式：为在线歌曲查找本地封面。
- * 优先顺序：下载任务的 picUrl（本地文件）> 本地 picture/ 目录同名封面。
+ * 2026-10-22 封面缓存全局化：为在线歌曲查找本地已缓存封面（不限离线模式）。
+ * 优先顺序：匹配的下载任务自带本地封面 > 任务音频同名 picture/ 封面 >
+ * 按下载文件名模板（歌名 - 歌手）在本地库 picture/ 里找。
  */
-const findOfflineLocalPic = async(song: LX.Music.MusicInfo): Promise<string | null> => {
+const findLocalCachedPic = async(song: LX.Music.MusicInfo): Promise<string | null> => {
   const normalize = (s: string) => (s || '').trim().toLowerCase()
   const songName = normalize(song.name)
   const songSinger = normalize(song.singer)
-  const PIC_EXTS = ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif', 'tif', 'tiff', 'heic', 'heif', 'avif']
   for (const task of downloadState.tasks) {
     if (task.status !== 'completed' || !task.filePath) continue
     const ti = task.musicInfo
@@ -92,18 +93,14 @@ const findOfflineLocalPic = async(song: LX.Music.MusicInfo): Promise<string | nu
     // 1. 任务自带的本地封面
     const taskPic = (ti.meta as any)?.picUrl
     if (taskPic && taskPic.startsWith('file://')) return taskPic
-    // 2. 本地 picture/ 目录同名封面
-    const audioDir = task.filePath.substring(0, task.filePath.lastIndexOf('/'))
-    const parentDir = audioDir.substring(0, audioDir.lastIndexOf('/'))
-    const base = task.fileName.replace(/\.[^/.]+$/, '')
-    for (const dir of [audioDir, `${audioDir}/picture`, `${parentDir}/picture`]) {
-      for (const ext of PIC_EXTS) {
-        const p = `${dir}/${base}.${ext}`
-        if (await existsFile(p).catch(() => false)) return `file://${p}`
-      }
-    }
+    // 2. 任务音频同名 picture/ 封面（music/ ↔ picture/ 等结构统一查找）
+    const sidecar = await findPictureForAudio(task.filePath).catch(() => null)
+    if (sidecar) return `file://${sidecar}`
     // 当前任务无封面，继续检查其他匹配的任务
   }
+  // 3. 在线时缓存到 picture/ 的封面（按模板基名）
+  const libraryPic = await findLibraryPicture(coverBaseForSong(song.name, song.singer)).catch(() => null)
+  if (libraryPic) return `file://${libraryPic}`
   return null
 }
 
@@ -227,14 +224,22 @@ export const getPicPath = async({
       isRefresh,
     })
   } else {
-    // 2026-10-18 离线模式：优先用本地 picture/ 缓存的封面
+    // 2026-10-22 封面缓存全局化：本地 picture/ 有缓存先用缓存（不限离线模式），
+    // 不再出现「本地有缓存但控件仍去加载在线地址」
+    const localPic = await findLocalCachedPic(musicInfo as LX.Music.MusicInfo)
+    if (localPic) return localPic
     if (settingState.setting['player.offlineMode'] === true) {
-      const localPic = await findOfflineLocalPic(musicInfo as LX.Music.MusicInfo)
-      if (localPic) return localPic
-      // 没有本地封面时返回空，不尝试在线获取
+      // 离线模式没有本地封面时返回空，不尝试在线获取
       return ''
     }
-    return getOnlinePicUrl({ musicInfo, isRefresh, listId, onToggleSource })
+    const url = await getOnlinePicUrl({ musicInfo, isRefresh, listId, onToggleSource })
+    // 「自动缓存在线歌单封面」：在线拿到的封面落盘 picture/，并直接返回本地路径，
+    // 保证本次显示与后续所有控件都走本地缓存
+    if (url && url.startsWith('http') && settingState.setting['player.autoCacheOnlinePic'] === true) {
+      const cached = await cacheCoverToLibrary(coverBaseForSong(musicInfo.name, musicInfo.singer), url).catch(() => null)
+      if (cached) return cached
+    }
+    return url
   }
 }
 

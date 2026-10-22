@@ -14,6 +14,7 @@ export const handleRemove = (listInfo: LX.List.UserListInfo) => {
   void confirmDialog({
     message: global.i18n.t('list_remove_tip', { name: listInfo.name }),
     confirmButtonText: global.i18n.t('list_remove_tip_button'),
+    destructive: true,
   }).then((isRemove) => {
     if (!isRemove) return
     void removeUserList([listInfo.id])
@@ -104,7 +105,7 @@ export const handleExport = (listInfo: LX.List.MyListInfo, path: string) => {
     .catch((err: any) => {
       log.error(err.message)
       toast(
-        global.i18n.t('setting_backup_part_export_list_tip_failed') + ': ' + (err.message as string),
+        global.i18n.t('setting_backup_part_export_list_tip_failed') + '，请确认存储空间充足后重试',
       )
     })
 }
@@ -113,6 +114,7 @@ export const handleSync = (listInfo: LX.List.UserListInfo) => {
   void confirmDialog({
     message: global.i18n.t('list_sync_confirm_tip', { name: listInfo.name }),
     confirmButtonText: global.i18n.t('list_remove_tip_button'),
+    destructive: true,
   }).then((isSync) => {
     if (!isSync) return
     void syncSourceList(listInfo)

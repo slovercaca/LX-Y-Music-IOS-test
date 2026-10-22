@@ -21,6 +21,7 @@ export default memo(() => {
         check={isWriteCover}
         onChange={handleUpdate}
         label={t('setting_download_write_picture')}
+        helpDesc="把专辑封面写进歌曲文件内部，其他播放器列表里能直接显示封面。只影响之后下载的歌曲。"
         // disabled={!isEnable}
       />
     </View>

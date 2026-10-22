@@ -14,9 +14,32 @@ import { navigations } from '@/navigation'
 import { PLAY_DETAIL_SCREEN } from '@/navigation/screenNames'
 import commonState from '@/store/common/state'
 import { useSafeAreaBottom, useScreenCovered, useAppActive } from '@/store/common/hook'
-import { usePlayerMusicInfo } from '@/store/player/hook'
+import { usePlayerMusicInfo, useProgress } from '@/store/player/hook'
+import { Icon } from '@/components/common/Icon'
 import { designRadius, designSpacing, bottomFloatGap } from '@/theme/DesignTokens'
 import LiquidGlass from '@/components/common/LiquidGlass'
+
+// 迷你条底部进度细线（P8 人性化）：不打开详情页也能一眼看到播放进度。
+// 容器 overflow:hidden + 胶囊圆角会把细线两端自然裁进胶囊形。
+const MiniProgressLine = memo(() => {
+  const theme = useTheme()
+  const { progress } = useProgress()
+  if (!progress || progress <= 0) return null
+  return (
+    <View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: 0,
+        bottom: 0,
+        height: 2.5,
+        width: `${Math.min(progress, 1) * 100}%`,
+        backgroundColor: theme['c-primary'],
+        opacity: 0.9,
+      }}
+    />
+  )
+})
 
 export default memo(({ componentId, isHome = false }: { componentId?: string, isHome?: boolean }) => {
   // 省电门：本屏被压栈页覆盖（栈顶不是本屏）时暂停玻璃 Metal 渲染循环。
@@ -78,6 +101,19 @@ export default memo(({ componentId, isHome = false }: { componentId?: string, is
     }, 600)
   }, [musicInfo.id])
 
+  // 队列入口（P10 人性化）：详情页已在栈顶时直接弹队列；否则先 push 详情页，
+  // 等其挂载注册 showPlaylist 监听后再发事件（导航防重入窗口 600ms）。
+  const handleShowQueue = useCallback(() => {
+    if (!musicInfo.id) return
+    const ids = commonState.componentIds
+    if (ids.length && String(ids[ids.length - 1]?.name) === PLAY_DETAIL_SCREEN) {
+      global.app_event.showPlaylist()
+      return
+    }
+    handleNavigate()
+    setTimeout(() => { global.app_event.showPlaylist() }, 750)
+  }, [musicInfo.id, handleNavigate])
+
   const playerComponent = useMemo(
     () => {
       // 液态玻璃模式：背景折射由原生 LiquidGlass（vendored LiquidGlassKit）实时渲染，
@@ -117,6 +153,7 @@ export default memo(({ componentId, isHome = false }: { componentId?: string, is
             onLayout={(e) => { setMiniPlayerHeight(e.nativeEvent.layout.height) }}
           >
             <LiquidGlass glassOpacity={glassOpacity} dark={theme.isDark} liquid={liquidGlassOn} paused={glassPaused} style={{ borderRadius: designRadius.glass }} />
+            <MiniProgressLine />
             <TouchableOpacity style={styles.left} onPress={handleNavigate} activeOpacity={0.8}>
               <Pic />
               <View style={styles.center}>
@@ -125,13 +162,16 @@ export default memo(({ componentId, isHome = false }: { componentId?: string, is
               </View>
             </TouchableOpacity>
             <View style={styles.right}>
+              <TouchableOpacity style={styles.queueBtn} activeOpacity={0.5} onPress={handleShowQueue} accessibilityLabel="播放队列">
+                <Icon name="menu" color={theme['c-font']} size={20} />
+              </TouchableOpacity>
               <ControlBtn />
             </View>
           </View>
         </Animated.View>
       )
     },
-    [glassOpacity, liquidGlassOn, glassPaused, theme.isDark, isHome, handleNavigate, safeAreaBottom, isHorizontalMode, collapseAnim, tabBarDistance],
+    [glassOpacity, liquidGlassOn, glassPaused, theme.isDark, isHome, handleNavigate, handleShowQueue, safeAreaBottom, isHorizontalMode, collapseAnim, tabBarDistance],
   )
 
   return keyboardShown ? null : playerComponent
@@ -178,6 +218,12 @@ const styles = createStyle({
     // justifyContent: 'space-evenly',
     // height: 48,
     // backgroundColor: 'rgba(0, 0, 0, .1)',
+  },
+  queueBtn: {
+    width: 36,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   right: {
     flexDirection: 'row',

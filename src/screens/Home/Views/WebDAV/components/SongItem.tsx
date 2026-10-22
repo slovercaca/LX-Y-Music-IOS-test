@@ -104,14 +104,22 @@ export default memo(
             )}
           </View>
           <View style={styles.itemInfo}>
-            <Text
-              size={designTypography.body}
-              style={styles.songTitle}
-              color={isPlaying ? theme['c-primary-font'] : theme['c-font']}
-              numberOfLines={1}
-            >
-              {item.name || item.meta.fileName}
-            </Text>
+            <View style={styles.titleRow}>
+              <Text
+                size={designTypography.body}
+                style={{ ...styles.songTitle, flexShrink: 1 }}
+                color={isPlaying ? theme['c-primary-font'] : theme['c-font']}
+                numberOfLines={1}
+              >
+                {item.name || item.meta.fileName}
+              </Text>
+              {/* W21：已下载到本地的歌明确标注，免得用户对着菜单逐个试 */}
+              {item.meta.filePath ? (
+                <View style={{ ...styles.downloadedBadge, backgroundColor: theme['c-primary-background'] }}>
+                  <Text size={9} color={theme['c-primary-font']}>已下载</Text>
+                </View>
+              ) : null}
+            </View>
             <View style={styles.listItemSingle}>
               <Text
                 style={styles.listItemSingleText}
@@ -190,6 +198,16 @@ const styles = createStyle({
   },
   songTitle: {
     fontWeight: '600',
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  downloadedBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
   },
   listItemSingle: {
     paddingTop: 3,

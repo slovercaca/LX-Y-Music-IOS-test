@@ -3,15 +3,33 @@ import { toMD5, toast, requestStoragePermission } from '@/utils/tools'
 import { getMusicUrl, getMusicUrlWithQuality, getLyricInfo } from '@/core/music'
 import { getFileExtension, getFileExtensionFromUrl } from '@/screens/Home/Views/Mylist/MusicList/download/utils'
 import { mergeLyrics } from '@/screens/Home/Views/Mylist/MusicList/download/lrcTool'
-import { writeFile, unlink, downloadFile, mkdir, moveFile, stopDownload } from '@/utils/fs'
-import { getDefaultDownloadPath } from '@/utils/downloadPath'
+import { writeFile, unlink, downloadFile, moveFile, stopDownload } from '@/utils/fs'
+import { getMusicDir, getLrcDir, getPictureDir, ensureLibraryDirs, findLibraryPicture, cacheCoverToLibrary } from '@/utils/localLibrary'
 import { writeMetadata, writePic, writeLyric, isWriteSupported } from '@/utils/localMediaMetadata'
 import settingState from '@/store/setting/state'
 import downloadState from '@/store/download/state'
 import downloadActions from '@/store/download/action'
 import { filterFileName, sizeFormate } from '@/utils'
 import { getPicUrl } from '@/core/music/online'
+import RNFS from 'react-native-fs'
 import DownloadTask = LX.Download.DownloadTask
+
+/** 下载失败的原始报错 → 用户能看懂的话（D6 人性化）：原文只进日志，不直接展示 */
+export const friendlyDownloadError = (err: any): string => {
+  const msg = String(err?.message ?? err ?? '')
+  if (/no space|ENOSPC|空间不足/i.test(msg)) return '存储空间不足，请清理空间后重试'
+  if (/network|fetch|socket|timeout|timed out|网络/i.test(msg)) return '网络异常，请检查网络后重试'
+  if (/404|not found/i.test(msg)) return '歌曲链接失效（可能已下架），可换个音源重试'
+  if (/403|forbidden|permission/i.test(msg)) return '下载被拒绝（403），可稍后或换音源重试'
+  return '下载失败，请稍后重试'
+}
+
+// 用户主动暂停的任务 id：stopDownload 会让下载 Promise 以错误结束，
+// processQueue 的 catch 靠这个集合区分「暂停」与「真失败」（D1 真暂停）
+const pausedTaskIds = new Set<string>()
+
+// 批量下载汇总（D5）：批量期间逐首完成/失败 toast 静默，队列排空后只弹一条汇总
+let batchState: { success: number, fail: number, adding: boolean } | null = null
 import wySdk from '@/utils/musicSdk/wy'
 import bilibiliSdk from '@/utils/musicSdk/bilibili'
 
@@ -41,24 +59,32 @@ const processQueue = async() => {
   try {
     await startDownload(task)
   } catch (error: any) {
-    downloadActions.updateTask(task.id, { status: 'error', errorMsg: error.message })
-    // 失败也要有反馈：此前只有「正在下载」与「下载完成」两个提示，出错时界面静默，
-    // 用户只能靠下载悬浮球上的状态点看出异常。
-    toast(`${task.fileName} 下载失败: ${error.message}`, 'short')
+    if (pausedTaskIds.has(task.id)) {
+      // 用户主动暂停：保留任务与已下载进度，不报失败（D1）
+      pausedTaskIds.delete(task.id)
+      downloadActions.updateTask(task.id, { status: 'paused' })
+    } else {
+      console.log('[Download] 下载失败:', task.fileName, error?.message || error)
+      downloadActions.updateTask(task.id, { status: 'error', errorMsg: friendlyDownloadError(error) })
+      if (batchState) batchState.fail++
+      else toast(`${task.fileName} ${friendlyDownloadError(error)}`, 'short')
+    }
   } finally {
     isProcessing = false
     processQueue()
+    // 批量队列排空 → 只弹一条汇总（D5）
+    if (batchState && !batchState.adding && taskQueue.length === 0 && !isProcessing) {
+      const { success, fail } = batchState
+      batchState = null
+      if (success + fail > 0) toast(`批量下载完成：成功 ${success} 首${fail ? `，失败 ${fail} 首` : ''}`, 'long')
+    }
   }
 }
 
 const startDownload = async(task: DownloadTask) => {
   downloadActions.updateTask(task.id, { status: 'downloading' })
-
-  // 立刻给出「已开始下载」反馈：等 URL 解析（可能要几秒）后再提示，
-  // 用户会以为点击没有生效（播放详情页点下载尤其明显）。
-  if (!task.isForceCookie) {
-    toast(`${task.fileName} 开始下载...`, 'short')
-  }
+  // 不再弹「开始下载」（D4）：入队时已有「已加入队列」提示，串行队列里排后面的
+  // 任务几分钟后才真正开始，这条 toast 只会让人困惑；进度看悬浮球/下载管理即可。
 
   let url: string
   // 实际拿到的音质（可能因歌曲不支持请求档位而降级）：写入任务，供「本地与下载」列表显示
@@ -75,7 +101,8 @@ const startDownload = async(task: DownloadTask) => {
       }
       url = result.url
     } catch (error: any) {
-      toast(`${task.musicInfo.name} 下载失败: ${error.message}`, 'short')
+      if (batchState) batchState.fail++
+      else toast(`${task.musicInfo.name} ${friendlyDownloadError(error)}`, 'short')
       removeTask(task.id)
       return
     }
@@ -90,7 +117,8 @@ const startDownload = async(task: DownloadTask) => {
           console.log('[Download] 使用 bilibili 自定义 headers')
         }
       } catch (error: any) {
-        toast(`${task.musicInfo.name} 下载失败: ${error.message}`, 'short')
+        if (batchState) batchState.fail++
+        else toast(`${task.musicInfo.name} ${friendlyDownloadError(error)}`, 'short')
         removeTask(task.id)
         return
       }
@@ -123,23 +151,32 @@ const startDownload = async(task: DownloadTask) => {
 
   let downloadFilePath = task.filePath
   if (isBilibiliSource && urlExtension) {
-    const downloadDir = settingState.setting['download.path'] || getDefaultDownloadPath()
-    downloadFilePath = `${downloadDir}/${task.fileName}.download.${urlExtension}`
+    downloadFilePath = `${getMusicDir()}/${task.fileName}.download.${urlExtension}`
     console.log(`[Download] Bilibili 源使用临时路径下载: ${downloadFilePath}`)
   } else if (urlExtension && urlExtension !== taskExt) {
-    const downloadDir = settingState.setting['download.path'] || getDefaultDownloadPath()
-    downloadFilePath = `${downloadDir}/${task.fileName}.download.${urlExtension}`
-    finalFilePath = `${downloadDir}/${task.fileName}.${urlExtension}`
+    downloadFilePath = `${getMusicDir()}/${task.fileName}.download.${urlExtension}`
+    finalFilePath = `${getMusicDir()}/${task.fileName}.${urlExtension}`
     console.log(`[Download] URL 扩展名(${urlExtension})与任务扩展名(${taskExt})不一致，使用真实扩展名下载: ${downloadFilePath} -> ${finalFilePath}`)
   }
 
+  // 取链期间用户可能已点暂停：此时还没建下载任务，直接收尾（状态已由 pauseTask 置 paused）
+  if (pausedTaskIds.has(task.id)) {
+    pausedTaskIds.delete(task.id)
+    return
+  }
+
   await requestStoragePermission()
+  // 磁盘空间提醒（D15）：只提醒不拦截，避免空间不足时最后以原始写入错误收场、无从理解
+  try {
+    const fsInfo = await RNFS.getFSInfo()
+    if (fsInfo.freeSpace < 100 * 1024 * 1024) toast(`存储空间不足（剩余 ${sizeFormate(fsInfo.freeSpace)}），下载可能失败`, 'long')
+  } catch {}
   let lastWritten = 0
   let lastTime = Date.now()
   let downloadedFilePath: string
-  const effectiveDownloadDir = settingState.setting['download.path'] || getDefaultDownloadPath()
   try {
-    await mkdir(effectiveDownloadDir)
+    // 统一本地库结构：根目录 + music/ + lrc/ + picture/
+    await ensureLibraryDirs()
 
     const downloadTask = downloadFile(url, downloadFilePath, {
       headers,
@@ -199,12 +236,29 @@ const startDownload = async(task: DownloadTask) => {
 
     // 下载完成后缓存歌词（内存缓存 + 同名 .lrc），保证离线也能显示歌词
     void cacheLyricForOffline(task, downloadedFilePath)
+    // 下载完成后把封面缓存到 picture/（已存在则跳过），列表/播放各处优先读本地缓存
+    void cacheDownloadedCover(task)
 
-    if (!task.isForceCookie) {
+    if (batchState) batchState.success++
+    else if (!task.isForceCookie) {
       toast(`${task.fileName} 下载完成!`, 'short')
     }
   } finally {
     currentDownloadTask = null
+  }
+}
+
+// 下载完成后缓存封面到 picture/<文件名>.<ext>（2026-10-22）：
+// 与「下载设置-写入封面」（内嵌进音频）相互独立，保证本地有缓存时各处控件都能直接加载。
+const cacheDownloadedCover = async(task: DownloadTask) => {
+  try {
+    if (await findLibraryPicture(task.fileName)) return
+    const picUrl = await getPicUrl({ musicInfo: task.musicInfo as LX.Music.MusicInfoOnline } as any).catch(() => '')
+    if (picUrl && picUrl.startsWith('http')) {
+      await cacheCoverToLibrary(task.fileName, picUrl)
+    }
+  } catch (e: any) {
+    console.warn('[Download] 封面缓存到 picture/ 失败（不影响歌曲）:', e?.message || e)
   }
 }
 
@@ -216,7 +270,7 @@ const cacheLyricForOffline = async(task: DownloadTask, filePath: string) => {
     const lyrics = await getLyricInfo({ musicInfo: task.musicInfo as LX.Music.MusicInfoOnline })
     const merged = mergeLyrics(lyrics.lyric, lyrics.tlyric, lyrics.rlyric)
     if (merged) {
-      const lrcPath = `${filePath.substring(0, filePath.lastIndexOf('.'))}.lrc`
+      const lrcPath = `${getLrcDir()}/${task.fileName}.lrc`
       try {
         if (!(await RNFetchBlob.fs.exists(lrcPath))) {
           await writeFile(lrcPath, merged)
@@ -260,18 +314,17 @@ const handleMetadata = async(task: DownloadTask, filePath: string) => {
     }
   }
 
-  const downloadDir = settingState.setting['download.path'] || getDefaultDownloadPath()
   if (settingState.setting['download.writePicture']) {
     try {
       const picUrl = await getPicUrl({ musicInfo: task.musicInfo as LX.Music.MusicInfoOnline } as any)
       const extension = getFileExtensionFromUrl(picUrl) || 'jpg'
-      const picPath = `${downloadDir}/temp.${extension}`
+      // 封面落盘到 picture/ 作为本地缓存（与音频同名），写入内嵌封面后保留不删
+      const picPath = `${getPictureDir()}/${task.fileName}.${extension}`
       console.log(`[Metadata] 下载封面: ${picUrl} -> ${picPath}`)
       const { promise } = downloadFile(picUrl, picPath)
       await promise
       console.log('[Metadata] 封面下载完成，开始写入到音频文件')
       await writePic(filePath, picPath)
-      await unlink(picPath)
       console.log('[Metadata] 封面写入完成')
       downloadActions.updateTask(task.id, { metadataStatus: { ...task.metadataStatus, cover: 'success' } })
     } catch (e: any) {
@@ -284,7 +337,6 @@ const handleMetadata = async(task: DownloadTask, filePath: string) => {
   if (settingState.setting['download.writeLyric'] || settingState.setting['download.writeEmbedLyric']) {
     try {
       const lyrics = await getLyricInfo({ musicInfo: task.musicInfo as LX.Music.MusicInfoOnline })
-      const baseFilePath = filePath.substring(0, filePath.lastIndexOf('.'))
       const romaLyric = settingState.setting['download.writeRomaLyric'] ? lyrics.rlyric : null
 
       if (settingState.setting['download.writeEmbedLyric']) {
@@ -297,7 +349,7 @@ const handleMetadata = async(task: DownloadTask, filePath: string) => {
       if (settingState.setting['download.writeLyric']) {
         const finalLyricContent = mergeLyrics(lyrics.lyric, lyrics.tlyric, romaLyric)
         if (finalLyricContent) {
-          const lrcPath = `${baseFilePath}.lrc`
+          const lrcPath = `${getLrcDir()}/${task.fileName}.lrc`
           console.log(`[Metadata] 写入歌词文件: ${lrcPath}`)
           await writeFile(lrcPath, finalLyricContent)
         }
@@ -356,14 +408,13 @@ export const retryMetadata = async(taskId: string) => {
     try {
       const picUrl = await getPicUrl({ musicInfo: task.musicInfo as LX.Music.MusicInfoOnline } as any)
       const extension = getFileExtensionFromUrl(picUrl) || 'jpg'
-      const picPath = `${RNFetchBlob.fs.dirs.CacheDir}/lx_temp_pic_${task.id}.${extension}`
+      const picPath = `${getPictureDir()}/${task.fileName}.${extension}`
 
       console.log(`[Retry Metadata] 下载封面: ${picUrl} -> ${picPath}`)
       const { promise } = downloadFile(picUrl, picPath)
       await promise
       console.log('[Retry Metadata] 封面下载完成，开始写入')
       await writePic(filePath, picPath)
-      await unlink(picPath)
       metadataStatus.cover = 'success'
       console.log('[Retry Metadata] 封面写入成功')
     } catch (e: any) {
@@ -375,7 +426,6 @@ export const retryMetadata = async(taskId: string) => {
   if (metadataStatus.lyric === 'fail' && (settingState.setting['download.writeLyric'] || settingState.setting['download.writeEmbedLyric'])) {
     try {
       const lyrics = await getLyricInfo({ musicInfo: task.musicInfo as LX.Music.MusicInfoOnline })
-      const baseFilePath = filePath.substring(0, filePath.lastIndexOf('.'))
       const romaLyric = settingState.setting['download.writeRomaLyric'] ? lyrics.rlyric : null
 
       if (settingState.setting['download.writeEmbedLyric']) {
@@ -388,7 +438,7 @@ export const retryMetadata = async(taskId: string) => {
       if (settingState.setting['download.writeLyric']) {
         const finalLyricContent = mergeLyrics(lyrics.lyric, lyrics.tlyric, romaLyric)
         if (finalLyricContent) {
-          const lrcPath = `${baseFilePath}.lrc`
+          const lrcPath = `${getLrcDir()}/${task.fileName}.lrc`
           console.log(`[Retry Metadata] 写入歌词文件: ${lrcPath}`)
           await writeFile(lrcPath, finalLyricContent)
         }
@@ -422,6 +472,27 @@ export const retryTask = (taskId: string) => {
     }, 200)
   } else if (Object.values(task.metadataStatus ?? {}).includes('fail')) {
     void retryMetadata(task.id)
+  }
+}
+
+/**
+ * 暂停任务（D1）：等待中的直接移出队列；下载中的停掉当前下载，
+ * 任务与已下载进度保留在列表里，之后可从「继续」重新下载。
+ */
+export const pauseTask = (taskId: string) => {
+  const task = downloadState.tasks.find(t => t.id === taskId)
+  if (!task) return
+  if (task.status === 'waiting') {
+    const idx = taskQueue.findIndex(t => t.id === taskId)
+    if (idx > -1) taskQueue.splice(idx, 1)
+    downloadActions.updateTask(taskId, { status: 'paused' })
+    return
+  }
+  if (task.status === 'downloading') {
+    pausedTaskIds.add(taskId)
+    downloadActions.updateTask(taskId, { status: 'paused' })
+    const jobId = (currentDownloadTask as any)?.jobId
+    if (typeof jobId === 'number') stopDownload(jobId)
   }
 }
 
@@ -470,8 +541,7 @@ export const addTask = (
     .replace('歌名', musicInfo.name)
     .replace('歌手', finalSingerString)
   fileName = filterFileName(fileName)
-  const downloadDir = settingState.setting['download.path'] || getDefaultDownloadPath()
-  const filePath = `${downloadDir}/${fileName}.${extension}`
+  const filePath = `${getMusicDir()}/${fileName}.${extension}`
 
   const task: DownloadTask = {
     id: toMD5(`${musicInfo.id}-${quality}`),
@@ -486,8 +556,13 @@ export const addTask = (
     isForceCookie,
   }
 
-  if (downloadState.tasks.some(t => t.id === task.id)) {
-    toast('任务已存在')
+  const existingTask = downloadState.tasks.find(t => t.id === task.id)
+  if (existingTask) {
+    if (!silent) {
+      if (existingTask.status === 'completed') toast('这首歌已下载，去「本地与下载」里听吧')
+      else if (existingTask.status === 'downloading' || existingTask.status === 'waiting') toast('已在下载队列中')
+      else toast('任务已存在，在「下载管理」里可继续')
+    }
     return
   }
 
@@ -536,6 +611,7 @@ export const removeTask = (id: string) => {
  * @param musicInfos Selected song list
  */
 export const batchDownload = async(musicInfos: LX.Music.MusicInfo[]) => {
+  batchState = { success: 0, fail: 0, adding: true }
   const cookie = settingState.setting['common.wy_cookie']
   const hasWyMusic = musicInfos.some(m => m.source === 'wy')
 
@@ -560,6 +636,13 @@ export const batchDownload = async(musicInfos: LX.Music.MusicInfo[]) => {
     const isWyAndHasCookie = musicInfo.source === 'wy' && !!cookie
     addTask(musicInfo, quality, isWyAndHasCookie, true)
     await new Promise(resolve => setTimeout(resolve, 1000))
+  }
+  if (batchState) batchState.adding = false
+  // 全部任务瞬间失败/未入队等极端情况：processQueue 不会再被触发，这里补一次排空检查
+  if (batchState && taskQueue.length === 0 && !isProcessing) {
+    const { success, fail } = batchState
+    batchState = null
+    if (success + fail > 0) toast(`批量下载完成：成功 ${success} 首${fail ? `，失败 ${fail} 首` : ''}`, 'long')
   }
 }
 

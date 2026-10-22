@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState, forwardRef, useImperativeHandle, useEffect } from 'react'
-import { FlatList, type FlatListProps, Keyboard, RefreshControl, View } from 'react-native'
+import { FlatList, type FlatListProps, Keyboard, RefreshControl, TouchableOpacity, View } from 'react-native'
 import ListItem, { ITEM_HEIGHT } from './ListItem'
 import { createStyle, getRowInfo, type RowInfoType } from '@/utils/tools'
 import { useHorizontalMode } from '@/utils/hooks'
@@ -104,6 +104,10 @@ const List = forwardRef<ListType, ListProps>(
     }, [isHorizontal, rowType])
     const numColumns = rowInfo.rowNum ?? 1
     const isShowAlbumName = useSettingValue('list.isShowAlbumName')
+    // S-N5：离线模式状态条（可关）——开着离线模式浏览在线列表时事先说清，
+    // 不再等点播被拦截才知道
+    const offlineMode = useSettingValue('player.offlineMode')
+    const [offlineBannerDismissed, setOfflineBannerDismissed] = useState(false)
     const isShowInterval = useSettingValue('list.isShowInterval')
 
     useImperativeHandle(ref, () => ({
@@ -362,7 +366,27 @@ const List = forwardRef<ListType, ListProps>(
     // 底部悬浮层（迷你播放器 + 底部 Tab + 安全区）统一避让高度
     const bottomInset = useBottomOverlayInset()
 
+    // S-N4：空状态——此前无结果只剩页头与页脚「到底啦」，与歌单网格两套标准
+    const emptyComponent = status === 'loading' || status === 'refreshing' ? null : (
+      <View style={styles.emptyWrap}>
+        <Text color={theme['c-font-label']}>
+          {status === 'error' ? '加载失败，请下拉重试' : '没有找到歌曲'}
+        </Text>
+      </View>
+    )
+
     return (
+      <View style={styles.rootWrap}>
+        {offlineMode && !offlineBannerDismissed ? (
+          <View style={{ ...styles.offlineBanner, backgroundColor: theme['c-primary-background'] }}>
+            <Text size={12} color={theme['c-primary-font']} style={{ flex: 1 }}>
+              离线模式已开启，只能播放已下载的歌曲
+            </Text>
+            <TouchableOpacity onPress={() => { setOfflineBannerDismissed(true) }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text size={12} color={theme['c-primary-font']}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
       <FlatList
         // key：numColumns 变更（旋转/分屏）时强制重挂载 FlatList——
         // RN 不支持运行中变更 numColumns，直接改值会崩溃；重挂载时数据保存在本组件 state 中不丢失
@@ -405,7 +429,9 @@ const List = forwardRef<ListType, ListProps>(
         ListHeaderComponent={ListHeaderComponent}
         refreshControl={refreshControl}
         ListFooterComponent={footerComponent}
+        ListEmptyComponent={emptyComponent}
       />
+      </View>
     )
   },
 )
@@ -427,6 +453,20 @@ const Footer = ({ label, onLoadMore }: { label: FooterLabel, onLoadMore: () => v
   ) : null
 }
 const styles = createStyle({
+  rootWrap: {
+    flex: 1,
+  },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    gap: 8,
+  },
+  emptyWrap: {
+    alignItems: 'center',
+    paddingTop: 60,
+  },
   container: {
     flex: 1,
   },

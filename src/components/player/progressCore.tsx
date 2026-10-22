@@ -1,10 +1,12 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, Easing, PanResponder, View } from 'react-native'
 
 import { useDrag } from '@/utils/hooks'
 import { setPagerScrollEnabled } from '@/utils/pagerScrollControl'
 import { useSettingValue } from '@/store/setting/hook'
 import { clamp01, createStyle } from '@/utils/tools'
+import { formatPlayTime2 } from '@/utils/common'
+import Text from '@/components/common/Text'
 
 // 广播「进度条拖动中」状态：
 // playProgress 的逐秒校准（tickCalibrate）依赖该标志让路，否则拖动期间每秒都会被
@@ -196,6 +198,67 @@ export const ProgressTouchArea = memo(
     )
   },
 )
+
+/**
+ * 拖动进度时跟随手指的时间气泡（P6 人性化）：显示「目标时间 / 总时长」。
+ * 文案状态仅在目标秒数变化时更新（拖动全程至多数十次渲染），位置走 Animated 直驱不经渲染。
+ */
+export const DragTimeBubble = memo(({
+  dragProgressAnim,
+  draging,
+  progress,
+  duration,
+  barWidth,
+}: {
+  dragProgressAnim: Animated.Value
+  draging: boolean
+  progress: number
+  duration: number
+  barWidth: number
+}) => {
+  const [text, setText] = useState('')
+  useEffect(() => {
+    if (!draging) {
+      setText('')
+      return
+    }
+    let lastSec = -1
+    const update = (value: number) => {
+      if (!Number.isFinite(duration) || duration <= 0) return
+      const sec = Math.floor(clamp01(value) * duration)
+      if (sec === lastSec) return
+      lastSec = sec
+      setText(`${formatPlayTime2(sec)} / ${formatPlayTime2(duration)}`)
+    }
+    update(progress)
+    const id = dragProgressAnim.addListener(({ value }) => { update(value) })
+    return () => { dragProgressAnim.removeListener(id) }
+  }, [draging, duration, progress, dragProgressAnim])
+  const translateX = useMemo(
+    () => dragProgressAnim.interpolate({ inputRange: [0, 1], outputRange: [0, Math.max(barWidth, 0)], extrapolate: 'clamp' }),
+    [dragProgressAnim, barWidth],
+  )
+  if (!draging || !text) return null
+  return (
+    <Animated.View pointerEvents="none" style={{ position: 'absolute', bottom: '100%', left: 0, zIndex: 20, transform: [{ translateX }] }}>
+      <View style={bubbleStyles.bubble}>
+        <Text size={12} color="#fff">{text}</Text>
+      </View>
+    </Animated.View>
+  )
+})
+
+const bubbleStyles = createStyle({
+  bubble: {
+    width: 92,
+    marginLeft: -46,
+    marginBottom: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: 'rgba(0,0,0,0.78)',
+    alignItems: 'center',
+  },
+})
 
 const styles = createStyle({
   pressBar: {

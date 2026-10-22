@@ -115,6 +115,22 @@ export const checkWebDAVRemoteExists = async(remotePath: string): Promise<boolea
   return (await getStat(remotePath).catch(() => null)) != null
 }
 
+export type RemoteExistsState = 'exists' | 'notExists' | 'unknown'
+
+/**
+ * 三态存在检查（W2）：网络错误/服务器异常时返回 unknown 而不是误判「不存在」。
+ * 旧 checkWebDAVRemoteExists 把任何失败都吞成 false，上传冲突预检会因此
+ * 绕过覆盖确认、把已有文件直接覆盖掉。
+ */
+export const checkWebDAVRemoteState = async(remotePath: string): Promise<RemoteExistsState> => {
+  try {
+    const stat = await getStat(remotePath)
+    return stat ? 'exists' : 'notExists'
+  } catch {
+    return 'unknown'
+  }
+}
+
 /**
  * 读远端文本文件；不存在（404/409）返回 null，其余错误上抛。
  * 同步流程用它读 playlists.json / settings.json / user_apis.json。

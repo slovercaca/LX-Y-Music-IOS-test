@@ -21,6 +21,7 @@ export default memo(() => {
         check={isWriteLyrics}
         onChange={handleUpdate}
         label={t('setting_download_write_lyric')}
+        helpDesc="下载歌曲时同时保存一份同名的 .lrc 歌词文件，放在歌曲旁边的 lrc 文件夹里。"
         // disabled={!isEnable}
       />
     </View>

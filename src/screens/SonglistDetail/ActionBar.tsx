@@ -28,7 +28,9 @@ export default memo(({ onBack }: { onBack?: () => void }) => {
       return
     }
     if (!songlistState.listDetailInfo.list.length) {
-      toast('歌单加载失败，请返回重试')
+      // S-N8：列表为空多半还在加载中（真失败时列表区会显示加载失败），
+      // 不谎报「加载失败」
+      toast('歌单还在加载中，请稍等片刻再试')
       return
     }
     void handlePlay(info.id, info.source, songlistState.listDetailInfo.list)

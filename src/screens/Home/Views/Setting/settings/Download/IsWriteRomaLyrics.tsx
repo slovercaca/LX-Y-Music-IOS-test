@@ -23,6 +23,7 @@ export default memo(() => {
         check={isWriteRomaLyrics}
         onChange={handleUpdate}
         label={t('setting_download_write_roma_lyric')}
+        helpDesc="下载日文等歌曲时，额外保存一份罗马音（拼音式）歌词文件，方便跟着唱。只影响之后下载的歌曲。"
         // disabled={!isEnable}
       />
     </View>

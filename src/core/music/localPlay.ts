@@ -15,6 +15,7 @@ import musicSdk, { searchMusic } from '@/utils/musicSdk'
 import wySdk from '@/utils/musicSdk/wy'
 import bilibiliSdk from '@/utils/musicSdk/bilibili'
 import { existsFile, readFile } from '@/utils/fs'
+import { findLyricForAudio, findPictureForAudio, findLibraryPicture, coverBaseForSong } from '@/utils/localLibrary'
 import { readPic, readLyric } from '@/utils/localMediaMetadata'
 import { buildLyricInfo } from './utils'
 
@@ -215,12 +216,20 @@ export const getMusicUrl = async({
 
 const readSidecarLyric = async(filePath: string): Promise<string | null> => {
   if (!filePath) return null
-  const base = filePath.substring(0, filePath.lastIndexOf('.'))
-  if (!base) return null
-  for (const ext of ['.lrc', '.LRC']) {
+  // 同目录同名 .lrc → 音频目录 lrc/ 子目录 → 父目录 lrc/（music/ ↔ lrc/ 结构）
+  const lrcPath = await findLyricForAudio(filePath).catch(() => null)
+  if (lrcPath) {
     try {
-      if (await existsFile(`${base}${ext}`)) {
-        const content = await readFile(`${base}${ext}`)
+      const content = await readFile(lrcPath)
+      if (content) return content
+    } catch {}
+  }
+  // 大写后缀兜底
+  const base = filePath.substring(0, filePath.lastIndexOf('.'))
+  if (base) {
+    try {
+      if (await existsFile(`${base}.LRC`)) {
+        const content = await readFile(`${base}.LRC`)
         if (content) return content
       }
     } catch {}
@@ -272,10 +281,21 @@ export const getPicUrl = async({
     } catch {}
   }
 
-  // 2. meta 缓存
+  // 2. 本地 picture/ 缓存（2026-10-22 全局化）：按音频同名找 picture/，
+  //    再按「歌名 - 歌手」找本地库 picture/；本地有缓存就不再走在线/meta 地址
+  if (!isRefresh) {
+    if (target.filePath) {
+      const sidecarPic = await findPictureForAudio(target.filePath).catch(() => null)
+      if (sidecarPic) return `file://${sidecarPic}`
+    }
+    const libraryPic = await findLibraryPicture(coverBaseForSong(target.name, target.singer)).catch(() => null)
+    if (libraryPic) return `file://${libraryPic}`
+  }
+
+  // 3. meta 缓存
   if (!isRefresh && target.picUrl) return target.picUrl
 
-  // 3. 内置平台逐平台回退（搜索结果自带 img 兜底）
+  // 4. 内置平台逐平台回退（搜索结果自带 img 兜底）
   const candidates = await searchCandidates(target.name, target.singer)
   for (const candidate of candidates) {
     const sdk = (musicSdk as any)[candidate.source]

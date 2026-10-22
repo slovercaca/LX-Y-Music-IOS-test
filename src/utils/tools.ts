@@ -290,6 +290,8 @@ export const confirmDialog = async({
   cancelButtonText = global.i18n.t('dialog_cancel'),
   confirmButtonText = global.i18n.t('dialog_confirm'),
   bgClose = true,
+  // S1：危险操作（删除/清空/覆盖）传 true，确认按钮标红（iOS 系统样式）
+  destructive = false,
 }): Promise<boolean | null> => {
   return new Promise<boolean | null>((resolve) => {
     Alert.alert(
@@ -304,6 +306,7 @@ export const confirmDialog = async({
         },
         {
           text: confirmButtonText,
+          style: destructive ? ('destructive' as const) : undefined,
           onPress() {
             resolve(true)
           },

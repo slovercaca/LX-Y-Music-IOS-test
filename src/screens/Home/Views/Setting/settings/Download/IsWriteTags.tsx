@@ -21,6 +21,7 @@ export default memo(() => {
         check={isWriteTags}
         onChange={handleUpdate}
         label={t('setting_download_write_metadata')}
+        helpDesc="把歌名、歌手、专辑等信息写入歌曲文件的标签（元数据），其他播放器和文件管理器能正确识别。只影响之后下载的歌曲。"
         // disabled={!isEnable}
       />
     </View>

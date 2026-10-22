@@ -1,5 +1,6 @@
 import { forwardRef, useImperativeHandle, useRef, useState, useCallback, useEffect, type ReactElement } from 'react'
-import { FlatList, RefreshControl, Keyboard, View } from 'react-native'
+import { FlatList, RefreshControl, Keyboard, TouchableOpacity, View } from 'react-native'
+import Text from '@/components/common/Text'
 import wyMusicSearch from '@/utils/musicSdk/wy/musicSearch'
 import txMusicSearch from '@/utils/musicSdk/tx/musicSearch'
 import kgMusicSearch from '@/utils/musicSdk/kg/musicSearch'
@@ -20,6 +21,9 @@ interface SearchResultListProps {
 export default forwardRef(({ header, searchType, source }: SearchResultListProps, ref) => {
   const [list, setList] = useState([])
   const [loading, setLoading] = useState(false)
+  // S-N1：搜索失败要有可见状态（旧实现 catch 只写日志，界面像卡死）
+  const [loadError, setLoadError] = useState(false)
+  const [searchedText, setSearchedText] = useState('')
   const searchInfoRef = useRef({ text: '', page: 1, hasMore: true })
   const searchTypeRef = useRef(searchType)
   // 2026-10-05 fix（P1-4）：请求代际，只接受最新代际的结果
@@ -62,6 +66,7 @@ export default forwardRef(({ header, searchType, source }: SearchResultListProps
       return
     }
     setLoading(true)
+    setLoadError(false)
 
     if (source !== 'wy' && source !== 'tx' && source !== 'kg') {
       toast('当前音源平台暂不支持歌手/专辑搜索')
@@ -118,7 +123,9 @@ export default forwardRef(({ header, searchType, source }: SearchResultListProps
       })
       setList(isRefresh ? result.list : [...list, ...result.list])
       searchInfoRef.current.page = page + 1
-      searchInfoRef.current.hasMore = result.list.length > 0 && result.total > (page * 30)
+      // S-N9：优先用接口返回的总页数判断还有没有下一页（旧实现写死每页 30 条，
+      // 与接口实际页大小不一致时会提前断粮或空翻页）
+      searchInfoRef.current.hasMore = result.list.length > 0 && (result.allPage ? page < result.allPage : result.total > page * 30)
     }).catch((err: any) => {
       log.error('[SearchResultList] === 搜索出错 ===', {
         searchType,
@@ -128,6 +135,8 @@ export default forwardRef(({ header, searchType, source }: SearchResultListProps
         error: err.message,
         stack: err.stack,
       })
+      // S-N1：失败落到可见状态（空状态重试 / 列表底部重试），不再静默
+      if (requestGen === requestGenRef.current) setLoadError(true)
     }).finally(() => {
       log.info('[SearchResultList] === 搜索流程结束 ===', {
         searchType,
@@ -143,6 +152,7 @@ export default forwardRef(({ header, searchType, source }: SearchResultListProps
   useImperativeHandle(ref, () => ({
     loadList(text: string) {
       searchInfoRef.current = { text, page: 1, hasMore: true }
+      setSearchedText(text)
       handleLoad(text, 1, true)
     },
   }))
@@ -211,11 +221,52 @@ export default forwardRef(({ header, searchType, source }: SearchResultListProps
           }}
         />
       }
+      ListEmptyComponent={
+        loading ? null : loadError ? (
+          <View style={styles.emptyWrap}>
+            <Text color={theme['c-font-label']}>搜索失败，请检查网络后重试</Text>
+            <TouchableOpacity
+              style={{ ...styles.retryBtn, backgroundColor: theme['c-primary-background'] }}
+              onPress={() => { handleLoad(searchInfoRef.current.text, 1, true) }}
+            >
+              <Text size={13} color={theme['c-primary-font']}>重试</Text>
+            </TouchableOpacity>
+          </View>
+        ) : searchedText ? (
+          <View style={styles.emptyWrap}>
+            <Text color={theme['c-font-label']}>没有找到相关的{searchType === 'singer' ? '歌手' : '专辑'}</Text>
+          </View>
+        ) : null
+      }
+      ListFooterComponent={
+        loadError && list.length > 0 ? (
+          <TouchableOpacity
+            style={styles.footerRetry}
+            onPress={() => { handleLoad(searchInfoRef.current.text, searchInfoRef.current.page) }}
+          >
+            <Text size={13} color={theme['c-primary-font']}>加载失败，点此重试</Text>
+          </TouchableOpacity>
+        ) : null
+      }
     />
   )
 })
 
 const styles = createStyle({
+  emptyWrap: {
+    alignItems: 'center',
+    paddingTop: 60,
+    gap: 12,
+  },
+  retryBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 16,
+  },
+  footerRetry: {
+    alignItems: 'center',
+    paddingVertical: 16,
+  },
   columnWrapper: {
     paddingHorizontal: 8,
   },

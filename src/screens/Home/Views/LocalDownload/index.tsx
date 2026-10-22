@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
-import { FlatList, StyleSheet, TouchableOpacity, View } from 'react-native'
+import { FlatList, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native'
 import LandscapeDetailLayout from '@/components/LandscapeDetailLayout'
 import Text from '@/components/common/Text'
 import { useTheme } from '@/store/theme/hook'
@@ -7,32 +7,44 @@ import { useHorizontalMode } from '@/utils/hooks'
 import { useI18n } from '@/lang'
 import { createStyle, toast, confirmDialog } from '@/utils/tools'
 import { useDownloadTasks } from '@/store/download/hook'
-import { useSettingValue } from '@/store/setting/hook'
 import { usePlayMusicInfo } from '@/store/player/hook'
 import { overwriteListMusics } from '@/core/list'
 import { playList } from '@/core/player/player'
 import { LIST_IDS } from '@/config/constant'
-import { getDefaultDownloadPath } from '@/utils/downloadPath'
 import downloadActions from '@/store/download/action'
 import { mkdir, readDir, unlink, stat } from '@/utils/fs'
 import { sizeFormate } from '@/utils'
+import {
+  getLibraryRoot,
+  getMusicDir,
+  getLrcDir,
+  getPictureDir,
+  baseNameOf,
+  findLyricForAudio,
+  findPictureForAudio,
+  AUDIO_EXTS,
+  PIC_EXTS,
+} from '@/utils/localLibrary'
 import { designRadius, designSpacing, designTypography } from '@/theme/DesignTokens'
 import { useSafeAreaBottom, useBottomOverlayInset } from '@/store/common/hook'
 import PageTopInset from '@/components/common/PageTopInset'
 import Image from '@/components/common/Image'
 import useCoverUrl from '@/utils/hooks/useCoverUrl'
 
-type TabId = 'local' | 'download'
+/**
+ * 本地与下载（2026-10-22 合并版）。
+ *
+ * 「下载」与「本地」不再分两个列表：下载完成的歌曲就是本地歌曲，统一在一个
+ * 列表里展示与管理。数据来源合并去重：
+ * - 已完成下载任务（按 filePath 与磁盘文件对齐，任务条目信息更全，优先）
+ * - music/ 目录（及迁移过渡期的根目录/旧「本地」子夹）里未被任务覆盖的音频文件
+ *
+ * 每条都标注歌词/封面有无（lrc/、picture/ 同名文件），删除时连带清理同名
+ * 歌词与封面；另提供「清理无用文件」删除无对应音频的歌词/封面。
+ */
 
-const AUDIO_EXTS = new Set(['mp3', 'flac', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'opus', 'wma', 'ape'])
-
-// 下载路径下的「本地」音乐文件夹
-const getLocalDirName = () => '本地'
-
-const getDownloadDir = (settingPath: string) => {
-  const path = (settingPath ?? '').trim() || getDefaultDownloadPath()
-  return path.endsWith('/') ? path.slice(0, -1) : path
-}
+const AUDIO_EXT_SET = new Set(AUDIO_EXTS)
+const PIC_EXT_SET = new Set(PIC_EXTS)
 
 const getExt = (name: string) => {
   const ext = name.split('.').pop()
@@ -47,17 +59,23 @@ const parseFileName = (fileName: string) => {
   return { name: left.trim(), singer: rest.join('-').trim() }
 }
 
-interface LocalFileItem {
+interface MergedItem {
   id: string
-  path: string
-  fileName: string
+  kind: 'task' | 'file'
   name: string
   singer: string
+  path: string
   size: number
+  quality?: LX.Quality | null
+  task?: LX.Download.DownloadTask
+  hasLyric: boolean
+  hasCover: boolean
+  /** 下载任务记录还在、但文件已被外部删除/移动（D8） */
+  missing?: boolean
 }
 
 // 本地文件转播放器可识别结构（走 localPlay 本地播放接口）
-const localFileToPlayItem = (item: LocalFileItem): any => ({
+const localFileToPlayItem = (item: MergedItem): any => ({
   id: item.id,
   name: item.name,
   singer: item.singer,
@@ -67,7 +85,7 @@ const localFileToPlayItem = (item: LocalFileItem): any => ({
     songId: item.path,
     albumName: '',
     filePath: item.path,
-    ext: getExt(item.fileName),
+    ext: getExt(item.path),
   },
 })
 
@@ -105,8 +123,7 @@ const SongRow = memo(
     title: string
     subText: string
     singer: string
-    // 本地文件路径（下载文件 / 「本地」文件夹音频）：封面优先读文件内嵌图，
-    // 缺失时再走在线匹配，与歌单列表的封面来源保持一致
+    // 本地文件路径：封面优先读文件内嵌图，其次 picture/ 缓存，再走在线匹配
     coverFile?: string
     coverPicUrl?: string | null
     isPlaying: boolean
@@ -114,8 +131,6 @@ const SongRow = memo(
     onPress: () => void
   }) => {
     const theme = useTheme()
-    // 封面来源复用列表统一链路（本地内嵌封面 → meta.picUrl → 在线匹配），
-    // 走 source='local' 让本地文件优先、离线可用
     const coverSong = useMemo(() => ({
       source: 'local',
       name: title,
@@ -127,9 +142,6 @@ const SongRow = memo(
       <TouchableOpacity
         style={{
           ...styles.songItem,
-          // 与全局列表/卡片统一：正常态用「底边」令牌 c-primary-light-900-alpha-200
-          // （随主题色 + 主题页「底边不透明度」变化），播放中/选中用其它列表同款高亮色。
-          // 之前用的是实色 c-content-background，既不跟主题染色也不受底边不透明度影响，观感突兀。
           backgroundColor: isPlaying || selected
             ? theme['c-primary-background-hover']
             : theme['c-primary-light-900-alpha-200'],
@@ -176,17 +188,12 @@ export default memo(() => {
   const safeAreaBottom = useSafeAreaBottom()
   // 底部悬浮层（迷你播放器 + 底部 Tab + 安全区）统一避让高度
   const bottomInset = useBottomOverlayInset()
-  const downloadPathSetting = useSettingValue('download.path')
   const tasks = useDownloadTasks()
   const playMusicInfo = usePlayMusicInfo()
 
-  const [tab, setTab] = useState<TabId>('download')
-  const [localFiles, setLocalFiles] = useState<LocalFileItem[]>([])
+  const [items, setItems] = useState<MergedItem[]>([])
   const [loading, setLoading] = useState(false)
   const [taskSizes, setTaskSizes] = useState<Record<string, number>>({})
-
-  const downloadDir = useMemo(() => getDownloadDir(downloadPathSetting), [downloadPathSetting])
-  const localDir = useMemo(() => `${downloadDir}/${getLocalDirName()}`, [downloadDir])
 
   const completedTasks = useMemo(
     () => tasks.filter(task => task.status === 'completed' && task.filePath),
@@ -225,66 +232,139 @@ export default memo(() => {
     return () => {
       active = false
     }
-    // 2026-10-05 fix（P1-11）：只依赖 completedKey，避免每 tick 重跑 stat()
   }, [completedKey])
 
-  // 扫描下载路径下的「本地」文件夹
-  const scanLocalDir = useCallback(async() => {
+  // 扫描本地库并与下载任务合并
+  const scanLibrary = useCallback(async() => {
     setLoading(true)
     try {
-      await mkdir(localDir).catch(() => {})
-      const files = await readDir(localDir).catch(() => [])
-      const items: LocalFileItem[] = []
-      for (const file of files) {
-        if (!file.isFile) continue
-        if (!AUDIO_EXTS.has(getExt(file.name))) continue
-        const parsed = parseFileName(file.name)
-        items.push({
-          id: `localdl_${file.path}`,
-          path: file.path,
-          fileName: file.name,
-          name: parsed.name,
-          singer: parsed.singer,
-          size: file.size,
+      const root = getLibraryRoot()
+      const musicDir = getMusicDir()
+      const lrcDir = getLrcDir()
+      const pictureDir = getPictureDir()
+      await mkdir(musicDir).catch(() => {})
+      await mkdir(lrcDir).catch(() => {})
+      await mkdir(pictureDir).catch(() => {})
+
+      // 歌词/封面基名集合（同名匹配用）
+      const lrcBases = new Set<string>()
+      for (const f of await readDir(lrcDir).catch(() => [])) {
+        if (f.isFile && getExt(f.name) === 'lrc') lrcBases.add(baseNameOf(f.name).toLowerCase())
+      }
+      const picBases = new Set<string>()
+      for (const f of await readDir(pictureDir).catch(() => [])) {
+        if (f.isFile && PIC_EXT_SET.has(getExt(f.name))) picBases.add(baseNameOf(f.name).toLowerCase())
+      }
+
+      // 音频来源：music/ 为主；根目录平铺与旧「本地」子夹是迁移过渡期的遗留，一并纳入
+      const audioFiles: Array<{ path: string, fileName: string, size: number }> = []
+      const seenPaths = new Set<string>()
+      for (const dir of [musicDir, root, `${root}/本地`]) {
+        for (const f of await readDir(dir).catch(() => [])) {
+          if (!f.isFile) continue
+          const ext = getExt(f.name)
+          if (AUDIO_EXT_SET.has(ext)) {
+            if (!seenPaths.has(f.path)) {
+              seenPaths.add(f.path)
+              audioFiles.push({ path: f.path, fileName: f.name, size: f.size })
+            }
+          } else if (ext === 'lrc') {
+            lrcBases.add(baseNameOf(f.name).toLowerCase())
+          } else if (PIC_EXT_SET.has(ext)) {
+            picBases.add(baseNameOf(f.name).toLowerCase())
+          }
+        }
+      }
+
+      const taskPaths = new Set(completedTasks.map(task => task.filePath))
+      const merged: MergedItem[] = []
+
+      // 任务条目优先（信息全：歌名/歌手/音质/原歌曲信息）
+      for (const task of completedTasks) {
+        const base = task.fileName.toLowerCase()
+        merged.push({
+          id: task.id,
+          kind: 'task',
+          name: task.musicInfo.name,
+          singer: task.musicInfo.singer ?? '',
+          path: task.filePath,
+          size: 0,
+          quality: task.actualQuality ?? task.quality,
+          task,
+          hasLyric: lrcBases.has(base),
+          hasCover: picBases.has(base) || !!((task.musicInfo.meta as any)?.picUrl),
+          // 文件不在任何扫描目录里 = 已被外部删除/移动，明确标记而非冒充本地歌曲（D8）
+          missing: !seenPaths.has(task.filePath),
         })
       }
-      items.sort((a, b) => a.name.localeCompare(b.name))
-      setLocalFiles(items)
+      // 未被任务覆盖的裸文件
+      for (const file of audioFiles) {
+        if (taskPaths.has(file.path)) continue
+        const parsed = parseFileName(file.fileName)
+        const base = baseNameOf(file.fileName).toLowerCase()
+        merged.push({
+          id: `localdl_${file.path}`,
+          kind: 'file',
+          name: parsed.name,
+          singer: parsed.singer,
+          path: file.path,
+          size: file.size,
+          hasLyric: lrcBases.has(base),
+          hasCover: picBases.has(base),
+        })
+      }
+      merged.sort((a, b) => a.name.localeCompare(b.name))
+      setItems(merged)
     } finally {
       setLoading(false)
     }
-  }, [localDir])
+  }, [completedTasks])
 
   useEffect(() => {
-    void scanLocalDir()
-  }, [scanLocalDir])
+    void scanLibrary()
+  }, [scanLibrary])
 
   const handleRefresh = useCallback(() => {
     if (loading) return
-    void scanLocalDir().then(() => {
+    void scanLibrary().then(() => {
       toast('已刷新', 'short')
     })
-  }, [loading, scanLocalDir])
+  }, [loading, scanLibrary])
 
-  const handlePlayLocal = useCallback(
-    (item: LocalFileItem, index: number) => {
-      const playListData = localFiles.map(localFileToPlayItem)
+  const [keyword, setKeyword] = useState('')
+  const displayItems = useMemo(() => {
+    const kw = keyword.trim().toLowerCase()
+    if (!kw) return items
+    return items.filter(i => i.name.toLowerCase().includes(kw) || i.singer.toLowerCase().includes(kw))
+  }, [items, keyword])
+
+  const handlePlay = useCallback(
+    (item: MergedItem, index: number) => {
+      if (item.missing) {
+        toast('该歌曲文件不存在（可能已被删除或移动），可删除这条记录后重新下载', 'long')
+        return
+      }
+      const playListData = displayItems.map(i => (i.kind === 'task' && i.task ? taskToPlayItem(i.task) : localFileToPlayItem(i)))
       void overwriteListMusics(LIST_IDS.TEMP, playListData).then(() => {
         void playList(LIST_IDS.TEMP, index)
       })
     },
-    [localFiles],
+    [displayItems],
   )
 
-  const handlePlayTask = useCallback(
-    (task: LX.Download.DownloadTask, index: number) => {
-      const playListData = completedTasks.map(taskToPlayItem)
-      void overwriteListMusics(LIST_IDS.TEMP, playListData).then(() => {
-        void playList(LIST_IDS.TEMP, index)
-      })
-    },
-    [completedTasks],
-  )
+  // 迁移一次性提示（D17）：启动迁移搬过文件时，进本页弹一次说明，安抚「歌丢了」的误会
+  useEffect(() => {
+    void (async() => {
+      try {
+        const { getData, saveData } = await import('@/plugins/storage')
+        const noticed = await getData<boolean>('library_structure_migrated_notice')
+        if (noticed) {
+          await saveData('library_structure_migrated_notice', false)
+          toast('本地歌曲已整理到新文件夹（歌曲、歌词、封面分开存放），文件没有丢失', 'long')
+        }
+      } catch {}
+    })()
+  }, [])
 
   // 批量管理模式：点击行改为切换选中，底部出现 全选 / 已选 / 删除 操作栏
   const [selecting, setSelecting] = useState(false)
@@ -310,50 +390,83 @@ export default memo(() => {
   }, [])
 
   const toggleSelectAll = useCallback(() => {
-    const current = tab === 'download' ? completedTasks : localFiles
-    const allIds = current.map(i => i.id)
+    const allIds = displayItems.map(i => i.id)
     const allSelected = allIds.length > 0 && allIds.every(id => selectedIds.has(id))
     setSelectedIds(allSelected ? new Set() : new Set(allIds))
-  }, [tab, completedTasks, localFiles, selectedIds])
+  }, [displayItems, selectedIds])
 
+  // 删除选中：音频 + 同名歌词（lrc/）+ 同名封面（picture/）一并清理；
+  // 任务条目同时移除下载任务记录。失败如实报告，不假装成功。
   const handleDeleteSelected = useCallback(() => {
     if (selectedIds.size === 0) return
     const ids = [...selectedIds]
-    // P0 修复：批量删除真实文件是不可逆的破坏性操作，必须二次确认并显示数量；
-    // 删除失败要如实报告，不能 catch 后照样 toast「已删除」。
     void confirmDialog({
-      message: `确定删除选中的 ${ids.length} 个文件吗？此操作不可恢复。`,
+      message: `确定删除选中的 ${ids.length} 首歌曲吗？同名歌词与封面会一并删除，此操作不可恢复。`,
     }).then(async(confirmed) => {
       if (!confirmed) return
       let failed = 0
-      if (tab === 'download') {
-        for (const id of ids) {
-          const task = completedTasks.find(t => t.id === id)
-          if (!task) continue
-          try {
-            if (task.filePath) await unlink(task.filePath)
-            downloadActions.removeTask(id)
-          } catch {
-            failed++
+      for (const id of ids) {
+        const item = items.find(i => i.id === id)
+        if (!item) continue
+        try {
+          if (item.missing) {
+            // 文件本就不存在：只删任务记录，不算失败（D8）
+            if (item.kind === 'task') downloadActions.removeTask(id)
+            continue
           }
-        }
-      } else {
-        for (const id of ids) {
-          const item = localFiles.find(f => f.id === id)
-          if (!item) continue
-          try {
-            await unlink(item.path)
-          } catch {
-            failed++
-          }
+          await unlink(item.path)
+          const lrcPath = await findLyricForAudio(item.path).catch(() => null)
+          if (lrcPath) await unlink(lrcPath).catch(() => {})
+          const picPath = await findPictureForAudio(item.path).catch(() => null)
+          if (picPath) await unlink(picPath).catch(() => {})
+          if (item.kind === 'task') downloadActions.removeTask(id)
+        } catch {
+          failed++
         }
       }
-      if (failed > 0) toast(`已删除 ${ids.length - failed} 个，${failed} 个删除失败`, 'short')
+      if (failed > 0) toast(`已删除 ${ids.length - failed} 首，${failed} 首删除失败`, 'short')
       else toast('已删除', 'short')
       exitSelecting()
-      void scanLocalDir()
+      void scanLibrary()
     })
-  }, [selectedIds, tab, completedTasks, localFiles, exitSelecting, scanLocalDir])
+  }, [selectedIds, items, exitSelecting, scanLibrary])
+
+  // 清理孤立文件：lrc/ 与 picture/ 里找不到对应音频（任务/文件基名集合）的
+  const handleCleanupOrphans = useCallback(() => {
+    void (async() => {
+      const audioBases = new Set<string>()
+      for (const item of items) {
+        audioBases.add(baseNameOf(item.path.split('/').pop() || '').toLowerCase())
+        if (item.task) audioBases.add(item.task.fileName.toLowerCase())
+      }
+      const orphans: string[] = []
+      for (const dir of [getLrcDir(), getPictureDir()]) {
+        for (const f of await readDir(dir).catch(() => [])) {
+          if (!f.isFile) continue
+          if (!audioBases.has(baseNameOf(f.name).toLowerCase())) orphans.push(f.path)
+        }
+      }
+      if (!orphans.length) {
+        toast('没有无用的歌词/封面文件', 'short')
+        return
+      }
+      const confirmed = await confirmDialog({
+        message: `发现 ${orphans.length} 个没有对应歌曲的歌词/封面文件，确定删除吗？此操作不可恢复。`,
+      })
+      if (!confirmed) return
+      let failed = 0
+      for (const p of orphans) {
+        try {
+          await unlink(p)
+        } catch {
+          failed++
+        }
+      }
+      if (failed > 0) toast(`已清理 ${orphans.length - failed} 个，${failed} 个删除失败`, 'short')
+      else toast(`已清理 ${orphans.length} 个无用文件`, 'short')
+      void scanLibrary()
+    })()
+  }, [items, scanLibrary])
 
   const isPlayingId = playMusicInfo.musicInfo?.id
 
@@ -363,51 +476,35 @@ export default memo(() => {
     return t(quality) || String(quality).toUpperCase()
   }, [t])
 
-  // 渲染项提取为稳定 useCallback：避免父组件因加载更多/选择状态变化重渲时，
-  // 内联 renderItem 每次重建函数引用导致所有可见 cell 跟着重渲（低端机卡顿）
-  const renderDownloadItem = useCallback(
-    ({ item, index }: { item: LX.Download.DownloadTask, index: number }) => {
-      const fileSize = taskSizes[item.id] ?? item.progress?.total ?? 0
+  const renderItem = useCallback(
+    ({ item, index }: { item: MergedItem, index: number }) => {
+      const fileSize = item.kind === 'task' ? (taskSizes[item.id] ?? item.task?.progress?.total ?? 0) : item.size
       return (
         <View style={isHorizontal ? styles.itemWrapper : null}>
           <SongRow
-            title={item.musicInfo.name}
-            subText={[
-              item.musicInfo.singer,
-              // 显示**实际**音质：请求 hires 但平台只给到 flac 时，这里应为 FLAC
-              qualityLabel(item.actualQuality ?? item.quality),
-              fileSize ? sizeFormate(fileSize) : '',
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-            singer={item.musicInfo.singer ?? ''}
-            coverFile={item.filePath}
-            coverPicUrl={(item.musicInfo.meta as any)?.picUrl ?? null}
+            title={item.name}
+            subText={item.missing
+              ? '文件不存在 · 可在批量管理中删除这条记录'
+              : [
+                item.singer,
+                item.kind === 'task' ? qualityLabel(item.quality) : '',
+                fileSize ? sizeFormate(fileSize) : '',
+                item.hasLyric ? '有歌词' : '无歌词',
+                item.hasCover ? '有封面' : '无封面',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            singer={item.singer}
+            coverFile={item.path}
+            coverPicUrl={item.task ? ((item.task.musicInfo.meta as any)?.picUrl ?? null) : null}
             isPlaying={isPlayingId == item.id}
             selected={selectedIds.has(item.id)}
-            onPress={() => { selecting ? toggleSelect(item.id) : handlePlayTask(item, index) }}
+            onPress={() => { selecting ? toggleSelect(item.id) : handlePlay(item, index) }}
           />
         </View>
       )
     },
-    [isHorizontal, isPlayingId, selectedIds, selecting, toggleSelect, handlePlayTask, taskSizes, qualityLabel],
-  )
-
-  const renderLocalItem = useCallback(
-    ({ item, index }: { item: LocalFileItem, index: number }) => (
-      <View style={isHorizontal ? styles.itemWrapper : null}>
-        <SongRow
-          title={item.name}
-          subText={[item.singer, item.size ? sizeFormate(item.size) : ''].filter(Boolean).join(' · ')}
-          singer={item.singer}
-          coverFile={item.path}
-          isPlaying={isPlayingId == item.id}
-          selected={selectedIds.has(item.id)}
-          onPress={() => { selecting ? toggleSelect(item.id) : handlePlayLocal(item, index) }}
-        />
-      </View>
-    ),
-    [isHorizontal, isPlayingId, selectedIds, selecting, toggleSelect, handlePlayLocal],
+    [isHorizontal, isPlayingId, selectedIds, selecting, toggleSelect, handlePlay, taskSizes, qualityLabel],
   )
 
   const pageHeader = (
@@ -427,6 +524,14 @@ export default memo(() => {
               </TouchableOpacity>
               <TouchableOpacity
                 style={{ ...styles.refreshBtn, backgroundColor: theme['c-primary-background'] }}
+                onPress={handleCleanupOrphans}
+              >
+                <Text size={designTypography.caption} color={theme['c-primary-font']}>
+                  清理孤立文件
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ ...styles.refreshBtn, backgroundColor: theme['c-primary-background'] }}
                 onPress={handleRefresh}
               >
                 <Text size={designTypography.caption} color={theme['c-primary-font']}>
@@ -436,31 +541,24 @@ export default memo(() => {
             </View>
           </View>
 
-          <View style={{ ...styles.tabs, borderColor: theme['c-border-background'] }}>
-            {(['download', 'local'] as TabId[]).map(id => (
-              <TouchableOpacity
-                key={id}
-                style={[
-                  styles.tabItem,
-                  tab === id && { ...styles.tabItemActive, backgroundColor: theme['c-primary'] },
-                ]}
-                onPress={() => { setTab(id) }}
-              >
-                <Text
-                  size={designTypography.caption}
-                  color={tab === id ? theme['c-primary-light-1000'] : theme['c-font-label']}
-                >
-                  {id === 'local' ? '本地' : '下载'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
           <Text size={11} color={theme['c-500']} style={styles.tip}>
-            {tab === 'download'
-              ? '软件内下载的音乐，离线可播放'
-              : `下载目录下的「${getLocalDirName()}」文件夹，把音频放进来即可离线播放，支持同名 .lrc 歌词`}
+            下载的歌曲与本地歌曲已合并在一个列表；删除歌曲时会连带清理它的歌词与封面文件
           </Text>
+          <View style={{ ...styles.searchWrap, borderColor: theme['c-border-background'], backgroundColor: theme['c-content-background'] }}>
+            <TextInput
+              style={{ ...styles.searchInput, color: theme['c-font'] }}
+              placeholder="搜索本地歌曲"
+              placeholderTextColor={theme['c-font-label']}
+              value={keyword}
+              onChangeText={setKeyword}
+              returnKeyType="search"
+            />
+            {keyword ? (
+              <TouchableOpacity onPress={() => { setKeyword('') }} style={styles.searchClear}>
+                <Text size={13} color={theme['c-font-label']}>✕</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
     </>
   )
 
@@ -469,52 +567,28 @@ export default memo(() => {
       header={isHorizontal ? pageHeader : null}
       body={
         <View style={styles.listArea}>
-          {tab === 'download' ? (
-            <FlatList
-              style={styles.list}
-              data={completedTasks}
-              ListHeaderComponent={isHorizontal ? undefined : pageHeader}
-              contentContainerStyle={{ paddingBottom: bottomInset }}
-              key={isHorizontal ? 'horizontal' : 'vertical'}
-              numColumns={isHorizontal ? 2 : 1}
-              columnWrapperStyle={isHorizontal ? styles.columnWrapper : undefined}
-              keyExtractor={item => item.id}
-              // 限制渲染窗口 + 离屏行视图摘除（iOS 滚动掉帧主杠杆）
-              initialNumToRender={20}
-              windowSize={5}
-              maxToRenderPerBatch={10}
-              removeClippedSubviews={true}
-              updateCellsBatchingPeriod={50}
-              renderItem={renderDownloadItem}
-              ListEmptyComponent={
-                <View style={styles.empty}>
-                  <Text color={theme['c-500']}>{loading ? '加载中...' : t('no_item')}</Text>
-                </View>
-              }
-            />
-          ) : (
-            <FlatList
-              style={styles.list}
-              data={localFiles}
-              ListHeaderComponent={isHorizontal ? undefined : pageHeader}
-              contentContainerStyle={{ paddingBottom: bottomInset }}
-              key={isHorizontal ? 'horizontal' : 'vertical'}
-              numColumns={isHorizontal ? 2 : 1}
-              columnWrapperStyle={isHorizontal ? styles.columnWrapper : undefined}
-              keyExtractor={item => item.id}
-              initialNumToRender={20}
-              windowSize={5}
-              maxToRenderPerBatch={10}
-              removeClippedSubviews={true}
-              updateCellsBatchingPeriod={50}
-              renderItem={renderLocalItem}
-              ListEmptyComponent={
-                <View style={styles.empty}>
-                  <Text color={theme['c-500']}>{loading ? '正在扫描...' : `「${getLocalDirName()}」文件夹为空`}</Text>
-                </View>
-              }
-            />
-          )}
+          <FlatList
+            style={styles.list}
+            data={displayItems}
+            ListHeaderComponent={isHorizontal ? undefined : pageHeader}
+            contentContainerStyle={{ paddingBottom: bottomInset }}
+            key={isHorizontal ? 'horizontal' : 'vertical'}
+            numColumns={isHorizontal ? 2 : 1}
+            columnWrapperStyle={isHorizontal ? styles.columnWrapper : undefined}
+            keyExtractor={item => item.id}
+            // 限制渲染窗口 + 离屏行视图摘除（iOS 滚动掉帧主杠杆）
+            initialNumToRender={20}
+            windowSize={5}
+            maxToRenderPerBatch={10}
+            removeClippedSubviews={true}
+            updateCellsBatchingPeriod={50}
+            renderItem={renderItem}
+            ListEmptyComponent={
+              <View style={styles.empty}>
+                <Text color={theme['c-500']}>{loading ? '正在扫描...' : keyword.trim() ? '没有找到匹配的歌曲' : '还没有本地歌曲'}</Text>
+              </View>
+            }
+          />
 
           {selecting && (
             <View
@@ -531,13 +605,7 @@ export default memo(() => {
             >
               <TouchableOpacity style={styles.selectBarBtn} onPress={toggleSelectAll}>
                 <Text size={designTypography.caption} color={theme['c-primary-font']}>
-                  {tab === 'download'
-                    ? completedTasks.length > 0 && completedTasks.every(t => selectedIds.has(t.id))
-                      ? '取消全选'
-                      : '全选'
-                    : localFiles.length > 0 && localFiles.every(f => selectedIds.has(f.id))
-                      ? '取消全选'
-                      : '全选'}
+                  {displayItems.length > 0 && displayItems.every(i => selectedIds.has(i.id)) ? '取消全选' : '全选'}
                 </Text>
               </TouchableOpacity>
               <Text size={designTypography.caption} color={theme['c-font-label']} style={{ marginLeft: 'auto' }}>
@@ -575,8 +643,6 @@ const styles = createStyle({
     marginLeft: 'auto',
     flexDirection: 'row',
     alignItems: 'center',
-    // 「批量管理 / 取消」与「刷新」两个胶囊按钮原先左右贴合，视觉上很挤；
-    // 这里补一个横向间距（与其它并排操作按钮一致），按钮自身尺寸与右对齐不变。
     gap: designSpacing.sm,
   },
   headerBtn: {
@@ -591,25 +657,29 @@ const styles = createStyle({
     borderRadius: designRadius.pill,
     justifyContent: 'center',
   },
-  tabs: {
-    flexDirection: 'row',
-    height: 38,
-    marginHorizontal: designSpacing.md,
-    marginBottom: designSpacing.sm,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: designRadius.pill,
-    overflow: 'hidden',
-  },
-  tabItem: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tabItemActive: {},
   tip: {
     paddingLeft: designSpacing.md,
     paddingRight: designSpacing.md,
     paddingBottom: designSpacing.sm,
+  },
+  searchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: designSpacing.md,
+    marginBottom: designSpacing.sm,
+    paddingHorizontal: designSpacing.sm,
+    height: 36,
+    borderWidth: 1,
+    borderRadius: designRadius.pill,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 13,
+    paddingVertical: 0,
+  },
+  searchClear: {
+    paddingHorizontal: 6,
+    paddingVertical: 4,
   },
   columnWrapper: {
     paddingHorizontal: 8,
@@ -654,30 +724,31 @@ const styles = createStyle({
   list: {
     flex: 1,
   },
+  selectedMark: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: designSpacing.sm,
+  },
   selectBar: {
     position: 'absolute',
     left: designSpacing.md,
     right: designSpacing.md,
     flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: designSpacing.md,
     paddingVertical: designSpacing.sm,
-    paddingHorizontal: designSpacing.sm,
-    borderRadius: designRadius.lg,
+    borderRadius: designRadius.pill,
+    gap: designSpacing.md,
   },
   selectBarBtn: {
-    paddingVertical: 4,
-    paddingHorizontal: 10,
+    paddingHorizontal: designSpacing.sm,
+    paddingVertical: designSpacing.xs,
   },
   selectBarBtnDisabled: {
     opacity: 0.5,
-  },
-  selectedMark: {
-    width: 22,
-    height: 22,
-    marginLeft: designSpacing.sm,
-    borderRadius: 999,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 })

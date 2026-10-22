@@ -29,7 +29,7 @@ export default memo(({ page }: { page: WebDAVPage }) => {
     handleToggleSearch, handleClearSearch,
     filterPath, handleSetFilterPath, selectedFolder,
     scanText, headerText, batchLoadingText,
-    handleScan, handleBatchDownload, handleBatchFetchCovers, handleUpload, handleRefresh,
+    handleScan, handleBatchDownload, handleBatchFetchCovers, handleUpload, handleRefresh, handleCancelOperation,
     handlePlay, handleLongPress, showMenu,
     isSelecting, selectedIds, exitSelectMode, toggleSelectAll,
     handleDownloadSelected, handleAddSelectedToPlaylist,
@@ -176,6 +176,15 @@ export default memo(({ page }: { page: WebDAVPage }) => {
               >
                 <Text color={theme['c-button-font']}>上传</Text>
               </Button>
+              {/* 长操作（扫描/批量下载/批量封面）进行中给出取消入口（W7） */}
+              {loading || batchLoadingText ? (
+                <Button
+                  style={{ ...styles.scanButton, backgroundColor: '#e5484d', marginLeft: 8 }}
+                  onPress={handleCancelOperation}
+                >
+                  <Text color="#fff">取消</Text>
+                </Button>
+              ) : null}
             </View>
           </>
         }

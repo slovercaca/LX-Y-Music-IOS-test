@@ -5,7 +5,9 @@ import Header from './Header'
 import ListItem from './ListItem'
 import DownloadPathBar from './DownloadPathBar'
 import { useDownloadTasks } from '@/store/download/hook'
-import { createStyle, getRowInfo } from '@/utils/tools'
+import { confirmDialog, createStyle, getRowInfo } from '@/utils/tools'
+import Text from '@/components/common/Text'
+import { useTheme } from '@/store/theme/hook'
 import { setComponentId } from '@/core/common'
 import { removeTask } from '@/core/download'
 import { COMPONENT_IDS } from '@/config/constant'
@@ -29,9 +31,26 @@ export default memo(({ componentId }: { componentId: string }) => {
   }, [isHorizontal])
   const numColumns = rowInfo.rowNum ?? 1
 
+  const theme = useTheme()
+  // 点 X 先说清后果（D3）：已完成只删记录留文件、下载中会删未完成文件，两者差别很大
   const handleRemove = useCallback((id: string) => {
-    removeTask(id)
-  }, [])
+    const task = tasks.find(t => t.id === id)
+    if (!task) return
+    const message = task.status === 'completed'
+      ? '只删除这条下载记录，已下载的文件会保留，可在「本地与下载」中播放。'
+      : task.status === 'downloading' || task.status === 'waiting'
+        ? '将取消该任务并删除未完成的文件，确定吗？'
+        : '将删除这条下载任务，确定吗？'
+    void confirmDialog({
+      title: '删除下载任务',
+      message,
+      cancelButtonText: '取消',
+      confirmButtonText: '删除',
+      destructive: true,
+    }).then((confirm) => {
+      if (confirm) removeTask(id)
+    })
+  }, [tasks])
 
   const renderItem = useCallback(({ item }: { item: LX.Download.DownloadTask }) => (
     <ListItem
@@ -54,6 +73,11 @@ export default memo(({ componentId }: { componentId: string }) => {
             numColumns={numColumns}
             renderItem={renderItem}
             keyExtractor={item => item.id}
+            ListEmptyComponent={(
+              <View style={styles.emptyWrap}>
+                <Text size={14} color={theme['c-font-label']}>暂无下载任务</Text>
+              </View>
+            )}
           />
         </View>
       </LandscapeCentered>
@@ -64,5 +88,9 @@ export default memo(({ componentId }: { componentId: string }) => {
 const styles = createStyle({
   container: {
     flex: 1,
+  },
+  emptyWrap: {
+    alignItems: 'center',
+    paddingTop: 60,
   },
 })

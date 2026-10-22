@@ -64,7 +64,10 @@ const ListHeader = ({ detailInfo, info, onBack, showSearchBar, searchText, isFuz
         removeWySubscribedPlaylist(info.id)
       }
     }).catch((err: any) => {
-      toast(`操作失败: ${err.message}，可能是Cookie已失效，请重新登录`)
+      // S-N10：只有像登录失效的错误才提 Cookie，其余别误导用户去重登
+      const msg = String(err?.message ?? err ?? '')
+      const looksAuth = /401|301|login|cookie|登录|未授权/i.test(msg) || (typeof err?.status === 'number' && (err.status === 401 || err.status === 403))
+      toast(looksAuth ? '操作失败，可能是 Cookie 已失效，请重新登录' : '操作失败，请检查网络后重试')
     })
   }, [isSubscribed, info, detailInfo])
 
@@ -100,11 +103,20 @@ const ListHeader = ({ detailInfo, info, onBack, showSearchBar, searchText, isFuz
               {detailInfo.name}
             </Text>
             <View style={styles.descContainer}>
-              <View style={{ flexGrow: 1, flexShrink: 1 }}>
-                <Text size={designTypography.caption} color={theme['c-font-label']} numberOfLines={3}>
+              <TouchableOpacity
+                style={{ flexGrow: 1, flexShrink: 1 }}
+                activeOpacity={0.7}
+                onPress={() => { setDescExpanded(v => !v) }}
+              >
+                <Text size={designTypography.caption} color={theme['c-font-label']} numberOfLines={descExpanded ? undefined : 3}>
                   {detailInfo.desc}
                 </Text>
-              </View>
+                {detailInfo.desc ? (
+                  <Text size={designTypography.caption} color={theme['c-primary']}>
+                    {descExpanded ? '收起' : '展开'}
+                  </Text>
+                ) : null}
+              </TouchableOpacity>
               {showSubscribeButton && (
                 <TouchableOpacity style={styles.subscribeButton} onPress={toggleSubscribe}>
                   <Icon name={isSubscribed ? 'love-filled' : 'love'} color={isSubscribed ? theme['c-liked'] : theme['c-font-label']} size={20} />
@@ -154,6 +166,8 @@ export default ({ info, onBack, componentId, initialScrollToInfo }: { info: List
     total: Number(info.total) || 0,
   })
   const [showSearchBar, setShowSearchBar] = useState(false)
+  // S-N11：歌单简介展开/收起（默认截断 3 行）
+  const [descExpanded, setDescExpanded] = useState(false)
   const [searchText, setSearchText] = useState('')
   const [isFuzzySearch, setIsFuzzySearch] = useState(true)
   const playlists = useWySubscribedPlaylists()

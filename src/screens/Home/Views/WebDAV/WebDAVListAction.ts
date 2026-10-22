@@ -7,9 +7,13 @@ import {
   getWebDAVRemoteUrl,
   getWebDAVAuthHeaders,
   downloadToFileAtomic,
+  getWebDAVPictureDir,
+  joinWebDAVRemotePath,
+  uploadBinaryFile,
 } from '@/core/webdavMusic/drive'
-import { existsFile, mkdir, getWebDAVPrivateDirectory } from '@/utils/fs'
-import { toast, requestStoragePermission } from '@/utils/tools'
+import { existsFile, mkdir, unlink, getWebDAVPrivateDirectory } from '@/utils/fs'
+import { confirmDialog, toast, requestStoragePermission } from '@/utils/tools'
+import { friendlyWebDAVError } from '@/core/webdavMusic/client'
 import settingState from '@/store/setting/state'
 import { updateListMusics, addListMusics } from '@/core/list'
 import { webDAVLog } from '@/core/webdavMusic/logger'
@@ -176,18 +180,40 @@ export const handleWebDAVDownload = async(
   return { filePath }
 }
 
+// 批量下载取消令牌（W7）：页面「取消」按钮置位，逐首检查
+let batchDownloadCancelRequested = false
+export const requestCancelWebDAVBatchDownload = () => {
+  batchDownloadCancelRequested = true
+}
+
+export interface BatchDownloadFailure {
+  song: LX.WebDAV.MusicInfo
+  reason: string
+}
+
+export interface BatchDownloadResult {
+  downloadedPaths: string[]
+  /** 失败明细（W4）：歌 + 人话原因，供汇总展示与「重试失败项」 */
+  failures: BatchDownloadFailure[]
+  cancelled: boolean
+  /** 取消时尚未开始下载的歌曲数 */
+  remaining: number
+}
+
 /**
  * 批量下载：逐个下载，跳过已存在；本地记录被删则清掉旧 filePath。
- * 返回成功下载（含已存在）的本地路径列表。
+ * 返回成功路径 + 失败明细（W4，不再把部分失败吞掉只报总数）。
  */
 export const handleWebDAVBatchDownload = async(
   songs: LX.WebDAV.MusicInfo[],
   onProgress?: (current: number, total: number, currentSong: string) => void,
-): Promise<string[]> => {
+): Promise<BatchDownloadResult> => {
+  batchDownloadCancelRequested = false
+  const failures: BatchDownloadFailure[] = []
   const hasPermission = await requestStoragePermission()
   if (!hasPermission) {
     toast('请授予存储权限后重试', 'long')
-    return []
+    return { downloadedPaths: [], failures, cancelled: false, remaining: 0 }
   }
 
   const downloadDir = getDefaultDownloadDir()
@@ -200,6 +226,10 @@ export const handleWebDAVBatchDownload = async(
 
     let currentIndex = 0
     for (const musicInfo of songs) {
+      if (batchDownloadCancelRequested) {
+        webDAVLog.info('handleWebDAVBatchDownload: cancelled by user', { done: currentIndex })
+        return { downloadedPaths, failures, cancelled: true, remaining: songs.length - currentIndex }
+      }
       currentIndex++
       const fileName = musicInfo.meta.fileName
       if (!fileName) continue
@@ -307,11 +337,12 @@ export const handleWebDAVBatchDownload = async(
         webDAVLog.info('handleWebDAVBatchDownload: download completed', { currentIndex, fileName, filePath })
       } catch (error: any) {
         webDAVLog.error('handleWebDAVBatchDownload: download failed', { fileName, error: error.message })
+        failures.push({ song: musicInfo, reason: friendlyWebDAVError(error) })
       }
     }
 
-    webDAVLog.info('handleWebDAVBatchDownload: batch download completed', { downloadedCount: downloadedPaths.length })
-    return downloadedPaths
+    webDAVLog.info('handleWebDAVBatchDownload: batch download completed', { downloadedCount: downloadedPaths.length, failedCount: failures.length })
+    return { downloadedPaths, failures, cancelled: false, remaining: 0 }
   } catch (error: any) {
     webDAVLog.error('handleWebDAVBatchDownload: batch download failed', { error: error.message })
     throw error
@@ -375,9 +406,33 @@ export const handleWebDAVDownloadAndImport = async(
   webDAVLog.info('handleWebDAVDownloadAndImport: starting process', { songCount: songs.length })
 
   try {
-    const downloadedPaths = await handleWebDAVBatchDownload(songs, (current, total, fileName) => {
+    let result = await handleWebDAVBatchDownload(songs, (current, total, fileName) => {
       setLoadingText(`正在下载 ${current}/${total}...\n${fileName}`)
     })
+    const downloadedPaths = [...result.downloadedPaths]
+
+    // W4：失败不吞——先汇总，再问是否只重试失败项（最多重试一轮，避免死循环）
+    if (result.cancelled) {
+      toast(`已取消下载：完成 ${downloadedPaths.length} 首，未下载 ${result.remaining} 首`, 'long')
+    } else if (result.failures.length > 0) {
+      const names = result.failures.slice(0, 5).map(f => f.song.name).join('、')
+      const retry = await confirmDialog({
+        title: '部分歌曲下载失败',
+        message: `成功 ${downloadedPaths.length} 首，失败 ${result.failures.length} 首（${names}${result.failures.length > 5 ? '…' : ''}）。是否重试失败的歌曲？`,
+        cancelButtonText: '不了',
+        confirmButtonText: '重试失败项',
+      }).catch(() => false)
+      if (retry) {
+        const retrySongs = result.failures.map(f => f.song)
+        result = await handleWebDAVBatchDownload(retrySongs, (current, total, fileName) => {
+          setLoadingText(`正在重试 ${current}/${total}...\n${fileName}`)
+        })
+        downloadedPaths.push(...result.downloadedPaths)
+        if (result.failures.length > 0) {
+          toast(`重试后仍有 ${result.failures.length} 首失败：${result.failures.slice(0, 3).map(f => `${f.song.name}（${f.reason}）`).join('；')}`, 'long')
+        }
+      }
+    }
 
     if (downloadedPaths.length === 0) {
       toast('没有成功下载任何歌曲')
@@ -556,23 +611,36 @@ export const handleWebDAVRemove = async(
     return true
   } catch (error: any) {
     webDAVLog.error('handleWebDAVRemove: failed', { error: error.message })
-    toast(`移除失败：${error.message}`, 'long')
+    toast('移除失败，请稍后重试', 'long')
     return false
   }
 }
 
 /**
- * 批量从在线获取封面（2026-10-18）。
- * 对无封面的歌曲在线搜索匹配，下载到本地 picture/ 目录并更新。
+ * 批量从在线获取封面并上传到 WebDAV（2026-10-22 修正语义）。
+ * 目标不是存 iOS 本地：封面上传到歌曲所在目录对应的远端 picture/，
+ * 回写 meta.picPath（与扫描同名匹配同一字段），之后任何设备扫描/播放
+ * 都能直接命中网盘封面；本机显示仍走既有封面缓存策略（fetchWebDAVPic
+ * 按 picPath 拉到 Caches 显示）。临时文件只作上传中转，传完即删。
  * 并发 4，避免请求风暴。
  */
+export interface BatchCoverFailure {
+  name: string
+  reason: string
+}
+
 export const handleBatchFetchCoversFromOnline = async(
   songs: LX.WebDAV.MusicInfo[],
   onProgress?: (current: number, total: number, currentSong: string) => void,
-): Promise<{ success: number, failed: number }> => {
-  const downloadDir = getDefaultDownloadDir()
-  const picDir = `${downloadDir}/picture`
-  await mkdir(picDir).catch(() => {})
+): Promise<{ success: number, failed: number, failures: BatchCoverFailure[], failedSongs: LX.WebDAV.MusicInfo[] }> => {
+  const failures: BatchCoverFailure[] = []
+  const failedSongs: LX.WebDAV.MusicInfo[] = []
+  const markFailed = (song: LX.WebDAV.MusicInfo, reason: string) => {
+    failures.push({ name: song.name || song.meta.fileName || '未知歌曲', reason })
+    failedSongs.push(song)
+  }
+  const tmpDir = `${getWebDAVPrivateDirectory()}/cover_upload_tmp`
+  await mkdir(tmpDir).catch(() => {})
 
   let success = 0
   let failed = 0
@@ -583,12 +651,19 @@ export const handleBatchFetchCoversFromOnline = async(
     while (index < total) {
       const i = index++
       const musicInfo = songs[i]
-      // 已有封面跳过
-      if (musicInfo.meta.picUrl) {
+      // 已有网盘封面（或手动指定封面）跳过
+      if (musicInfo.meta.picPath || musicInfo.meta.customPicPath) {
         continue
       }
       onProgress?.(i + 1, total, musicInfo.name || '')
+      let tmpPath = ''
       try {
+        const remoteAudioPath = musicInfo.meta.remotePath || musicInfo.meta.songId || ''
+        if (!remoteAudioPath) {
+          failed++
+          markFailed(musicInfo, '缺少远端路径')
+          continue
+        }
         const searchResult = await findMusic({
           name: musicInfo.name || '',
           singer: musicInfo.singer || '',
@@ -598,6 +673,7 @@ export const handleBatchFetchCoversFromOnline = async(
         })
         if (searchResult.length === 0) {
           failed++
+          markFailed(musicInfo, '在线未搜到这首歌')
           continue
         }
         const matched = searchResult[0] as LX.Music.MusicInfoOnline
@@ -609,31 +685,39 @@ export const handleBatchFetchCoversFromOnline = async(
         })
         if (!result.url) {
           failed++
+          markFailed(musicInfo, '未获取到封面图')
           continue
         }
-        // 下载到本地 picture/
+        // 后缀白名单，防止奇怪 URL 后缀污染远端文件名
         const picExt = result.url.split('.').pop()?.split('?')[0]?.toLowerCase() || 'jpg'
-        // 限制扩展名在允许列表内，防止奇怪的 URL 后缀
         const safeExt = ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif'].includes(picExt) ? picExt : 'jpg'
         const baseName = (musicInfo.meta.fileName || musicInfo.name).replace(/\.[^/.]+$/, '').replace(/[\\/:*?"<>|]/g, '_')
-        const picFilePath = `${picDir}/${baseName}.${safeExt}`
-        if (!await existsFile(picFilePath).catch(() => false)) {
-          await downloadToFileAtomic({
-            url: result.url,
-            targetPath: picFilePath,
-            statusError: (statusCode) => `封面下载失败（${statusCode}）`,
-            moveError: '封面下载失败（文件落盘失败）',
-          })
-        }
-        const picUrl = `file://${picFilePath}`
-        await updateWebDAVMusicMeta(musicInfo.id, { picUrl })
+        const picFileName = `${baseName}.${safeExt}`
+        // 远端目标：歌曲所在文件夹对应的 picture/（与扫描匹配规则一致，
+        // 重新扫描也能命中），文件名与音频同名
+        const songFolder = remoteAudioPath.substring(0, remoteAudioPath.lastIndexOf('/')) || '/'
+        const remotePicPath = joinWebDAVRemotePath(getWebDAVPictureDir(songFolder), picFileName)
+        // 中转：先下载到本地临时文件，再走既有二进制上传（内部确保远端目录存在）
+        tmpPath = `${tmpDir}/${Date.now()}_${i}.${safeExt}`
+        await downloadToFileAtomic({
+          url: result.url,
+          targetPath: tmpPath,
+          statusError: (statusCode) => `封面下载失败（${statusCode}）`,
+          moveError: '封面下载失败（文件落盘失败）',
+        })
+        const contentType = safeExt === 'png' ? 'image/png' : safeExt === 'webp' ? 'image/webp' : safeExt === 'gif' ? 'image/gif' : safeExt === 'bmp' ? 'image/bmp' : 'image/jpeg'
+        await uploadBinaryFile(remotePicPath, tmpPath, contentType)
+        await updateWebDAVMusicMeta(musicInfo.id, { picPath: remotePicPath })
         success++
       } catch (err: any) {
         webDAVLog.warn('handleBatchFetchCoversFromOnline: failed', { song: musicInfo.name, error: err?.message })
         failed++
+        markFailed(musicInfo, friendlyWebDAVError(err))
+      } finally {
+        if (tmpPath) await unlink(tmpPath).catch(() => {})
       }
     }
   })
   await Promise.all(workers)
-  return { success, failed }
+  return { success, failed, failures, failedSongs }
 }

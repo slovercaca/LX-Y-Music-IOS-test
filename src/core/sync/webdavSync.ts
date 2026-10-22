@@ -6,6 +6,7 @@ import { confirmDialog, toast } from '@/utils/tools'
 import { updateSetting } from '@/core/common'
 import settingState from '@/store/setting/state'
 import { webDAVLog } from '@/core/webdavMusic/logger'
+import { friendlyWebDAVError } from '@/core/webdavMusic/client'
 import { debounce } from '@/utils/common'
 import { getOperationQueue, clearOperationQueue, loadOperationQueue } from './opQueue'
 import { applyListOperation } from '@/utils/listManage'
@@ -380,7 +381,8 @@ async function runGuarded(label: string, task: () => Promise<void>): Promise<boo
     return true
   } catch (error: any) {
     webDAVLog.error(`[${label}] Failed: ${error.stack ?? error.message}`)
-    toast(`${label}失败: ${error.message}`, 'long')
+    // S10：原始错误已在上一行进日志，用户看友好映射
+    toast(`${label}失败：${friendlyWebDAVError(error)}`, 'long')
     return false
   } finally {
     isSyncing = false
@@ -749,7 +751,7 @@ export async function triggerWebDAVSync(isManual = false): Promise<void> {
   } catch (error: any) {
     webDAVLog.error(`[Sync] Sync failed: ${error.stack ?? error.message}`)
     // P2（2026-10-06）：error.message 可能为 undefined，避免 toast 显示"同步失败: undefined"
-    toast(`同步失败: ${error?.message ?? '未知错误'}`, 'long')
+    toast(`同步失败：${friendlyWebDAVError(error)}`, 'long')
   } finally {
     isSyncing = false
   }

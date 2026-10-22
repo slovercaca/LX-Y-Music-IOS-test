@@ -95,7 +95,7 @@ export default ({
       })
     }
     return (helpTitle ?? helpDesc) ? (
-      <TouchableOpacity style={styles.helpBtn} onPress={handleShowHelp}>
+      <TouchableOpacity style={styles.helpBtn} onPress={handleShowHelp} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
         <Icon size={15 * size} name="help" />
       </TouchableOpacity>
     ) : null

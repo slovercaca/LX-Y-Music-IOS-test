@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from 'react'
-import { View, ScrollView, Alert, Image, Platform, AppState } from 'react-native'
+import { View, ScrollView, Image, Platform } from 'react-native'
 import { Navigation } from 'react-native-navigation'
 
 import Button from '@/components/common/Button'
@@ -15,69 +15,15 @@ import { initDeeplink } from '@/core/init/deeplink'
 import settingState from '@/store/setting/state'
 import { designRadius, designSpacing, designTypography } from '@/theme/DesignTokens'
 
-// 「本软件完全免费且开源」提示：同意协议后延后 2s 弹出（等 overlay 关闭动画走完）。
-// 定时器与 AppState 监听都放在模块作用域——overlay 一经 dismiss，本组件立即卸载，
-// 写在组件里的定时器会被清掉，提示就丢了。
-// 应用不在前台时 iOS 无法呈现 Alert（会静默丢失），这种情况改为等下次回到前台再弹。
-let freeTipTimer: ReturnType<typeof setTimeout> | null = null
-let freeTipAppStateSub: { remove: () => void } | null = null
-
-const disposeFreeTipWaiters = () => {
-  if (freeTipTimer) {
-    clearTimeout(freeTipTimer)
-    freeTipTimer = null
-  }
-  if (freeTipAppStateSub) {
-    freeTipAppStateSub.remove()
-    freeTipAppStateSub = null
-  }
-}
-
-// 首次签署协议后的公告检查。
-// 放在免费开源提示的「好的」回调里（而不是签署瞬间）：让公告严格排在提示之后，
-// 避免原生 Alert 与公告 overlay 同时出现、互相遮挡（overlay window 可能压在 Alert 上，
-// 那样用户点不到提示上的按钮）。400ms 留给 Alert 的关闭动画。
-// 万一这一步没走到（例如期间应用被杀），下次启动仍会在「已同意协议」分支再检查一次，
-// 公告不会因此漏掉。
+// 首次签署协议后的公告检查：等协议 overlay 关闭动画走完再查，
+// 避免公告与协议同时出现互相遮挡。万一这一步没走到（例如期间应用被杀），
+// 下次启动仍会在「已同意协议」分支再检查一次，公告不会漏掉。
+// （原先这里还有一道单独的「本软件完全免费且开源」Alert 弹窗，S3 人性化修正后
+// 已合并进欢迎公告首行，首启不再连环三弹窗。）
 const scheduleAnnouncementCheckAfterPact = () => {
   setTimeout(() => {
     void checkAnnouncement(false)
   }, 400)
-}
-
-const showFreeOpenSourceTip = () => {
-  disposeFreeTipWaiters()
-  Alert.alert(
-    '',
-    Buffer.from(
-      'e69cace8bdafe4bbb6e5ae8ce585a8e5858de8b4b9e4b894e5bc80e6ba90efbc8ce5a682e69e9ce4bda0e698afe88b1e992b1e4b9b0e79a84efbc8ce8afb7e79bb4e68ea5e7bb99e5b7aee8af84efbc810a0a5468697320736f667477617265206973206672656520616e64206f70656e20736f757263652e',
-      'hex',
-    ).toString(),
-    [
-      {
-        text: Buffer.from('e5a5bde79a8420284f4b29', 'hex').toString(),
-        onPress: () => {
-          void initDeeplink()
-          scheduleAnnouncementCheckAfterPact()
-        },
-      },
-    ],
-  )
-}
-
-const scheduleFreeOpenSourceTip = () => {
-  disposeFreeTipWaiters()
-  freeTipTimer = setTimeout(() => {
-    freeTipTimer = null
-    if (AppState.currentState === 'active') {
-      showFreeOpenSourceTip()
-      return
-    }
-    // 后台状态：等回到前台再弹，避免 Alert 静默丢失
-    freeTipAppStateSub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') showFreeOpenSourceTip()
-    })
-  }, 2000)
 }
 
 const Content = () => {
@@ -209,19 +155,6 @@ const Content = () => {
         <Text selectable style={styles.text}>
           * 若协议更新，恕不另行通知，可到开源地址查看。
         </Text>
-        <View style={styles.rewardWrap}>
-          <Text selectable style={styles.bold}>
-            赞赏支持{'\n'}
-          </Text>
-          <Text selectable style={styles.text}>
-            若你觉得本软件不错，欢迎赞赏支持开发者：{'\n'}
-          </Text>
-          <Image
-            source={require('@/resources/images/reward-qrcode.jpg')}
-            style={styles.rewardImage}
-            resizeMode="contain"
-          />
-        </View>
       </ScrollView>
     </View>
   )
@@ -254,8 +187,12 @@ const Footer = ({ componentId }: { componentId: string }) => {
     const wasAgreed = !!isAgreePact
     if (!wasAgreed) updateSetting({ 'common.isAgreePact': true })
     void Navigation.dismissOverlay(componentId)
-    // 首次签署才提示“本软件免费开源”，延后 2s 等 overlay 关闭动画走完
-    if (!wasAgreed) scheduleFreeOpenSourceTip()
+    // 首次签署后直接排公告检查（免费开源提示已并入公告，不再单弹 Alert）；
+    // deeplink 初始化随公告检查一并在此触发（原先挂在免费提示的按钮回调里）
+    if (!wasAgreed) {
+      void initDeeplink()
+      scheduleAnnouncementCheckAfterPact()
+    }
   }
 
   const confirmBtn = useMemo(() => {
@@ -347,19 +284,6 @@ const styles = createStyle({
     paddingLeft: designSpacing.sm,
     paddingRight: designSpacing.sm,
     paddingBottom: designSpacing.sm,
-  },
-  rewardWrap: {
-    marginTop: designSpacing.sm,
-    paddingLeft: designSpacing.sm,
-    paddingRight: designSpacing.sm,
-    paddingBottom: designSpacing.sm,
-  },
-  rewardImage: {
-    width: 200,
-    height: 200,
-    marginTop: designSpacing.xs,
-    borderRadius: designRadius.md,
-    alignSelf: 'center',
   },
   btns: {
     flexDirection: 'row',

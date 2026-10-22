@@ -12,6 +12,7 @@ import { setStatusText } from '@/core/player/playStatus'
 import playerState from '@/store/player/state'
 import settingState from '@/store/setting/state'
 import { playNowPlaying, pauseNowPlaying } from '@/utils/nativeModules/nowPlaying'
+import { toast } from '@/utils/tools'
 import { startPreload, stopPreload } from '@/core/player/preload'
 import { savePlayInfo } from '@/utils/data'
 
@@ -49,11 +50,15 @@ export const initUnifiedPlayerController = () => {
   }
 
   const startLoadingTimeout = () => {
-    // 【对齐上游】autoSkipOnError 关闭时不启动加载超时看门狗（URL 失效不自动刷新/
-    // 跳歌），完全交由用户手动处理。
-    if (!settingState.setting['player.autoSkipOnError']) return
+    // 2026-10-22：看门狗与 autoSkipOnError 解耦——关闭自动跳过时也要启动，
+    // 否则加载可无限期卡在「缓冲中」且用户无从恢复；只是超时后不自动跳歌，
+    // 改为明确提示用户手动重试。
     clearLoadingTimeout()
     loadingTimeout = BackgroundTimer.setTimeout(() => {
+      if (!settingState.setting['player.autoSkipOnError']) {
+        setStatusText('加载超时，点播放键重试')
+        return
+      }
       if (prevTimeoutId == playerState.musicInfo.id) {
         prevTimeoutId = null
         void playNext(true)
@@ -128,7 +133,10 @@ export const initUnifiedPlayerController = () => {
     setStatusText(global.i18n.t('player__error'))
     // 【对齐上游 usePlayEvent.handleError 终态】autoSkipOnError 关闭时停留错误状态，
     // 不自动跳下一首
-    if (settingState.setting['player.autoSkipOnError']) setTimeout(addDelayNextTimeout)
+    if (settingState.setting['player.autoSkipOnError']) {
+      toast(`《${currentMusicInfo.name}》播放失败，已自动跳过`, 'short')
+      setTimeout(addDelayNextTimeout)
+    }
   }
   onUnifiedPlayerEvent(async(event) => {
     if (

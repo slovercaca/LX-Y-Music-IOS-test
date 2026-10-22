@@ -26,7 +26,7 @@ import { getListMusicSync } from '@/utils/listManage'
 import { getMusicUrl, getLyricInfo, getPicUrl } from '@/core/music/online'
 import { writeMetadata, writePic, writeLyric, isWriteSupported } from '@/utils/localMediaMetadata'
 import { downloadFile, writeFile } from '@/utils/fs'
-import { getDefaultDownloadPath } from '@/utils/downloadPath'
+import { getMusicDir, getLrcDir, getPictureDir, ensureLibraryDirs, cacheCoverToLibrary } from '@/utils/localLibrary'
 
 import { getAllKeys, removeDataMultiple } from '@/plugins/storage'
 import { storageDataPrefix } from '@/config/constant'
@@ -58,6 +58,7 @@ export const handleRemove = (
     void confirmDialog({
       message: global.i18n.t('list_remove_music_multi_tip', { num: selectedList.length }),
       confirmButtonText: global.i18n.t('list_remove_tip_button'),
+      destructive: true,
     }).then((isRemove) => {
       if (!isRemove) return
       void removeListMusics(
@@ -67,7 +68,10 @@ export const handleRemove = (
       onCancelSelect()
     })
   } else {
-    void removeListMusics(listId, [musicInfo.id])
+    // S-N6：单曲移除此前无任何反馈，补一条结果提示（撤销成本高，不做）
+    void removeListMusics(listId, [musicInfo.id]).then(() => {
+      toast('已从歌单移除')
+    })
   }
 }
 
@@ -185,8 +189,9 @@ export const handleDownload = async(musicInfo: LX.Music.MusicInfo, quality: LX.Q
 
       fileName = filterFileName(fileName)
 
-      const downloadDir = settingState.setting['download.path'] || getDefaultDownloadPath()
-      const path = `${downloadDir}/${fileName}.${extension}`
+      // 统一本地库结构：音频进 music/（先确保目录存在）
+      await ensureLibraryDirs()
+      const path = `${getMusicDir()}/${fileName}.${extension}`
 
       const headers = musicInfo.source === 'wy'
         ? { 'User-Agent': '' }
@@ -250,7 +255,6 @@ export const handleDownload = async(musicInfo: LX.Music.MusicInfo, quality: LX.Q
             isRefresh: true,
           })
           const tasks = []
-          const baseFilePath = filePath.substring(0, filePath.lastIndexOf('.'))
           // 内嵌歌词走原生标签模块（iOS 内联模块同样支持），能力不可用时回退写 .lrc 文件（writeFile 双平台可用）
           if (settingState.setting['download.writeEmbedLyric'] && isWriteSupported()) {
             const embedLyricContent = mergeLyrics(lyrics.lyric, lyrics.tlyric, null)
@@ -262,7 +266,7 @@ export const handleDownload = async(musicInfo: LX.Music.MusicInfo, quality: LX.Q
             const finalLyricContent = mergeLyrics(lyrics.lyric, lyrics.tlyric, romaLyric)
 
             if (finalLyricContent) {
-              tasks.push(writeFile(`${baseFilePath}.lrc`, finalLyricContent))
+              tasks.push(writeFile(`${getLrcDir()}/${fileName}.lrc`, finalLyricContent))
             }
           }
 
@@ -277,24 +281,28 @@ export const handleDownload = async(musicInfo: LX.Music.MusicInfo, quality: LX.Q
         }
       }
 
-      // 封面写入依赖原生模块（iOS 为 sidecar 伴随文件实现），按能力判断，避免能力缺失时假成功
-      if (settingState.setting['download.writePicture'] && isWriteSupported()) {
-        try {
-          const picUrl = await getPicUrl({
-            musicInfo: musicInfo as LX.Music.MusicInfoOnline,
-            isRefresh: false,
-          })
-          // console.log(picUrl)
+      // 封面：落盘 picture/ 作本地缓存（与音频同名）；开启「写入封面」且原生能力
+      // 可用时再用这份缓存写入内嵌封面。缓存保留不删，各处控件优先读它。
+      try {
+        const picUrl = await getPicUrl({
+          musicInfo: musicInfo as LX.Music.MusicInfoOnline,
+          isRefresh: false,
+        })
+        if (picUrl && picUrl.startsWith('http')) {
           const extension = getFileExtensionFromUrl(picUrl) || 'jpg'
-          const picPath = `${downloadDir}/temp.${extension}`
+          const picPath = `${getPictureDir()}/${fileName}.${extension}`
           await downloadFile(picUrl, picPath).promise
-          await writePic(filePath, picPath)
-          await RNFetchBlob.fs.unlink(picPath)
-          toast('写入封面成功!', 'short')
-        } catch (err) {
-          console.log(err)
-          toast(`${fileName} 写入封面失败!`, 'short')
+          if (settingState.setting['download.writePicture'] && isWriteSupported()) {
+            await writePic(filePath, picPath)
+            toast('写入封面成功!', 'short')
+          }
+        } else if (picUrl) {
+          // 已是本地/其它形式地址时走统一缓存（内部会跳过非 http）
+          void cacheCoverToLibrary(fileName, picUrl)
         }
+      } catch (err) {
+        console.log(err)
+        if (settingState.setting['download.writePicture']) toast(`${fileName} 写入封面失败!`, 'short')
       }
       toast(`路径: ${filePath}`, 'long')
     } catch (e) {

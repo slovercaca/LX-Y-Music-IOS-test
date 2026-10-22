@@ -132,7 +132,10 @@ const importBackupData = async(data: LX.ConfigFile.AllDataV3['data']) => {
 
     if (data.userApis) await overwriteUserApis(data.userApis)
 
-    toast('部分设置需要重启后生效')
+    // S9：成功提示合并成一条（此前「需要重启」会被随后的「导入成功」顶掉看不见），
+    // 并返回 true 让外层不再重复弹成功提示
+    toast('导入成功，部分设置需要重启后生效', 'long')
+    return true
   } catch (err: any) {
     log.error('import backup data failed:', err?.stack ?? err)
     const restored = await restoreBackupSnapshot(snapshot)
@@ -250,6 +253,7 @@ export const handleImportListPart = async(
       }),
       cancelButtonText: global.i18n.t('list_import_part_button_cancel'),
       confirmButtonText: global.i18n.t('list_import_part_button_confirm'),
+      destructive: true,
       bgClose: false,
     })
     if (confirm) {
@@ -262,6 +266,18 @@ export const handleImportListPart = async(
           log.error(err)
           toast(global.i18n.t('setting_backup_part_import_list_tip_error'))
         })
+      return
+    }
+    // S2：此前点「不要啊」会改个 ID 照样导入，用户以为取消了其实多出一个重复歌单。
+    // 现在第二步明确问是否另存，都不要才真的取消导入。
+    const saveAsNew = await confirmDialog({
+      message: '没有覆盖本地列表。要把导入的列表另存为一个新歌单吗？',
+      cancelButtonText: '取消导入',
+      confirmButtonText: '另存为新歌单',
+      bgClose: false,
+    })
+    if (!saveAsNew) {
+      toast('已取消导入')
       return
     }
     listData.id += `__${Date.now()}`
@@ -395,10 +411,9 @@ export const handleExportList = (path: string) => {
       toast(global.i18n.t('setting_backup_part_export_list_tip_success'))
     })
     .catch((err: any) => {
+      // S10：原始错误只进日志，用户看可行动的中文提示
       log.error(err.message)
-      toast(
-        global.i18n.t('setting_backup_part_export_list_tip_failed') + ': ' + (err.message as string),
-      )
+      toast(global.i18n.t('setting_backup_part_export_list_tip_failed') + '，请确认存储空间充足后重试')
     })
 }
 

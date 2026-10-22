@@ -47,7 +47,7 @@ export default forwardRef<WebDAVListMenuType, WebDAVListMenuProps>((props, ref) 
     }
     menu.push({ action: 'loadMetadata', label: '加载标签' })
     menu.push({ action: 'editMetadata', label: t('edit_metadata') })
-    menu.push({ action: 'remove', label: t('delete') })
+    menu.push({ action: 'remove', label: '从列表移除' })
     return menu
   }, [t])
 

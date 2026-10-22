@@ -74,7 +74,7 @@ export default memo(({ page }: { page: WebDAVPage }) => {
       <View style={styles.buttonRow}>
         <Button
           style={{ ...styles.button, backgroundColor: theme['c-button-background'] }}
-          disabled={!hasConfig || isTesting}
+          disabled={isTesting}
           onPress={() => { void handleTestConnection() }}
         >
           <Text color={theme['c-button-font']}>{isTesting ? '测试中...' : '测试连接'}</Text>

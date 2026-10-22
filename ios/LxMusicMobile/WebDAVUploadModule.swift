@@ -97,7 +97,15 @@ class WebDAVUploadModule: RCTEventEmitter {
       reject("E_INVALID_PATH", "本地路径非法", nil)
       return
     }
-    let headers = options["headers"] as? [String: String] ?? [:]
+    // P1-1（2026-10-06）：headers 用 [String: Any] 接收再逐个转字符串。
+    // 原先 `as? [String: String]` 要求所有值都是 String，任一值为 NSNumber
+    //（JS 传了数字 header）则整个转换失败，headers 变空字典，
+    // Authorization 头丢失导致 401，且极难排查。
+    let rawHeaders = options["headers"] as? [String: Any] ?? [:]
+    var headers: [String: String] = [:]
+    for (key, value) in rawHeaders {
+      headers[key] = String(describing: value)
+    }
     let method = (options["method"] as? String) ?? "PUT"
 
     let fileURL = URL(fileURLWithPath: filePath)
@@ -180,6 +188,13 @@ class WebDAVUploadModule: RCTEventEmitter {
           reject("E_CHUNK_EMPTY", "分块数据为空", nil)
           return
         }
+        // P1-2（2026-10-06）：校验读到的字节数与声明一致。
+        // 若文件在 seek 与 read 之间被截断，readData 可能返回部分数据，
+        // 此时上传的字节数与 Content-Range 声明不符，会导致文件损坏。
+        guard chunkData.count == chunkLength else {
+          reject("E_CHUNK_SHORT", "分块数据不完整（文件可能在上传中被修改）", nil)
+          return
+        }
         task = session.uploadTask(with: request, from: chunkData)
       } catch {
         reject("E_CHUNK_READ", "读取分块失败：\(error.localizedDescription)", nil)
@@ -221,7 +236,8 @@ class WebDAVUploadModule: RCTEventEmitter {
     lock.unlock()
 
     if let ctx = ctx {
-      ctx.cancelledByUser = true
+      // P2-3（2026-10-06）：移除 cancelledByUser 死代码（从未被读取）。
+      // 取消靠 task.cancel() 触发 didCompleteWithError 的 NSURLErrorCancelled 判断。
       ctx.task.cancel()
       resolve(true)
     } else {
@@ -328,7 +344,7 @@ private class UploadContext {
   let resolver: RCTPromiseResolveBlock
   let rejecter: RCTPromiseRejectBlock
   let uploadId: String
-  var cancelledByUser = false
+  // P2-3：删除 cancelledByUser 死代码（设置后从未读取）
 
   init(task: URLSessionUploadTask,
        resolver: @escaping RCTPromiseResolveBlock,

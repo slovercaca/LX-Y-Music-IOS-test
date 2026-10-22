@@ -24,10 +24,9 @@ const useCoverUrl = (item: {
   )
 
   useEffect(() => {
-    if (!isCrossMatchSource && item.meta?.picUrl) {
-      setUrl(item.meta.picUrl)
-      return
-    }
+    // 2026-10-22：不再因 meta.picUrl 存在就短路——统一先走 fetchCoverUrl，
+    // 它内部的 getPicPath 会先查本地 picture/ 缓存，本地有缓存必用缓存；
+    // 没有缓存时 getPicPath 在线分支会回落到 meta.picUrl，不额外增加请求。
     const cached = getCachedCoverUrl(item)
     if (cached) {
       setUrl(cached)
@@ -35,7 +34,7 @@ const useCoverUrl = (item: {
     }
     let ignore = false
     void fetchCoverUrl(item).then((pic) => {
-      if (!ignore && pic) setUrl(pic)
+      if (!ignore) setUrl(pic || (!isCrossMatchSource ? (item.meta?.picUrl ?? '') : ''))
     })
     return () => {
       ignore = true

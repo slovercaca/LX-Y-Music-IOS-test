@@ -104,8 +104,9 @@ export default memo(() => {
   const handleCleanAppCache = () => {
     if (appCacheSize == null) return
     void confirmDialog({
-      message: t('confirm_tip'),
-      confirmButtonText: t('list_remove_tip_button'),
+      // S5：正文写明清什么、附带什么，不再用通用「再确认一下」
+      message: '将清理应用缓存（播放、封面等缓存文件），并重置通知与电池优化的权限提醒标记，是否继续？',
+      confirmButtonText: '清理',
     }).then((confirm) => {
       if (!confirm) return
       setAppCleaning(true)
@@ -129,7 +130,7 @@ export default memo(() => {
     if (!songlistCache?.count) return
     void confirmDialog({
       message: '清空后再次进入歌单需要重新联网拉取全部歌曲，是否继续？',
-      confirmButtonText: t('list_remove_tip_button'),
+      confirmButtonText: '清空',
     }).then((confirm) => {
       if (!confirm) return
       setSonglistCleaning(true)
@@ -144,20 +145,26 @@ export default memo(() => {
 
   const handleClearMusicUrlCache = () => {
     if (!metaCache?.musicUrlKeys.length) return
-    setUrlCleaning(true)
-    void clearMusicUrl(metaCache.musicUrlKeys)
-      .then(() => { toast(t('setting_other_cache_clear_success_tip')) })
-      .finally(() => {
-        refreshMetaCache()
-        setUrlCleaning(false)
-      })
+    void confirmDialog({
+      message: `将清空 ${metaCache.musicUrlKeys.length} 条歌曲链接缓存，下次播放时需要重新获取链接，是否继续？`,
+      confirmButtonText: '清空',
+    }).then((confirm) => {
+      if (!confirm) return
+      setUrlCleaning(true)
+      void clearMusicUrl(metaCache.musicUrlKeys)
+        .then(() => { toast(t('setting_other_cache_clear_success_tip')) })
+        .finally(() => {
+          refreshMetaCache()
+          setUrlCleaning(false)
+        })
+    })
   }
 
   const handleClearPlaylistIndexCache = () => {
     if (!playlistIndexCache?.count) return
     void confirmDialog({
       message: '清空后「我的歌单」需要重新联网拉取列表，是否继续？',
-      confirmButtonText: t('list_remove_tip_button'),
+      confirmButtonText: '清空',
     }).then((confirm) => {
       if (!confirm) return
       setPlaylistIndexCleaning(true)
@@ -172,24 +179,36 @@ export default memo(() => {
 
   const handleClearLyricCache = () => {
     if (!metaCache?.lyricKeys.length) return
-    setLyricCleaning(true)
-    void clearLyric(metaCache.lyricKeys)
-      .then(() => { toast(t('setting_other_cache_clear_success_tip')) })
-      .finally(() => {
-        refreshMetaCache()
-        setLyricCleaning(false)
-      })
+    void confirmDialog({
+      message: `将清空 ${metaCache.lyricKeys.length} 条歌词缓存，下次播放时需要重新获取歌词，是否继续？`,
+      confirmButtonText: '清空',
+    }).then((confirm) => {
+      if (!confirm) return
+      setLyricCleaning(true)
+      void clearLyric(metaCache.lyricKeys)
+        .then(() => { toast(t('setting_other_cache_clear_success_tip')) })
+        .finally(() => {
+          refreshMetaCache()
+          setLyricCleaning(false)
+        })
+    })
   }
 
   const handleClearOtherSourceCache = () => {
     if (!metaCache?.otherSourceKeys.length) return
-    setOtherSourceCleaning(true)
-    void clearOtherSource(metaCache.otherSourceKeys)
-      .then(() => { toast(t('setting_other_cache_clear_success_tip')) })
-      .finally(() => {
-        refreshMetaCache()
-        setOtherSourceCleaning(false)
-      })
+    void confirmDialog({
+      message: `将清空 ${metaCache.otherSourceKeys.length} 条换源歌曲信息缓存，是否继续？`,
+      confirmButtonText: '清空',
+    }).then((confirm) => {
+      if (!confirm) return
+      setOtherSourceCleaning(true)
+      void clearOtherSource(metaCache.otherSourceKeys)
+        .then(() => { toast(t('setting_other_cache_clear_success_tip')) })
+        .finally(() => {
+          refreshMetaCache()
+          setOtherSourceCleaning(false)
+        })
+    })
   }
 
   const handleSetCacheLimit = (value: number) => {

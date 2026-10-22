@@ -7,7 +7,8 @@ import LineProgress from '@/components/common/LineProgress'
 import { useTheme } from '@/store/theme/hook'
 import { createStyle } from '@/utils/tools'
 import { dateFormat, sizeFormate } from '@/utils/common'
-import { resumeTask, retryTask } from '@/core/download'
+import { pauseTask, resumeTask, retryTask } from '@/core/download'
+import { confirmDialog } from '@/utils/tools'
 import { useI18n } from '@/lang'
 
 export default memo(({ task: initialTask, rowWidth = '100%', onRemove }: { task: LX.Download.DownloadTask, rowWidth?: `${number}%`, onRemove: (id: string) => void }) => {
@@ -64,8 +65,20 @@ export default memo(({ task: initialTask, rowWidth = '100%', onRemove }: { task:
     retryTask(task.id)
   }, [task.id])
 
+  // 继续 = 从头重新下载（无真断点续传）：点之前把话说清（D2 诚实文案）
   const handleResume = useCallback(() => {
-    void resumeTask(task.id)
+    void confirmDialog({
+      title: '继续下载',
+      message: '该任务会从头重新下载，确定继续吗？',
+      cancelButtonText: '取消',
+      confirmButtonText: '重新下载',
+    }).then((confirm) => {
+      if (confirm) void resumeTask(task.id)
+    })
+  }, [task.id])
+
+  const handlePause = useCallback(() => {
+    pauseTask(task.id)
   }, [task.id])
 
   const renderStatus = () => {
@@ -85,7 +98,9 @@ export default memo(({ task: initialTask, rowWidth = '100%', onRemove }: { task:
             />
             <View style={styles.progressDetails}>
               <Text size={10} color={theme['c-font-label']}>
-                {sizeFormate(task.progress.downloaded)} / {sizeFormate(task.progress.total)}
+                {task.progress.total > 0
+                  ? `${sizeFormate(task.progress.downloaded)} / ${sizeFormate(task.progress.total)}`
+                  : `${sizeFormate(task.progress.downloaded)} · 总量未知`}
               </Text>
               <Text size={10} color={theme['c-font-label']}>
                 {task.progress.speed}
@@ -96,9 +111,9 @@ export default memo(({ task: initialTask, rowWidth = '100%', onRemove }: { task:
       case 'completed':
         return <Text size={12} color={theme['c-primary']}>已完成</Text>
       case 'error':
-        return <Text size={12} color={errorColor} numberOfLines={1}>{task.errorMsg || '下载失败'}</Text>
+        return <Text size={12} color={errorColor} numberOfLines={2}>{task.errorMsg || '下载失败'}</Text>
       case 'paused':
-        return <Text size={12} color={theme['c-font-label']}>已中断，可继续下载</Text>
+        return <Text size={12} color={theme['c-font-label']}>已暂停 · 继续将重新下载</Text>
       case 'waiting':
         return <Text size={12} color={theme['c-font-label']}>等待中...</Text>
       default:
@@ -147,6 +162,11 @@ export default memo(({ task: initialTask, rowWidth = '100%', onRemove }: { task:
         {task.status === 'completed' && renderMetadataStatus()}
       </View>
       <View style={styles.actionsContainer}>
+        { !task.isRemoteSynced && (task.status === 'downloading' || task.status === 'waiting') && (
+          <TouchableOpacity onPress={handlePause} style={styles.actionButton}>
+            <Icon name="pause" size={18} color={theme['c-primary']} />
+          </TouchableOpacity>
+        ) }
         { !task.isRemoteSynced && task.status === 'paused' && (
           <TouchableOpacity onPress={handleResume} style={styles.actionButton}>
             <Icon name="play-outline" size={18} color={theme['c-primary']} />

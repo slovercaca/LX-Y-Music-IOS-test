@@ -17,7 +17,8 @@ export default memo(() => {
 
   return (
     <View style={styles.content}>
-      <CheckBoxItem check={allowProgressBarSeek} label={t('setting_basic_allow_progress_bar_seek')} onChange={setAllowProgressBarSeek} />
+      <CheckBoxItem check={allowProgressBarSeek} label={t('setting_basic_allow_progress_bar_seek')}
+        helpDesc="关闭后拖动进度条也不能跳转，防止误触把进度拖乱。" onChange={setAllowProgressBarSeek} />
     </View>
   )
 })

@@ -303,6 +303,7 @@ declare global {
       'player.timeoutExit': string
       'player.timeoutExitPlayed': boolean
       'player.offlineMode': boolean
+      'player.autoCacheOnlinePic': boolean
       'player.isAutoCleanPlayedList': boolean
       'player.autoSkipOnError': boolean
       'player.soundEffect.enabled': boolean

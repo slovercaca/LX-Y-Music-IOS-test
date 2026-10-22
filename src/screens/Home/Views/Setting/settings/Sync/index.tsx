@@ -1,5 +1,5 @@
 import { memo, useState, useCallback, useMemo, useEffect, useRef } from 'react'
-import { View } from 'react-native'
+import { Keyboard, View } from 'react-native'
 import Section from '../../components/Section'
 import SubTitle from '../../components/SubTitle'
 import InputItem from '../../components/InputItem'
@@ -15,6 +15,7 @@ import Text from '@/components/common/Text'
 import { designSpacing } from '@/theme/DesignTokens'
 import { getSyncHost } from '@/utils/data'
 import { testConnection, resetClient } from '@/utils/webdav'
+import { friendlyWebDAVError } from '@/core/webdavMusic/client'
 import {
   triggerWebDAVSync,
   manualUploadSettingsAndApis,
@@ -132,13 +133,17 @@ export default memo(() => {
 
   const handleTestConnection = useCallback(async() => {
     if (isTesting) return
+    // W5：InputItem 失焦/键盘隐藏时才提交——先收键盘并等提交落库，
+    // 否则刚改的地址/密码测的还是旧值
+    Keyboard.dismiss()
+    await new Promise(resolve => setTimeout(resolve, 250))
     setIsTesting(true)
     try {
       await testConnection()
       // 顶部弹窗，3.5 秒后自动消失
       toast('WebDAV 连接成功！', 'long', 'top')
     } catch (error: any) {
-      toast(`WebDAV 连接失败: ${error?.message ?? '连接失败'}`, 'long', 'top')
+      toast(`WebDAV 连接失败：${friendlyWebDAVError(error)}`, 'long', 'top')
     } finally {
       if (mountedRef.current) setIsTesting(false)
     }
@@ -269,18 +274,24 @@ export default memo(() => {
           value={webdavUrl}
           onChanged={handleWebdavSettingChanged('sync.webdav.url')}
           placeholder="https://example.com/webdav"
+          autoCapitalize="none"
+          autoCorrect={false}
         />
         <InputItem
           label="用户名"
           value={webdavUsername}
           onChanged={handleWebdavSettingChanged('sync.webdav.username')}
           placeholder="请输入用户名"
+          autoCapitalize="none"
+          autoCorrect={false}
         />
         <InputItem
           label="密码"
           value={webdavPassword}
           onChanged={handleWebdavSettingChanged('sync.webdav.password')}
           placeholder="请输入密码"
+          autoCapitalize="none"
+          autoCorrect={false}
         />
         {/* 同步路径仅在同步进行中锁定，避免写入与同步任务并发；空闲时始终可改 */}
         <InputItem
@@ -325,7 +336,7 @@ export default memo(() => {
 
         <View style={{ opacity: isEnableWebdav ? 1 : 0.5 }}>
           <View style={styles.btnRow}>
-            <Button onPress={handleTestConnection} disabled={!isEnableWebdav || isTesting}>
+            <Button onPress={handleTestConnection} disabled={isTesting}>
               {isTesting ? '测试中...' : '测试连接'}
             </Button>
             <Button onPress={handleSyncNow} disabled={!isEnableWebdav || isSyncing}>

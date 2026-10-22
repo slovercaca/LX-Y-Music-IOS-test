@@ -291,6 +291,10 @@ export interface PutFileOptions {
   contentType?: string
   /** 进度回调（当前为模拟进度：0% → 50% → 100%，非真实字节） */
   onProgress?: (loaded: number, total: number) => void
+  /** 用户已明确选择「覆盖」远端同名文件时为 true：禁用按大小断点续传，从头传（W1） */
+  forceFresh?: boolean
+  /** 传输方式说明（如降级到无实时进度的通道时通知 UI 如实展示，W6） */
+  onPhaseNote?: (note: string) => void
   /** 透出 abort 句柄，调用方（暂停/删除）可中断传输（模拟中断） */
   onAbortHandle?: (handle: { abort: () => void }) => void
 }
@@ -313,7 +317,7 @@ export interface PutFileOptions {
  * 不计为失败。
  */
 export const putFileWithProgress = async(options: PutFileOptions): Promise<void> => {
-  const { remotePath, localPath, size, onProgress, onAbortHandle } = options
+  const { remotePath, localPath, size, onProgress, onAbortHandle, forceFresh, onPhaseNote } = options
   // 注意：contentType 不再使用（webdav 库自动处理）；保留在接口中以兼容调用方
   const report = (loaded: number, total: number) => {
     try {
@@ -357,7 +361,9 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
       }
 
       // 读取分块/断点续传设置
-      const resumeEnabled = settingState.setting['webdav.uploadResume'] !== false
+      // W1：用户明确选了「覆盖」时禁用续传——只凭远端大小续传/判完整，可能把
+      // 同大小不同内容当成功、或把新文件尾巴拼到旧文件头上生成损坏文件
+      const resumeEnabled = !forceFresh && settingState.setting['webdav.uploadResume'] !== false
       const chunkedEnabled = settingState.setting['webdav.uploadChunked'] !== false
       const chunkSizeMB = Number(settingState.setting['webdav.uploadChunkSizeMB'] ?? 5)
       const chunkSize = Math.max(1, Math.min(100, chunkSizeMB)) * 1024 * 1024
@@ -470,7 +476,11 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
   report(0, actualSize)
   const base64 = await readFile(localPath, 'base64').catch(() => '')
   if (!base64) throw new Error(`本地文件读取失败：${localPath}`)
-  report(actualSize * 0.5, actualSize) // 读取完成，50%
+  // W6：不再把「读完文件」伪装成上传 50%——该通道没有真实进度，如实告知 UI；
+  // 进度保持 0 直到传输真正完成（report 100% 在 put 成功后）
+  try {
+    onPhaseNote?.('服务器通道无实时进度，正在传输…')
+  } catch { /* 忽略 */ }
 
   const buffer = Buffer.from(base64, 'base64')
   if (buffer.length === 0) throw new Error(`本地文件为空：${localPath}`)
@@ -494,12 +504,12 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
   // 用 webdav 库上传（JS 层，无原生桥接崩溃风险）
   const client = getClient()
 
-  // 心跳保活：webdav 库无进度回调，上传期间每 10s 上报一次 50% 进度，
-  // 防止 useUploadManager 的 15s 看门狗误判为 stall 而中断。
+  // 心跳保活：webdav 库无进度回调，上传期间每 10s 重复上报最后真实进度（0），
+  // 只为刷新 useUploadManager 看门狗的活跃时间，不伪造百分比（W6）。
   // P0-1（2026-10-06）：此前 30s 心跳 > 15s 看门狗，大文件走降级必被误杀。
   const heartbeat = setInterval(() => {
     try {
-      report(actualSize * 0.5, actualSize)
+      report(0, actualSize)
     } catch { /* 忽略 */ }
   }, 10000)
 
