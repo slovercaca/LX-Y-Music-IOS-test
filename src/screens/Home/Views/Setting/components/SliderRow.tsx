@@ -62,8 +62,11 @@ export default memo(({
   const [isSliding, setSliding] = useState(false)
 
   const handleSlidingStart = useCallback<NonNullable<SliderProps['onSlidingStart']>>(() => {
+    // 低：本地值只在挂载初始化——外部改过设置后拖动首帧显示旧数字，
+    // 开始拖动时先对齐最新设置值
+    setSliderValue(settingValue)
     setSliding(true)
-  }, [])
+  }, [settingValue])
 
   const handleValueChange = useCallback<NonNullable<SliderProps['onValueChange']>>((next) => {
     setSliderValue(next)

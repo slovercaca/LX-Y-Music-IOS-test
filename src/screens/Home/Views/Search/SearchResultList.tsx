@@ -38,10 +38,18 @@ export default forwardRef(({ header, searchType, source }: SearchResultListProps
     searchTypeRef.current = searchType
   }, [searchType])
 
+  const sourceRef = useRef(source)
+  useEffect(() => {
+    sourceRef.current = source
+  }, [source])
+
   useEffect(() => {
     setList([])
     searchInfoRef.current.page = 1
     searchInfoRef.current.hasMore = true
+    // 中-9：切类型/切源时让在途旧请求作废——此前代际不递增、.then 只校验类型，
+    // 旧平台结果会回填到新平台下串台
+    requestGenRef.current++
   }, [searchType, source])
 
   const handleLoad = useCallback((text: string, page: number, isRefresh = false) => {
@@ -69,6 +77,8 @@ export default forwardRef(({ header, searchType, source }: SearchResultListProps
     setLoadError(false)
 
     if (source !== 'wy' && source !== 'tx' && source !== 'kg') {
+      // 中-9：不支持分支也要作废在途请求，防止旧结果随后回填
+      requestGenRef.current++
       toast('当前音源平台暂不支持歌手/专辑搜索')
       setLoading(false)
       setList([])
@@ -96,6 +106,8 @@ export default forwardRef(({ header, searchType, source }: SearchResultListProps
     }
 
     searchPromise.then((result: any) => {
+      // 中-9：源已切换同样丢弃（与类型校验并列）
+      if (sourceRef.current !== source) return
       if (searchTypeRef.current !== searchType) {
         log.info('[SearchResultList] === 搜索类型已切换，丢弃结果 ===', {
           originalSearchType: searchType,
@@ -145,7 +157,9 @@ export default forwardRef(({ header, searchType, source }: SearchResultListProps
         page,
         finalLoadingState: false,
       })
-      setLoading(false)
+      // 中-10：只有当前代际能关 loading——旧请求收尾无条件关会把新请求的
+      // loading 熄掉、翻页守卫失效引发重复请求
+      if (requestGen === requestGenRef.current) setLoading(false)
     })
   }, [loading, list, searchType, source])
 

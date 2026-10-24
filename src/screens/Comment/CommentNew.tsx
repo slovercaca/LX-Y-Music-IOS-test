@@ -18,6 +18,9 @@ export default ({
 }) => {
   // const [isLoading, setIsLoading] = useState(false)
   const listRef = useRef<ListType>(null)
+  // 中：请求序号——切歌/刷新交叠时，旧歌的迟到结果不得覆写新歌的
+  // 列表与分页游标（此前全无守卫，旧评论整表覆盖、page 被倒退）
+  const requestSeqRef = useRef(0)
   const listInfo = useRef({
     page: 1,
     total: 0,
@@ -26,11 +29,13 @@ export default ({
     isLoading: false,
     isLoadError: false,
   })
-  const handleGetComment = async(musicInfo: LX.Music.MusicInfoOnline, page: number) => {
+  const handleGetComment = async(musicInfo: LX.Music.MusicInfoOnline, page: number, seq: number) => {
     // setIsLoading(true)
     listInfo.current.isLoading = true
     return getNewComment(musicInfo, page, limit)
       .then((commentInfo) => {
+        // 过期请求：借用既有「取消请求」约定中止，不碰新请求的分页/加载态
+        if (seq !== requestSeqRef.current) throw new Error('取消请求')
         listInfo.current.page = page
         listInfo.current.isLoading = false
         // setIsLoading(false)
@@ -64,7 +69,7 @@ export default ({
     const list = listRef.current?.getList() ?? []
     const page = list.length ? listInfo.current.page + 1 : 1
     listRef.current?.setStatus('loading')
-    void handleGetComment(musicInfo, page)
+    void handleGetComment(musicInfo, page, requestSeqRef.current)
       .then(({ comments }) => {
         let isEnd = page >= listInfo.current.maxPage
         if (listInfo.current.isEnd != isEnd) listInfo.current.isEnd = isEnd
@@ -75,7 +80,7 @@ export default ({
 
   const handleListRefresh = useCallback(() => {
     listRef.current?.setStatus('refreshing')
-    void handleGetComment(musicInfo, 1)
+    void handleGetComment(musicInfo, 1, ++requestSeqRef.current)
       .then(({ comments, maxPage, total }) => {
         listInfo.current.total = total
         listInfo.current.maxPage = maxPage
@@ -97,17 +102,21 @@ export default ({
     listInfo.current.isLoadError = false
     listRef.current?.setList([])
     listRef.current?.setStatus('loading')
-    void handleGetComment(musicInfo, 1).then(({ comments, maxPage, total }) => {
+    const seq = ++requestSeqRef.current
+    void handleGetComment(musicInfo, 1, seq).then(({ comments, maxPage, total }) => {
+      if (seq !== requestSeqRef.current) return
       listInfo.current.total = total
       listInfo.current.maxPage = maxPage
       onUpdateTotal(total)
       let isEnd = maxPage === 1
       if (listInfo.current.isEnd != isEnd) listInfo.current.isEnd = isEnd
       setTimeout(() => {
+        if (seq !== requestSeqRef.current) return
         listRef.current?.setList(filterList(comments))
         setTimeout(updateStatus, 300)
       }, 300)
     }).catch(() => {
+      if (seq !== requestSeqRef.current) return // 过期请求的失败不拨新歌的状态机
       // P0 修复：首屏请求失败时必须把状态机拨到 'error'，否则永远停在 'loading'
       // 无限转圈，"出错点我重试" 的 Footer 永远出不来。
       listRef.current?.setStatus('error')

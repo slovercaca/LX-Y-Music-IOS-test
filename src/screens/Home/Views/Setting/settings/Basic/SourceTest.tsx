@@ -15,7 +15,7 @@ import { clearMusicUrl, storageDataPrefix } from '@/utils/data'
 import { toast } from '@/utils/tools'
 import LogConfirmAlert, { type LogConfirmAlertType } from '@/components/common/LogConfirmAlert'
 import { SvgIcon } from '@/components/common/SvgIcon'
-import settingAction from '@/store/setting/action'
+import { updateSetting } from '@/core/common' // 低：原直用 store action 绕过 core 的 markSettingsChanged，折叠状态变更不标脏、WebDAV 设置自动同步会漏传
 import { useStatus } from '@/store/userApi'
 import { designRadius, designSpacing, designTypography } from '@/theme/DesignTokens'
 
@@ -196,6 +196,9 @@ export default memo(() => {
   const [elapsedTime, setElapsedTime] = useState(0)
 
   const shouldContinueTesting = useRef(true)
+  // 中：全量/单源共用的忙碌标志——此前单源路径不设忙碌，两条测试可
+  // 并发跑、共用 results 互相覆盖、还会误杀对方的计时器
+  const testingBusyRef = useRef(false)
   const logModalRef = useRef<LogConfirmAlertType>(null)
   const faqModalRef = useRef<LogConfirmAlertType>(null)
   const testStartTimeRef = useRef<number>(0)
@@ -273,6 +276,7 @@ export default memo(() => {
   }, [])
 
   const handleStop = useCallback(() => {
+    testingBusyRef.current = false // 终止即释放忙碌标志，用户可立即重开测试
     shouldContinueTesting.current = false
     setIsStopRequested(true)
     setIsTesting(false)
@@ -281,6 +285,16 @@ export default memo(() => {
     abortControllersRef.current.forEach(controller => { controller.abort() })
     abortControllersRef.current.clear()
     sourceTestLog.info('========== 用户请求停止测试 ==========')
+  }, [stopElapsedTimer])
+
+  // 中：卸载清理——此前离开页面后测试与计时器继续跑，还能与新测试交错写 results
+  useEffect(() => {
+    return () => {
+      shouldContinueTesting.current = false
+      abortControllersRef.current.forEach(controller => { controller.abort() })
+      abortControllersRef.current.clear()
+      stopElapsedTimer()
+    }
   }, [stopElapsedTimer])
 
   const copyToClipboard = async(text: string) => {
@@ -1058,6 +1072,11 @@ export default memo(() => {
   }, [getQualityTimeout])
 
   const handleTest = useCallback(async() => {
+    if (testingBusyRef.current) {
+      toast('已有测试进行中，请先终止或等待完成')
+      return
+    }
+    testingBusyRef.current = true
     shouldContinueTesting.current = true
     setIsStopRequested(false)
     setIsTesting(true)
@@ -1130,6 +1149,9 @@ export default memo(() => {
 
         const timeoutMs = getTestTimeout()
         const abortController = new AbortController()
+        // 中：全量路径此前从不登记 controller，「终止测试」abort 不到正在
+        // 跑的源（单源路径有登记）。登记后与单源一致，结算后注销。
+        abortControllersRef.current.set(source.id, abortController)
         let isTimeout = false
 
         const timeoutPromise = new Promise<{ success: false }>((resolve) => {
@@ -1147,6 +1169,7 @@ export default memo(() => {
         })
 
         const result = await Promise.race([testPromise, timeoutPromise])
+        abortControllersRef.current.delete(source.id)
 
         if (!('delay' in result) || isTimeout) {
           sourceTestLog.info(`[${source.name}] 测试超时已跳过`)
@@ -1203,6 +1226,7 @@ export default memo(() => {
     }
 
     await runTest()
+    testingBusyRef.current = false
   }, [testSource, keywords, intervalSeconds, stopElapsedTimer, getQualityTestInterval, getTestTimeout])
 
   const handleTestSingleSource = useCallback(async(source: typeof sources[0]) => {
@@ -1211,6 +1235,12 @@ export default memo(() => {
       toast(`请输入${source.name}搜索关键词`)
       return
     }
+    // 中：单源测试同样要占忙碌标志——此前不设，可与全量/另一个单源并发
+    if (testingBusyRef.current) {
+      toast('已有测试进行中，请先终止或等待完成')
+      return
+    }
+    testingBusyRef.current = true
 
     setResults(prev => {
       if (prev.length === 0) {
@@ -1305,6 +1335,7 @@ export default memo(() => {
     stopElapsedTimer()
     abortControllersRef.current.delete(source.id)
     setTestingSourceId(null)
+    testingBusyRef.current = false
   }, [keywords, testSource, stopElapsedTimer, getQualityTestInterval, getTestTimeout])
 
   const getQualityLabel = (quality: string | null) => {
@@ -1334,9 +1365,9 @@ export default memo(() => {
 
   const statusColorMap: Record<TestResult['status'], string> = {
     pending: theme['c-font-label'],
-    testing: (theme as any)['c-warning'],
-    success: (theme as any)['c-success'],
-    failed: (theme as any)['c-error'],
+    testing: '#FF9800', // 低：原 (theme as any)['c-warning'] 主题里根本不存在，恒为 undefined 不着色
+    success: '#4CAF50', // 低：同上，原 c-success 不存在
+    failed: '#F44336', // 低：同上，原 c-error 不存在
   }
 
   const statusTextMap: Record<TestResult['status'], string> = {
@@ -1358,7 +1389,7 @@ export default memo(() => {
           const newExpanded = !expanded
           setExpanded(newExpanded)
           const newStatus = { ...expandedStatus, setting_basic_source_test: newExpanded }
-          settingAction.updateSetting({ 'common.sectionExpandedStatus': newStatus })
+          updateSetting({ 'common.sectionExpandedStatus': newStatus })
         }}
         activeOpacity={0.7}
       >
@@ -1389,7 +1420,7 @@ export default memo(() => {
             </Text>
             <View style={styles.keywordContainer}>
               <TextInput
-                style={[styles.keywordInput, { color: theme['c-font'], backgroundColor: (theme as any)['c-background'] }]}
+                style={[styles.keywordInput, { color: theme['c-font'], backgroundColor: theme['c-content-background'] }]}
                 placeholder={`输入${source.name}搜索词`}
                 placeholderTextColor={theme['c-font-label']}
                 value={keywords[source.id as keyof SourceKeywords]}
@@ -1450,7 +1481,7 @@ export default memo(() => {
           测试超时(秒):
         </Text>
         <TextInput
-          style={[styles.settingsInput, { color: theme['c-font'], backgroundColor: (theme as any)['c-background'] }]}
+          style={[styles.settingsInput, { color: theme['c-font'], backgroundColor: theme['c-content-background'] }]}
           placeholder="20"
           placeholderTextColor={theme['c-font-label']}
           value={testTimeoutSeconds}
@@ -1466,7 +1497,7 @@ export default memo(() => {
           音质测试超时(秒):
         </Text>
         <TextInput
-          style={[styles.settingsInput, { color: theme['c-font'], backgroundColor: (theme as any)['c-background'] }]}
+          style={[styles.settingsInput, { color: theme['c-font'], backgroundColor: theme['c-content-background'] }]}
           placeholder="5"
           placeholderTextColor={theme['c-font-label']}
           value={qualityTimeoutSeconds}
@@ -1482,7 +1513,7 @@ export default memo(() => {
           平台测试间隔(秒):
         </Text>
         <TextInput
-          style={[styles.settingsInput, { color: theme['c-font'], backgroundColor: (theme as any)['c-background'] }]}
+          style={[styles.settingsInput, { color: theme['c-font'], backgroundColor: theme['c-content-background'] }]}
           placeholder="0"
           placeholderTextColor={theme['c-font-label']}
           value={intervalSeconds}
@@ -1498,7 +1529,7 @@ export default memo(() => {
           音质测试间隔(秒):
         </Text>
         <TextInput
-          style={[styles.settingsInput, { color: theme['c-font'], backgroundColor: (theme as any)['c-background'] }]}
+          style={[styles.settingsInput, { color: theme['c-font'], backgroundColor: theme['c-content-background'] }]}
           placeholder="0"
           placeholderTextColor={theme['c-font-label']}
           value={qualityIntervalSeconds}

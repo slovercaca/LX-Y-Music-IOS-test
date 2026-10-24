@@ -44,6 +44,8 @@ export const getBatchMusicQualityInfo = (hashList) => {
   requestObj.promise = requestObj.promise.then(({ statusCode, body }) => {
     if (statusCode != 200 || body.error_code != 0) { return Promise.reject(new Error('获取音质信息失败')) }
 
+    // 低：接口异常时 body.data 可能不是数组，无守卫 forEach 直接崩而非走失败处理
+    if (!Array.isArray(body.data)) return Promise.reject(new Error('获取音质信息失败'))
     body.data.forEach((songData, index) => {
       const hash = hashList[index]
       const types = []

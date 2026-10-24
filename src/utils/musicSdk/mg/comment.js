@@ -14,11 +14,17 @@ export default {
       if (!id) throw new Error('获取评论失败')
       musicInfo.songId = id
     }
-    if (page === 1) this.lastCommentIds.clear()
-    const lastCommentId = this.lastCommentIds.get(String(page)) || ''
+    // 中：游标缓存键此前只有页码、不含歌曲 ID——跨歌曲串话（A 的游标
+    // 发给 B 返回错误/重复评论）。键带 songId，page 1 只清本歌的游标。
+    if (page === 1) {
+      for (const key of [...this.lastCommentIds.keys()]) {
+        if (key.startsWith(`${musicInfo.songId}_`)) this.lastCommentIds.delete(key)
+      }
+    }
+    const lastCommentId = this.lastCommentIds.get(`${musicInfo.songId}_${page}`) || ''
     if (!lastCommentId && page > 1) throw new Error('获取评论失败')
     // const _requestObj = httpFetch(`https://music.migu.cn/v3/api/comment/listComments?targetId=${musicInfo.songId}&pageSize=${limit}&pageNo=${page}`, {
-    const _requestObj = httpFetch(`https://app.c.nf.migu.cn/MIGUM3.0/user/comment/stack/v1.0?pageSize=${limit}&queryType=1&resourceId=${musicInfo.songId}&resourceType=2&commentId=${lastCommentId}`, {
+    const _requestObj = this._requestObj = httpFetch(`https://app.c.nf.migu.cn/MIGUM3.0/user/comment/stack/v1.0?pageSize=${limit}&queryType=1&resourceId=${musicInfo.songId}&resourceType=2&commentId=${lastCommentId}`, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1',
         // Referer: 'https://music.migu.cn',
@@ -29,7 +35,7 @@ export default {
     if (statusCode != 200 || body.code !== '000000') throw new Error('获取评论失败')
     const total = parseInt(body.data.commentNums)
     const list = this.filterComment(body.data.comments)
-    this.lastCommentIds.set(String(page + 1), list.length ? list[list.length - 1].id : '')
+    this.lastCommentIds.set(`${musicInfo.songId}_${page + 1}`, list.length ? list[list.length - 1].id : '')
     return { source: 'mg', comments: list, total, page, limit, maxPage: Math.ceil(total / limit) || 1 }
   },
   async getHotComment(musicInfo, page = 1, limit = 20) {
@@ -42,7 +48,7 @@ export default {
     }
 
     // const _requestObj2 = httpFetch(`https://music.migu.cn/v3/api/comment/listTopComments?targetId=${musicInfo.songId}&pageSize=${limit}&pageNo=${page}`, {
-    const _requestObj2 = httpFetch(`https://app.c.nf.migu.cn/MIGUM3.0/user/comment/stack/v1.0?pageSize=${limit}&queryType=2&resourceId=${musicInfo.songId}&resourceType=2&hotCommentStart=${(page - 1) * limit}`, {
+    const _requestObj2 = this._requestObj2 = httpFetch(`https://app.c.nf.migu.cn/MIGUM3.0/user/comment/stack/v1.0?pageSize=${limit}&queryType=2&resourceId=${musicInfo.songId}&resourceType=2&hotCommentStart=${(page - 1) * limit}`, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1',
         // Referer: 'https://music.migu.cn',
@@ -58,7 +64,7 @@ export default {
     if (this._requestObj2) this._requestObj2.cancelHttp()
 
     // const _requestObj2 = httpFetch(`https://music.migu.cn/v3/api/comment/listCommentsById?commentId=${replyId}&pageSize=${limit}&pageNo=${page}`, {
-    const _requestObj2 = httpFetch(`https://app.c.nf.migu.cn/MIGUM3.0/user/comment/stack/${replyId}/v1.0?pageSize=${limit}&queryType=2&resourceId=${musicInfo.songId}&resourceType=2&start=${(page - 1) * limit}`, {
+    const _requestObj2 = this._requestObj2 = httpFetch(`https://app.c.nf.migu.cn/MIGUM3.0/user/comment/stack/${replyId}/v1.0?pageSize=${limit}&queryType=2&resourceId=${musicInfo.songId}&resourceType=2&start=${(page - 1) * limit}`, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1',
       },
@@ -75,12 +81,12 @@ export default {
       text: item.commentInfo,
       time: item.commentTime,
       timeStr: dateFormat2(new Date(item.commentTime).getTime()),
-      userName: item.user.nickName,
-      avatar: item.user.middleIcon || item.user.bigIcon || item.user.smallIcon,
-      userId: item.user.userId,
-      likedCount: item.opNumItem.thumbNum,
+      userName: item.user?.nickName,
+      avatar: item.user?.middleIcon || item.user?.bigIcon || item.user?.smallIcon,
+      userId: item.user?.userId,
+      likedCount: item.opNumItem?.thumbNum,
       replyNum: item.replyTotalCount,
-      reply: item.replyComments.map(c => ({
+      reply: (item.replyComments ?? []).map(c => ({
         id: c.replyId,
         text: c.replyInfo,
         time: c.replyTime,

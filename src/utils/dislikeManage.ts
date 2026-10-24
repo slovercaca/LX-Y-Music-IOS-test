@@ -55,7 +55,11 @@ export const addDislikeInfo = async(infos: LX.Dislike.DislikeMusicInfo[]) => {
     dislikeInfo.rules +
       '\n' +
       infos
-        .map((info) => `${info.name ?? ''}${SPLIT_CHAR.DISLIKE_NAME}${info.singer ?? ''}`)
+        // 中：写入前先把名/歌手里的 @ 转义为 #（与查询侧 hasDislike 口径
+        // 一致）——此前裸 @ 写进规则串，解析时按 @ 切分丢掉第 3 段起的
+        // 内容：歌名 A@B+歌手 C 被存成 a@b，目标歌永远命中不了（不喜欢
+        // 静默失效），还会误杀真名为 A、歌手为 B 的另一首
+        .map((info) => `${(info.name ?? '').replaceAll(SPLIT_CHAR.DISLIKE_NAME, SPLIT_CHAR.DISLIKE_NAME_ALIAS)}${SPLIT_CHAR.DISLIKE_NAME}${(info.singer ?? '').replaceAll(SPLIT_CHAR.DISLIKE_NAME, SPLIT_CHAR.DISLIKE_NAME_ALIAS)}`)
         .join('\n'),
   )
   return dislikeInfo

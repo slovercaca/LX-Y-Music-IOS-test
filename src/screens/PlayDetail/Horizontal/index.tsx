@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { View, AppState, Dimensions, Platform, PixelRatio } from 'react-native'
 import { screenkeepAwake, screenUnkeepAwake, getCutoutLeftPx } from '@/utils/nativeModules/utils'
 import StatusBar from '@/components/common/StatusBar'
@@ -18,6 +18,7 @@ import { marginLeftRaw } from './constant'
 import { useStatusbarHeight } from '@/store/common/hook'
 import { useSettingValue } from '@/store/setting/hook'
 import { useLandscapeLayout } from '@/utils/landscapeLayout'
+import PlayerPlaylist, { type PlayerPlaylistType } from '@/components/player/PlayerPlaylist.tsx'
 
 const useCutoutLeft = () => {
   const [cutoutLeftDp, setCutoutLeftDp] = useState(() => {
@@ -43,6 +44,7 @@ const useCutoutLeft = () => {
 }
 
 export default memo(({ componentId }: { componentId: string }) => {
+  const playlistRef = useRef<PlayerPlaylistType>(null)
   const statusBarHeight = useStatusbarHeight()
   const isLandscapeStretch = useSettingValue('theme.isLandscapeStretch')
   const layout = useLandscapeLayout()
@@ -52,10 +54,14 @@ export default memo(({ componentId }: { componentId: string }) => {
   useEffect(() => {
     setComponentId(COMPONENT_IDS.playDetail, componentId)
     screenkeepAwake()
+    // 低-33：componentIds 是 {name} 数组，此前按对象读 .comment 恒 undefined——
+    // 横屏打开评论页后常亮判断全错位（竖屏 VerticalNew 用的是 find 写法）
+    const hasCommentPage = (ids: CommonState['componentIds']) =>
+      ids.find(item => item.name === COMPONENT_IDS.comment)
     let appstateListener = AppState.addEventListener('change', (state) => {
       switch (state) {
         case 'active':
-          if (!(commonState.componentIds as any).comment) screenkeepAwake()
+          if (!hasCommentPage(commonState.componentIds)) screenkeepAwake()
           break
         case 'background':
           screenUnkeepAwake()
@@ -64,14 +70,20 @@ export default memo(({ componentId }: { componentId: string }) => {
     })
 
     const handleComponentIdsChange = (ids: CommonState['componentIds']) => {
-      if ((ids as any).comment) screenUnkeepAwake()
+      if (hasCommentPage(ids)) screenUnkeepAwake()
       else if (AppState.currentState == 'active') screenkeepAwake()
     }
 
     global.state_event.on('componentIdsUpdated', handleComponentIdsChange)
 
+    // 中-1：横屏此前没挂队列面板也没监听 showPlaylist——迷你条/详情页的队列
+    // 按钮在横屏点了只跳详情、队列永不弹（竖屏 VerticalNew 有同款实现）
+    const handleShowPlaylist = () => { playlistRef.current?.show() }
+    global.app_event.on('showPlaylist', handleShowPlaylist)
+
     return () => {
       global.state_event.off('componentIdsUpdated', handleComponentIdsChange)
+      global.app_event.off('showPlaylist', handleShowPlaylist)
       appstateListener.remove()
       screenUnkeepAwake()
     }
@@ -97,6 +109,7 @@ export default memo(({ componentId }: { componentId: string }) => {
           <Lyric />
         </View>
       </View>
+      <PlayerPlaylist ref={playlistRef} />
     </PageContent>
   )
 })

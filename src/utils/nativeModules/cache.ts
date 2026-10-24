@@ -108,7 +108,8 @@ export const enforceCloudCacheLimit = async(limitBytes: number) => {
   files.sort((a, b) => a.lastModified - b.lastModified)
   for (const file of files) {
     if (total <= limitBytes) break
-    await unlink(file.path).catch(() => {})
-    total -= file.size
+    // 低：此前删除失败也无条件扣减总量，上限未达标就停——缓存上限静默不生效
+    const removed = await unlink(file.path).then(() => true).catch(() => false)
+    if (removed) total -= file.size
   }
 }

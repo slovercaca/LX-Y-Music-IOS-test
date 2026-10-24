@@ -105,7 +105,9 @@ const USER_AGENT =
  */
 export const getWebDAVAuthHeaders = (): Record<string, string> => {
   const headers: Record<string, string> = { 'User-Agent': USER_AGENT }
-  const username = settingState.setting['sync.webdav.username']
+  // 中-7：用户名 trim 与 readWebDAVCredentials 对齐——粘贴带尾随空格时
+  // 浏览/扫描（走 credentials，已 trim）正常、直链播放/下载（走这里）却 401
+  const username = String(settingState.setting['sync.webdav.username'] ?? '').trim()
   const password = settingState.setting['sync.webdav.password']
   // P1-2：只要有用户名就发 Authorization 头（密码为空也发，符合 RFC 7617）。
   // 之前 `username && password` 为空密码时省略整个头，若服务器要求认证，

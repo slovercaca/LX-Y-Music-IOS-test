@@ -230,7 +230,7 @@ export const DragTimeBubble = memo(({
       lastSec = sec
       setText(`${formatPlayTime2(sec)} / ${formatPlayTime2(duration)}`)
     }
-    update(progress)
+    update((dragProgressAnim as any).__getValue?.() ?? progress)
     const id = dragProgressAnim.addListener(({ value }) => { update(value) })
     return () => { dragProgressAnim.removeListener(id) }
   }, [draging, duration, progress, dragProgressAnim])

@@ -729,7 +729,7 @@ export default memo(() => {
         <Text style={styles.pageTitle} size={34} color={theme['c-font']}>
           {t('discovery_tab_playlists')}
         </Text>
-        <OpenList onOpenDetail={handleOpenImportedDetail} />
+        <OpenList onOpenDetail={handleOpenImportedDetail} listenImportEvent={false} />
       </View>
     </>
   )

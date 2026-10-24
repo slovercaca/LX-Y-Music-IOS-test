@@ -23,7 +23,8 @@ export const saveImageToPictures = async(url: string, name: string = 'image') =>
 
   const extension = getFileExtensionFromUrl(url) || 'jpg'
   const fileName = `${sanitizeFileName(name)}.${extension}`
-  const tempPath = `${RNFetchBlob.fs.dirs.CacheDir}/${Date.now()}_${fileName}`
+  // 低：临时名此前只有毫秒时间戳，同毫秒同名并发互相踩（tools.ts 同类已加随机后缀，此处补齐）
+  const tempPath = `${RNFetchBlob.fs.dirs.CacheDir}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${fileName}`
 
   try {
     await RNFetchBlob.config({ path: tempPath, headers: defaultHeaders }).fetch('GET', url)

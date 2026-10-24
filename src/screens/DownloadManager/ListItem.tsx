@@ -98,8 +98,8 @@ export default memo(({ task: initialTask, rowWidth = '100%', onRemove }: { task:
             />
             <View style={styles.progressDetails}>
               <Text size={10} color={theme['c-font-label']}>
-                {task.progress.total > 0
-                  ? `${sizeFormate(task.progress.downloaded)} / ${sizeFormate(task.progress.total)}`
+                {(task.progress?.total ?? 0) > 0
+                  ? `${sizeFormate(task.progress.downloaded)} / ${sizeFormate(task.progress?.total ?? 0)}`
                   : `${sizeFormate(task.progress.downloaded)} · 总量未知`}
               </Text>
               <Text size={10} color={theme['c-font-label']}>
@@ -121,18 +121,20 @@ export default memo(({ task: initialTask, rowWidth = '100%', onRemove }: { task:
     }
   }
 
+  // 中存疑-25：存量旧任务可能没有 metadataStatus 字段，裸读 .tags 会整页闪退
+  const ms = task.metadataStatus ?? { cover: 'pending', lyric: 'pending', tags: 'pending' }
   const renderMetadataStatus = () => (
     <View style={styles.metadataContainer}>
       <View style={styles.metaItem}>
-        <Icon name={task.metadataStatus.tags === 'success' ? 'checkbox-marked' : (task.metadataStatus.tags === 'fail' ? 'close' : 'checkbox-blank-outline')} color={task.metadataStatus.tags === 'success' ? theme['c-primary'] : (task.metadataStatus.tags === 'fail' ? errorColor : theme['c-font-label'])} size={12} />
+        <Icon name={ms.tags === 'success' ? 'checkbox-marked' : (ms.tags === 'fail' ? 'close' : 'checkbox-blank-outline')} color={ms.tags === 'success' ? theme['c-primary'] : (ms.tags === 'fail' ? errorColor : theme['c-font-label'])} size={12} />
         <Text size={10} color={theme['c-font-label']}>标签</Text>
       </View>
       <View style={styles.metaItem}>
-        <Icon name={task.metadataStatus.cover === 'success' ? 'checkbox-marked' : (task.metadataStatus.cover === 'fail' ? 'close' : 'checkbox-blank-outline')} color={task.metadataStatus.cover === 'success' ? theme['c-primary'] : (task.metadataStatus.cover === 'fail' ? errorColor : theme['c-font-label'])} size={12} />
+        <Icon name={ms.cover === 'success' ? 'checkbox-marked' : (ms.cover === 'fail' ? 'close' : 'checkbox-blank-outline')} color={ms.cover === 'success' ? theme['c-primary'] : (ms.cover === 'fail' ? errorColor : theme['c-font-label'])} size={12} />
         <Text size={10} color={theme['c-font-label']}>封面</Text>
       </View>
       <View style={styles.metaItem}>
-        <Icon name={task.metadataStatus.lyric === 'success' ? 'checkbox-marked' : (task.metadataStatus.lyric === 'fail' ? 'close' : 'checkbox-blank-outline')} color={task.metadataStatus.lyric === 'success' ? theme['c-primary'] : (task.metadataStatus.lyric === 'fail' ? errorColor : theme['c-font-label'])} size={12} />
+        <Icon name={ms.lyric === 'success' ? 'checkbox-marked' : (ms.lyric === 'fail' ? 'close' : 'checkbox-blank-outline')} color={ms.lyric === 'success' ? theme['c-primary'] : (ms.lyric === 'fail' ? errorColor : theme['c-font-label'])} size={12} />
         <Text size={10} color={theme['c-font-label']}>歌词</Text>
       </View>
       {hasMetaError && task.status === 'completed' && (
@@ -153,8 +155,8 @@ export default memo(({ task: initialTask, rowWidth = '100%', onRemove }: { task:
         </Text>
         <View style={styles.detailsRow}>
           <Text size={11} color={theme['c-font-label']}>{t(quality) || String(quality).toUpperCase()}</Text>
-          {task.status === 'completed' && task.progress.total > 0 &&
-            <Text size={11} color={theme['c-font-label']}> • {sizeFormate(task.progress.total)}</Text>
+          {task.status === 'completed' && (task.progress?.total ?? 0) > 0 &&
+            <Text size={11} color={theme['c-font-label']}> • {sizeFormate(task.progress?.total ?? 0)}</Text>
           }
           <Text size={11} color={theme['c-font-label']}> • {dateFormat(task.createdAt, 'Y-M-D h:m')}</Text>
         </View>

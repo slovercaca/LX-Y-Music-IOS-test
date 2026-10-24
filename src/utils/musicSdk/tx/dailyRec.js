@@ -29,15 +29,15 @@ const transformSong = (item, index) => {
 
     const file = item.file
     if (file) {
-      if (file.size_128mp3 !== 0) {
+      if (file.size_128mp3) {
         qualitys[0] = { type: '128k', size: sizeFormate(file.size_128mp3) }
         _qualitys['128k'] = { size: sizeFormate(file.size_128mp3) }
       }
-      if (file.size_320mp3 !== 0) {
+      if (file.size_320mp3) {
         qualitys.push({ type: '320k', size: sizeFormate(file.size_320mp3) })
         _qualitys['320k'] = { size: sizeFormate(file.size_320mp3) }
       }
-      if (file.size_flac !== 0) {
+      if (file.size_flac) {
         qualitys.push({ type: 'flac', size: sizeFormate(file.size_flac) })
         _qualitys.flac = { size: sizeFormate(file.size_flac) }
       }

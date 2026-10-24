@@ -11,6 +11,9 @@ import { useTheme } from '@/store/theme/hook'
 import { useStatusbarHeight } from '@/store/common/hook'
 import { designSpacing } from '@/theme/DesignTokens'
 import Text from '@/components/common/Text'
+import commonState from '@/store/common/state'
+import * as navigations from '@/navigation'
+import { COMPONENT_IDS } from '@/config/constant'
 
 export interface HeaderBarProps {
   title: string
@@ -54,7 +57,14 @@ export default forwardRef<HeaderBarType, HeaderBarProps>(
         </View>
         <TagRows ref={tagRowsRef} onTagChange={onTagChange} />
         {/* 2026-10-05 fix（P1-10）：挂载 OpenList，使外链导入弹窗的监听生效 */}
-        <OpenList onOpenDetail={() => {}} />
+        <OpenList
+          onOpenDetail={(item) => {
+            // 高-8：此前是空回调——深链导入弹窗在这里输 ID 确认静默无反应。
+            // 与「我的歌单」页同一打开方式：找到 home 组件推详情屏
+            const homeComponentId = commonState.componentIds.find(({ name }) => name === COMPONENT_IDS.home)?.id
+            if (homeComponentId) navigations.pushSonglistDetailScreen(homeComponentId, item)
+          }}
+        />
       </View>
     )
   },

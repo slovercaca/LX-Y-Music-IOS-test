@@ -103,7 +103,11 @@ export default memo(() => {
   const isRange = !!endDate && endDate !== startDate
   const title = isRange ? `${startDate} ~ ${endDate}` : startDate
 
+  const loadSeqRef = useRef(0)
   const loadHistory = useCallback(() => {
+    // 中：请求序号——快速切日期/加载中收到更新事件时，旧日期结果不得
+    // 覆盖新日期（标题与列表对不上、按下标播放错位）
+    const seq = ++loadSeqRef.current
     const start = parseDateText(startDate)
     const end = parseDateText(isRange ? endDate : startDate)
     if (!start || !end) return
@@ -115,12 +119,14 @@ export default memo(() => {
     listRef.current?.setStatus('loading')
     void getPlayHistoryByRange(startTime, endTime)
       .then((history) => {
+        if (seq !== loadSeqRef.current) return
         const nextList = history.map(normalizeHistoryMusic)
         setList(nextList)
         listRef.current?.setList(nextList, false, true)
         listRef.current?.setStatus('idle')
       })
       .catch((err: any) => {
+        if (seq !== loadSeqRef.current) return
         console.log(err)
         toast(err.message || '播放历史加载失败')
         listRef.current?.setStatus('error')

@@ -30,7 +30,10 @@ const hookTools = {
     this.hooks.push(hook)
   },
   remove(hook: Hook) {
-    this.hooks.splice(this.hooks.indexOf(hook), 1)
+    // 低：不在数组时 indexOf 为 -1，splice(-1, 1) 会误删最后一个仍挂载
+    // 组件的语言 hook（其此后切换语言不再刷新）
+    const i = this.hooks.indexOf(hook)
+    if (i >= 0) this.hooks.splice(i, 1)
   },
   update(locale: Parameters<Hook>[0]) {
     for (const hook of this.hooks) hook(locale)
@@ -78,7 +81,9 @@ const createI18n = (_locale: Langs = locale): I18n => {
     },
     fillMessage(message: string, vals: TranslateValues): string {
       for (const [key, val] of Object.entries(vals)) {
-        message = message.replace(new RegExp('{' + key + '}', 'g'), String(val))
+        // 低：函数式 replacer——填入值（远程歌名/歌手名）含 $$、$& 等时，
+        // 字符串式 replace 会把它们当特殊模式展开导致显示错乱
+        message = message.replace(new RegExp('{' + key + '}', 'g'), () => String(val))
       }
       return message
     },

@@ -41,6 +41,7 @@ const mrcTools = {
         return `<${parseInt(result[1]) - startTime},${result[2]}>`
       })
       const wordArr = words.split(this.rxps.wordTime)
+      wordArr.shift() // 中：少一次 shift（wy 同型代码有）——每句时间戳与文字错位一位、最后一词被丢弃
       const newWords = times.map((time, index) => `${time}${wordArr[index]}`).join('')
       lxlrcLines.push(`[${time}]${newWords}`)
     }

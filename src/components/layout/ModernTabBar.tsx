@@ -160,7 +160,10 @@ export default memo(() => {
   const handleLensBarLayout = useCallback((e: LayoutChangeEvent) => {
     setBarWidth(e.nativeEvent.layout.width)
   }, [])
-  const activeIndex = Math.max(TAB_IDS.findIndex((tab) => tab.id === activeId), 0)
+  // 低（存疑加固）：当前页不是五个 tab 之一时 findIndex 为 -1——此前
+  // Math.max 钳到 0，透镜错误地停在第一个 tab 上。-1 时不渲染透镜。
+  const rawActiveIndex = TAB_IDS.findIndex((tab) => tab.id === activeId)
+  const activeIndex = Math.max(rawActiveIndex, 0)
   // 药丸目标中心 = 目标 tab 的中点；首次设置直接落位（不显形），之后原生弹簧滑动
   const lensX = barWidth > 0 ? ((activeIndex + 0.5) * barWidth) / TAB_IDS.length : 0
   // 药丸压扁（2026-09-29 定案）：宽度恒 = 一个 tab 区间的宽度 → 无论停在哪个 tab
@@ -218,7 +221,7 @@ export default memo(() => {
         <LiquidGlass glassOpacity={glassOpacity} dark={theme.isDark} liquid={liquidGlassOn} paused={glassPaused} style={{ borderRadius: designRadius.glass }} />
         {/* 液态透镜药丸（tab 切换动画）：玻璃之上、tab 内容之下；快速点击走
             Pressable 切页，透镜动画由原生弹簧驱动 */}
-        {liquidGlassOn && !collapsed && barWidth > 0 && (
+        {liquidGlassOn && !collapsed && barWidth > 0 && rawActiveIndex >= 0 && (
           <LiquidLens
             style={lensStyle}
             x={lensX}

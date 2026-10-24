@@ -28,7 +28,9 @@ export default memo(
           <Text style={styles.label} size={14}>
             {label}
           </Text>
-          {onChanged ? (
+          {/* 低：按钮组是歌词专属文案（移除歌词/在线匹配）——此前只要有
+              onChanged 就渲染，文件名行也挂着这组按钮，点「移除」会清掉文件名 */}
+          {onChanged && onOnlineMatch ? (
             <View style={styles.btns}>
               <TouchableOpacity onPress={handleRemove}>
                 <Text size={13} color={theme['c-button-font']}>

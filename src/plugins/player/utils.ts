@@ -153,7 +153,7 @@ const playMusic = ((fn: (musicInfo: LX.Player.PlayMusic, url: string, time: numb
   let _url = ''
   let _time = 0
   let _quality: LX.Quality | null = null
-  return (musicInfo: LX.Player.PlayMusic, url: string, time: number, quality?: LX.Quality | null) => {
+  const runner = (musicInfo: LX.Player.PlayMusic, url: string, time: number, quality?: LX.Quality | null) => {
     _musicInfo = musicInfo
     _url = url
     _time = time
@@ -189,6 +189,25 @@ const playMusic = ((fn: (musicInfo: LX.Player.PlayMusic, url: string, time: numb
       }, 500)
     }
   }
+  // 中-4：取消已排队的延迟装载——快速切歌后 800ms 内按暂停/停止时，
+  // 原实现没有任何句柄能撤掉这次装载，到点照常起播（core 层修过的
+  // 「暂停后自响」竞态漏了这一层）
+  ;(runner as any).cancel = () => {
+    if (timer) {
+      BackgroundTimer.clearTimeout(timer)
+      timer = null
+    }
+    if (delayTimer) {
+      BackgroundTimer.clearTimeout(delayTimer)
+      delayTimer = null
+    }
+    isDelayRun = false
+    _musicInfo = null
+    _url = ''
+    _time = 0
+    _quality = null
+  }
+  return runner
 })((musicInfo, url, time, quality) => {
   handlePlayMusic(musicInfo, url, time, quality)
 })
@@ -196,6 +215,11 @@ const playMusic = ((fn: (musicInfo: LX.Player.PlayMusic, url: string, time: numb
 export const setResource = (musicInfo: LX.Player.PlayMusic, url: string, duration?: number, quality?: LX.Quality | null) => {
   playerState.quality = quality ?? null
   playMusic(musicInfo, url, duration ?? 0, quality)
+}
+
+/** 取消 setResource 已排队的延迟装载（暂停/停止时调用，防到点自响） */
+export const cancelPendingSetResource = () => {
+  ;(playMusic as any).cancel?.()
 }
 
 export const setPlay = async() => {
@@ -230,7 +254,8 @@ export const elapsedSnapshotFields = (stamped: StampedPosition) => {
 
 export const getPlaybackEngineState = async(): Promise<'idle' | 'loading' | 'buffering' | 'playing' | 'paused' | 'stopped'> => {
   if (Platform.OS == 'ios' && isNativeFlacActive()) {
-    return getNativeFlacState().catch(() => 'playing' as const)
+    // 低-22：异常默认回 'paused'——回 'playing' 会让进度/歌词锚点在状态未知时乱推进
+    return getNativeFlacState().catch(() => 'paused' as const)
   }
   try {
     const state = await TrackPlayer.getState()
@@ -242,7 +267,7 @@ export const getPlaybackEngineState = async(): Promise<'idle' | 'loading' | 'buf
       case State.Stopped: return 'stopped'
       default: return 'idle'
     }
-  } catch { return 'playing' }
+  } catch { return 'paused' } // 低-22：同上，状态未知按暂停处理
 }
 
 export const getDuration = async() => {

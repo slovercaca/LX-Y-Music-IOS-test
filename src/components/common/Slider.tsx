@@ -28,7 +28,8 @@ export default memo(
     const theme = useTheme()
 
     const handleValueChange = (value: number) => {
-      if (onValueChange && minimumValue != null) onValueChange(Math.max(value, minimumValue))
+      // 低：此前不传 minimumValue 时回调被整体吞掉（现行调用方都传了才没暴露）
+      if (onValueChange) onValueChange(minimumValue != null ? Math.max(value, minimumValue) : value)
     }
 
     return (

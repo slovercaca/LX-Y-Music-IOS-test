@@ -1,5 +1,5 @@
 import { Navigation } from 'react-native-navigation'
-import { VERSION_MODAL, PACT_MODAL, SYNC_MODE_MODAL, ANNOUNCEMENT_MODAL } from './screenNames'
+import { PACT_MODAL, SYNC_MODE_MODAL, ANNOUNCEMENT_MODAL } from './screenNames' // 低：VERSION_MODAL 已删除，残留 import 只会让校验报错、误导维护
 import themeState from '@/store/theme/state'
 
 const pendingOverlays = new Set<string>()
@@ -97,13 +97,13 @@ export const showPactModal = () => {
 }
 
 
-export const showSyncModeModal = () => {
+export const showSyncModeModal = (onFail?: () => void) => {
   if (pendingOverlays.has(SYNC_MODE_MODAL)) return
   pendingOverlays.add(SYNC_MODE_MODAL)
   setTimeout(() => pendingOverlays.delete(SYNC_MODE_MODAL), 500)
   const theme = themeState.theme
 
-  void Navigation.showOverlay({
+  const overlayConfig = {
     component: {
       name: SYNC_MODE_MODAL,
       options: {
@@ -146,7 +146,25 @@ export const showSyncModeModal = () => {
         // },
       },
     },
-  })
+  }
+
+  // 中：showOverlay 此前无 catch 无重试——窗口未就绪/转场竞态 reject 时
+  // 未处理 rejection + 弹窗永不出现，等待方 Promise 永久悬挂且无提示。
+  // 失败重试一次，仍失败则回调让等待方取消，不再无声悬挂。
+  const tryShow = async(): Promise<void> => {
+    try {
+      await Navigation.showOverlay(overlayConfig)
+    } catch (err) {
+      console.warn('[navigation] showSyncModeModal failed, retrying once:', err)
+      try {
+        await Navigation.showOverlay(overlayConfig)
+      } catch (retryErr) {
+        console.error('[navigation] showSyncModeModal retry failed:', retryErr)
+        onFail?.()
+      }
+    }
+  }
+  void tryShow()
 }
 
 // export const showToast = (text) => {

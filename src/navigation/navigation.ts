@@ -45,9 +45,14 @@ const startPush = (id: COMPONENT_IDS, options: StartPushOptions = {}) => {
   if (pendingPushes.has(id)) return false
   if (isTopScreen(id)) {
     if (!options.allowSameTop && !options.recoverStaleTop) return false
-    const ids = commonState.componentIds
-    const stale = ids[ids.length - 1]
-    if (stale) commonActions.removeComponentId(stale.id)
+    // 中：只有 recoverStaleTop（账本残留、页面其实不在栈里）才删账本——
+    // allowSameTop（相似歌手压栈）时底层页面还活在栈里，删它的账本会让
+    // 返回后多个消费方拿到错位的 componentId
+    if (options.recoverStaleTop) {
+      const ids = commonState.componentIds
+      const stale = ids[ids.length - 1]
+      if (stale) commonActions.removeComponentId(stale.id)
+    }
   }
   pendingPushes.add(id)
   // 安全兜底：即使 push 的 Promise 始终不结算（如 RNN 返回 undefined 或原生转场挂起），
@@ -247,8 +252,10 @@ export function pushSonglistDetailScreen(componentId: string, info: ListInfoItem
         name: SONGLIST_DETAIL_SCREEN,
         passProps: {
           info,
-          // 独立 push 时没有外部 onBack，详情页的返回按钮需要 componentId 才能pop自己
-          componentId,
+          // 高（存疑消除）：不要把调用方 componentId 塞进 passProps——RNN 会
+          // 注入详情屏自己的 componentId（其余详情屏都靠注入），同名键谁覆盖
+          // 谁取决于 RNN 版本实现；若调用方 id 胜出，返回按钮 pop 错屏、
+          // 账本登记重复，歌单详情可能只能打开一次
         },
         options: {
           topBar: {

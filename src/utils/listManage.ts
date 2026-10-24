@@ -482,6 +482,15 @@ export async function applyListOperation(
     }
   }
 
-  data.userList = Array.from(userListMap.values())
+  // 中：此前无条件按 Map 顺序重建——list_create 的 splice 插入位置与
+  // list_update_position 的重排都被抹掉（新歌单永远落末尾、远程拖动
+  // 排序同步到本机不生效）。改以 data.userList 的现有顺序为准（各分支
+  // 已在它上面维护顺序），Map 只用来过滤已删项、兜底补入缺失项。
+  const idsInArray = new Set(data.userList.map((l: any) => l.id))
+  const orderedUserList = data.userList.filter((l: any) => userListMap.has(l.id))
+  for (const [id, listInfo] of userListMap) {
+    if (!idsInArray.has(id)) orderedUserList.push(listInfo)
+  }
+  data.userList = orderedUserList
   return data
 }

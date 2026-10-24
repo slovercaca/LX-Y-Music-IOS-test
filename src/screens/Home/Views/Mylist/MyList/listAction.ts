@@ -71,7 +71,9 @@ const exportList = async(listInfo: LX.List.MyListInfo, path: string) => {
   try {
     await handleSaveFile(`${path}/lx_list_part_${filterFileName(listInfo.name)}.lxmc`, data)
   } catch (error: any) {
+    // 中-15：原来只记日志不上抛，外层 .then 恒弹「导出成功」，写失败时用户被骗
     log.error(error.stack)
+    throw error
   }
 }
 

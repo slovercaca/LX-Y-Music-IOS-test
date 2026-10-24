@@ -34,6 +34,8 @@ const IMAGE_WIDTH = scaleSizeW(104)
 
 const ListHeader = ({ detailInfo, info, onBack, showSearchBar, searchText, isFuzzySearch, onToggleSearch, onSearchTextChanged, onToggleSearchMode }: { detailInfo: DetailInfo, info: ListInfoItem, onBack?: () => void, showSearchBar: boolean, searchText: string, isFuzzySearch: boolean, onToggleSearch: () => void, onSearchTextChanged: (text: string) => void, onToggleSearchMode: () => void }) => {
   const theme = useTheme()
+  // S-N11：歌单简介展开/收起（默认截断 3 行）——状态必须声明在本组件内
+  const [descExpanded, setDescExpanded] = useState(false)
   const statusBarHeight = useStatusbarHeight()
   const loggedInUserId = useWyUid()
   const isSubscribed = useIsWyPlaylistSubscribed(info.id)
@@ -84,7 +86,7 @@ const ListHeader = ({ detailInfo, info, onBack, showSearchBar, searchText, isFuz
               </View>
             ) : (
               <Image
-                nativeID={`${NAV_SHEAR_NATIVE_IDS.songlistDetail_pic}_to_${info.id}`}
+                nativeID={`${NAV_SHEAR_NATIVE_IDS.songlistDetail_pic}_to_${info.source}_${info.id}`}
                 url={detailInfo.imgUrl}
                 style={styles.cover}
               />
@@ -166,8 +168,6 @@ export default ({ info, onBack, componentId, initialScrollToInfo }: { info: List
     total: Number(info.total) || 0,
   })
   const [showSearchBar, setShowSearchBar] = useState(false)
-  // S-N11：歌单简介展开/收起（默认截断 3 行）
-  const [descExpanded, setDescExpanded] = useState(false)
   const [searchText, setSearchText] = useState('')
   const [isFuzzySearch, setIsFuzzySearch] = useState(true)
   const playlists = useWySubscribedPlaylists()
@@ -241,6 +241,9 @@ export default ({ info, onBack, componentId, initialScrollToInfo }: { info: List
       isInitialMount.current = false
       return
     }
+    // 存疑修复：订阅列表是网易云的，按 id 匹配前先确认本页也是 wy——
+    // 其他平台歌单 id 撞上时，页头歌单名/简介会被网易云那条覆盖显示
+    if (info.source !== 'wy') return
     const updatedPlaylist = playlists.find(p => String(p.id) === String(info.id))
     if (!updatedPlaylist) {
       return

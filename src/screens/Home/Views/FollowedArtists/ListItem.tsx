@@ -26,7 +26,7 @@ export default memo(({ artist, showFollowButton = false }: { artist: any, showFo
         const artistInfoForStore: FollowedArtistInfo = {
           id: artist.id,
           name: artist.name,
-          alias: artist.alias ? artist.alias[0] : null,
+          alias: artist.alias ? [...artist.alias] : null, // 低：此前只存 alias[0] 单个字符串，列表按数组取 [0] 只剩第一个字
           albumSize: artist.albumSize,
           picUrl: artist.picUrl,
           img1v1Url: artist.picUrl,

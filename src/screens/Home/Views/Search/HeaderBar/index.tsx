@@ -66,8 +66,20 @@ export default forwardRef<HeaderBarType, HeaderBarProps>(
     const tipGenRef = useRef(0)
 
     useEffect(() => {
+      // 中-13：切源时不只清词——还要掐掉待发的防抖与在途请求，否则旧源联想词
+      // 会在定时器到点后回填到新源下面
+      if (tipTimerRef.current) clearTimeout(tipTimerRef.current)
+      tipGenRef.current++
       setTips([])
     }, [source])
+
+    // 卸载清理：搜索头会随 headerKey 重挂载，残留定时器会对已卸载组件 setState
+    useEffect(() => {
+      return () => {
+        if (tipTimerRef.current) clearTimeout(tipTimerRef.current)
+        tipGenRef.current++
+      }
+    }, [])
 
     const handleChangeText = useCallback<SearchInputProps['onChangeText']>((text) => {
       const kw = text.trim()

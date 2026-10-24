@@ -31,7 +31,7 @@ export interface MusicListType {
   addSongToList: (rawSong: any) => void
 }
 
-export default forwardRef<MusicListType, MusicListProps>(({ componentId, isCreator, playingId, searchText, isFuzzySearch }, ref) => {
+export default forwardRef<MusicListType, MusicListProps>(({ componentId, isCreator, playingId, searchText, isFuzzySearch, onListUpdate }, ref) => {
   const listRef = useRef<OnlineListType>(null)
   const isUnmountedRef = useRef(false)
   const info = useListInfo()
@@ -144,8 +144,13 @@ export default forwardRef<MusicListType, MusicListProps>(({ componentId, isCreat
         // store 必须与界面同源：handlePlayList 用「store 的列表 + 界面下标」点歌，
         // 后台逐页补全时若只刷新界面不更新 store，界面有 800 首而 store 还停在 100 首，
         // 点第 300 行 → getList()[299] 是 undefined → 静默不播（用户：点了没反应）。
-        songlistState.listDetailInfo.list = songs
-        songlistState.listDetailInfo.total = lastTotal || songs.length
+        // 高-2：写 store 前先确认 store 还属于本歌单——用户切到歌单 B 后，
+        // A 的后台补全回调会把 A 的歌写进 B 的 store，B 页「播放全部/收藏」
+        // 读 store 就会用 B 的 id 播/收藏 A 的歌。不一致时只落盘缓存。
+        if (songlistState.listDetailInfo.id === id && songlistState.listDetailInfo.source === source) {
+          songlistState.listDetailInfo.list = songs
+          songlistState.listDetailInfo.total = lastTotal || songs.length
+        }
         if (isUnmountedRef.current) return
         fullListRef.current = songs
         const filtered = searchText.trim() ? filterList(songs, searchText, isFuzzySearch) : songs
@@ -275,6 +280,8 @@ export default forwardRef<MusicListType, MusicListProps>(({ componentId, isCreat
         return getListDetail(id, source, page, isRefresh)
           .then((listDetail) => {
             if (global.lx.isEnableLog) log.info('[SonglistDetail] loadList got data', { songCount: listDetail.list.length, total: listDetail.total })
+            // 高-2：已离开本页（用户切到别的歌单）时不写共享 store，防迟到结果覆写
+            if (isUnmountedRef.current) return createDetailInfo(listDetail.info)
             const result = setListDetail(listDetail, id, page)
             if (isUnmountedRef.current) return createDetailInfo(result.info)
             const filtered = searchText.trim() ? filterList(result.list, searchText, isFuzzySearch) : result.list
@@ -313,7 +320,7 @@ export default forwardRef<MusicListType, MusicListProps>(({ componentId, isCreat
             if (castedList.some(s => s.id === targetInfo.id)) {
               songlistState.listDetailInfo.list = castedList
               fullListRef.current = castedList
-              const filtered = filterList(castedList, searchText)
+              const filtered = filterList(castedList, searchText, isFuzzySearch) // 中：漏传模糊标志会让已搜到的歌整批消失（其余调用点都传了）
               listRef.current?.setList(filtered)
               setTimeout(() => {
                 listRef.current?.scrollToInfo(targetInfo)
@@ -343,7 +350,7 @@ export default forwardRef<MusicListType, MusicListProps>(({ componentId, isCreat
           songlistState.listDetailInfo.list = currentList
           songlistState.listDetailInfo.total = currentList.length
           fullListRef.current = currentList
-          const filtered = filterList(currentList, searchText)
+          const filtered = filterList(currentList, searchText, isFuzzySearch) // 中：同上，补传 isFuzzySearch
           listRef.current?.setList(filtered)
           log.info(`[乐观更新] 已添加歌曲到列表: ${song.name}, 当前共 ${currentList.length} 首`)
         }
@@ -366,7 +373,14 @@ export default forwardRef<MusicListType, MusicListProps>(({ componentId, isCreat
   const handlePlayList: OnlineListProps['onPlayList'] = (index, item) => {
     const listDetailInfo = songlistState.listDetailInfo
     const list = fullListRef.current.length ? fullListRef.current : listDetailInfo.list
-    const targetIndex = item ? list.findIndex(m => m.id === item.id) : index
+    // 低：同歌两副本时先按对象引用找（过滤列表与全量列表共享对象引用），
+    // 找不到再按 id——此前恒命中第一个副本，播后队列位置与所见不符
+    const targetIndex = item
+      ? (() => {
+          const byRef = list.findIndex(m => m === item)
+          return byRef >= 0 ? byRef : list.findIndex(m => m.id === item.id)
+        })()
+      : index
     void handlePlay(listDetailInfo.id, listDetailInfo.source, list, targetIndex < 0 ? index : targetIndex)
   }
 
@@ -395,7 +409,7 @@ export default forwardRef<MusicListType, MusicListProps>(({ componentId, isCreat
         // 若与界面上已有数据重复拼接，store 会比界面更脏，点歌下标又会错位。
         songlistState.listDetailInfo.list = fullListRef.current
         // 同步更新列表显示
-        const filtered = searchText.trim() ? filterList(fullListRef.current, searchText) : fullListRef.current
+        const filtered = searchText.trim() ? filterList(fullListRef.current, searchText, isFuzzySearch) : fullListRef.current // 中：同上，补传 isFuzzySearch
         listRef.current?.setList(filtered)
         listRef.current?.setStatus(songlistState.listDetailInfo.maxPage <= page ? 'end' : 'idle')
       })
@@ -408,7 +422,10 @@ export default forwardRef<MusicListType, MusicListProps>(({ componentId, isCreat
   const handleListUpdate = useCallback((newList: LX.Music.MusicInfoOnline[]) => {
     if (isUnmountedRef.current) return
     songlistState.listDetailInfo.list = newList
-  }, [])
+    // 低：父组件传入的 onListUpdate 此前在解构时被丢弃，detailInfo.total
+    // 永不更新，依赖它的定位判断一直用过期总数
+    onListUpdate?.(newList)
+  }, [onListUpdate])
 
   return (
     <OnlineList componentId={componentId}

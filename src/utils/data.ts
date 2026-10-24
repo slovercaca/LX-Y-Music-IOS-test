@@ -373,6 +373,7 @@ export const getListMusics = async(listId: string): Promise<LX.Music.MusicInfo[]
 export const saveListMusics = async(
   listData: Array<{ id: string, musics: LX.Music.MusicInfo[] }>,
 ) => {
+  if (!listData.length) return // 低：空数组此前取 listData[0].id 崩溃
   if (listData.length > 1) {
     await saveDataMultiple(listData.map((list) => [listPrefix + list.id, list.musics]))
   } else {
@@ -386,6 +387,7 @@ export const saveListMusics = async(
  * @param ids
  */
 export const removeListMusics = async(ids: string[]): Promise<void> => {
+  if (!ids.length) return // 低：空数组此前误删假键 @list__undefined
   if (ids.length > 1) {
     await removeDataMultiple(
       ids.map((id) => {
@@ -602,13 +604,17 @@ export const getSyncHostHistory = async() => {
   return syncHostHistory
 }
 export const addSyncHostHistory = async(host: string) => {
-  let syncHostHistory = await getSyncHostHistory()
-  if (syncHostHistory.some((h) => h == host)) return
-  syncHostHistory.unshift(host)
-  if (syncHostHistory.length > 20) syncHostHistory = syncHostHistory.slice(0, 20)
+  // 低：此前用同名局部变量遮蔽模块变量，截断只重绑局部变量——20 条
+  // 上限在内存缓存里失效（下次读到的还是未截断的旧数组）
+  const history = await getSyncHostHistory()
+  if (history.some((h) => h == host)) return
+  history.unshift(host)
+  syncHostHistory = history.slice(0, 20)
   await saveData(syncHostHistoryPrefix, syncHostHistory)
 }
 export const removeSyncHostHistory = async(index: number) => {
+  // 低：未初始化时模块变量可能为空数组/未加载，先确保已加载再 splice
+  if (!syncHostHistory.length) await getSyncHostHistory()
   syncHostHistory.splice(index, 1)
   await saveData(syncHostHistoryPrefix, syncHostHistory)
 }

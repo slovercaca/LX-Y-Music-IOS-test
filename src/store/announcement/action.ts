@@ -10,8 +10,11 @@ export default {
   },
   setShowModal(visible: boolean) {
     state.showModal = visible
+    // 低：此前只改 state 不广播，hook 副本会过期（与 setAnnouncementInfo 对齐）
+    global.state_event.announcementUpdated({ ...state })
   },
   setLocalAnnouncementId(id: string | null) {
     state.localAnnouncementId = id
+    global.state_event.announcementUpdated({ ...state })
   },
 }

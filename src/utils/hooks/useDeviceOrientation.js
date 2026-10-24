@@ -24,7 +24,8 @@ export default () => {
     const changeEvent = windowSizeTools.onSizeChanged(onChange)
 
     return () => {
-      changeEvent.remove()
+      // 低：onSizeChanged 返回的是退订函数本身，此前调不存在的 .remove()，卸载即抛错且监听摘不掉
+      changeEvent()
     }
   }, [onChange])
 

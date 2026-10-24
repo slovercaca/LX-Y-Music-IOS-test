@@ -100,6 +100,9 @@ export default memo(({ page }: { page: UploadTabProps }) => {
   const chunkedEnabled = useSettingValue('webdav.uploadChunked')
   const chunkSizeMB = useSettingValue('webdav.uploadChunkSizeMB')
   const stallTimeoutSec = useSettingValue('webdav.uploadStallTimeoutSec')
+  // 低：看门狗秒数本地暂存、失焦才写设置——此前每击键即写全局，删剩
+  // 「1」即 1 秒生效误杀上传、清空即关闭看门狗
+  const [stallDraft, setStallDraft] = useState<string | null>(null)
 
   const [pickerExpanded, setPickerExpanded] = useState(false)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
@@ -265,16 +268,17 @@ export default memo(({ page }: { page: UploadTabProps }) => {
             </View>
             <TextInput
               style={[styles.timeoutInput, { borderColor: theme['c-border-background'], color: theme['c-font'] }]}
-              value={String(stallTimeoutSec ?? 15)}
+              value={stallDraft ?? String(stallTimeoutSec ?? 15)}
               keyboardType="number-pad"
               editable={queueState !== 'uploading'}
-              onChangeText={(text) => {
-                const v = parseInt(text.replace(/[^0-9]/g, ''), 10)
+              onChangeText={setStallDraft}
+              onBlur={() => {
+                if (stallDraft == null) return
+                const v = parseInt(stallDraft.replace(/[^0-9]/g, ''), 10)
                 if (!isNaN(v) && v >= 0 && v <= 3600) {
                   void updateSetting({ 'webdav.uploadStallTimeoutSec': v })
-                } else if (text === '') {
-                  void updateSetting({ 'webdav.uploadStallTimeoutSec': 0 })
                 }
+                setStallDraft(null)
               }}
             />
           </View>

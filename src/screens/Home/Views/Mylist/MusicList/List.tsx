@@ -444,7 +444,10 @@ const List = forwardRef<ListType, ListProps>(
     }, [])
     const getkey: FlatListType['keyExtractor'] = (item) => item.id
     const getItemLayout: FlatListType['getItemLayout'] = (data, index) => {
-      return { length: ITEM_HEIGHT, offset: ITEM_HEIGHT * index, index }
+      // 中：多列（iPad 横屏）时 offset 必须按行算——此前按单列算整体
+      // 度量错位、定位偏移（OnlineList 已是行换算写法，对齐之）
+      const rowIndex = Math.floor(index / numColumns)
+      return { length: ITEM_HEIGHT, offset: ITEM_HEIGHT * rowIndex, index }
     }
 
     return (

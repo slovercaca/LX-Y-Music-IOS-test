@@ -105,6 +105,7 @@ export default forwardRef<ScriptImportExportType, ScriptImportExportProps>((prop
             .then(async(fullPath) => shareFile(fullPath))
             .then(() => { toast(global.i18n.t('user_api_export_success_tip')) })
             .catch((err: any) => {
+              if (err?.code === 'share_cancelled') return // 低：用户在分享面板取消，不提示失败（原生改为按完成才 resolve）
               if (err?.code === 'file_not_found') {
                 toast(global.i18n.t('user_api_export_failed_tip', { message: '' }), 'long')
                 return

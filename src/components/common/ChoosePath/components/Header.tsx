@@ -30,9 +30,13 @@ export default memo(
     const storagePathsRef = useRef<string[]>([])
     const statusBarHeight = useStatusbarHeight()
 
+    // 低：把加载 Promise 存下来供 openStorage 等待——此前外部存储路径
+    // 异步未就绪时点 SD 卡拿到空列表、显示「未找到设备」，稍后再点又正常
+    const storagePathsPromiseRef = useRef<Promise<void> | null>(null)
     const checkExternalStoragePath = useCallback(() => {
       storagePathsRef.current = []
-      void getExternalStoragePaths().then(async(storagePaths) => {
+      storagePathsPromiseRef.current = (async() => {
+        const storagePaths = await getExternalStoragePaths()
         for (const path of storagePaths) {
           try {
             if (!(await stat(path)).canRead) continue
@@ -41,7 +45,7 @@ export default memo(
           }
           storagePathsRef.current.push(path)
         }
-      })
+      })()
     }, [])
     useEffect(() => {
       checkExternalStoragePath()
@@ -53,7 +57,9 @@ export default memo(
     }
 
     const openStorage = () => {
-      openDirModalTypeRef.current?.show(storagePathsRef.current)
+      void (storagePathsPromiseRef.current ?? Promise.resolve()).then(() => {
+        openDirModalTypeRef.current?.show(storagePathsRef.current)
+      })
     }
 
     const handleShowNewFolderModal = () => {

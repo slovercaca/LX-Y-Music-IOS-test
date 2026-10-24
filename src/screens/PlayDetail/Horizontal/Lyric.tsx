@@ -667,7 +667,8 @@ export default () => {
       global.app_event.setProgress(line.time / 1000)
     }
 
-    handleScrollToActive(index)
+    // 低-34：与竖屏对齐传 force=true——此前先动画滑再硬跳，观感不一致
+    handleScrollToActive(index, true)
   }, [lyricLines, handleScrollToActive])
 
   const renderItem: FlatListType['renderItem'] = ({ item, index }) => {

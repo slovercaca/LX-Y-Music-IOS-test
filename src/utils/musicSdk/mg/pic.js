@@ -11,10 +11,12 @@ export default {
         },
       },
     )
-    requestObj.promise.then(({ body }) => {
+    // 高：变换后的 promise 必须赋回——此前调用方拿到原始响应对象而非
+    // 图片 URL，咪咕封面整体失效；失败重试还误调 getPic（应为 getPicUrl）
+    requestObj.promise = requestObj.promise.then(({ body }) => {
       if (body.returnCode !== '000000') {
         if (tryNum > 5) return Promise.reject(new Error('图片获取失败'))
-        let tryRequestObj = this.getPic(songId, ++tryNum)
+        let tryRequestObj = this.getPicUrl(songId, ++tryNum)
         requestObj.cancelHttp = tryRequestObj.cancelHttp.bind(tryRequestObj)
         return tryRequestObj.promise
       }

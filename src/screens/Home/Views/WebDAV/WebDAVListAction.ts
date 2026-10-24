@@ -30,11 +30,34 @@ import { LIST_IDS } from '@/config/constant'
  * 旧版单曲下载是直写目标文件、无原子保护）。
  */
 
-const parsePathForName = (filePath: string) => ({
-  ext: filePath.split('.').pop()?.toLowerCase() || '',
-  nameWithoutExt: filePath.substring(0, filePath.lastIndexOf('.')),
-  fileName: filePath.split('/').pop() || '',
-})
+const parsePathForName = (filePath: string) => {
+  const fileName = filePath.split('/').pop() || ''
+  const dot = fileName.lastIndexOf('.')
+  return {
+    ext: dot > 0 ? fileName.slice(dot + 1).toLowerCase() : '',
+    // 中：此前对完整路径截扩展名，占位条目/无标签歌曲的歌名是整条文件路径
+    nameWithoutExt: dot > 0 ? fileName.substring(0, dot) : fileName,
+    fileName,
+  }
+}
+
+// P1-19 的本地命名规则（父目录前缀防同名覆盖）：批量与单曲必须共用同一
+// 推导——此前单曲只用裸文件名、只查裸路径，批量下过的歌单曲再下会重复
+// 下载一份、meta 还改指新副本（中）
+const resolveLocalFileName = (musicInfo: LX.WebDAV.MusicInfo): string => {
+  const fileName = musicInfo.meta.fileName || ''
+  const remotePath = musicInfo.meta.remotePath
+  if (remotePath) {
+    const segments = remotePath.split('/').filter(Boolean)
+    if (segments.length >= 2) {
+      const parentDir = segments[segments.length - 2].replace(/[/\\:*?"<>|]/g, '_')
+      if (parentDir && parentDir.toLowerCase() !== 'music') {
+        return `${parentDir}_${fileName}`
+      }
+    }
+  }
+  return fileName
+}
 
 const chunk = <T>(arr: T[], size: number): T[][] => {
   const result: T[][] = []
@@ -96,8 +119,30 @@ export const handleWebDAVDownload = async(
   const musicDir = `${downloadDir}/music`
   const lrcDir = `${downloadDir}/lrc`
   const picDir = `${downloadDir}/picture`
-  const filePath = `${musicDir}/${fileName}`
+  // 中：与批量同一命名（父目录前缀）+ 双路存在检查，避免重复下载
+  const localFileName = resolveLocalFileName(musicInfo)
+  const filePath = `${musicDir}/${localFileName}`
+  const legacyFilePath = `${musicDir}/${fileName}`
   const exists = await existsFile(filePath).catch(() => false)
+  const legacyExists = !exists && localFileName !== fileName
+    ? await existsFile(legacyFilePath).catch(() => false)
+    : false
+
+  if (legacyExists) {
+    // 旧命名副本已在盘上：回写 meta 指向它，按函数尾部的同一形状返回
+    await updateWebDAVMusicMeta(musicInfo.id, { filePath: legacyFilePath })
+    try {
+      const picPath = await readPic(legacyFilePath).catch(() => null)
+      if (picPath) {
+        const newPicUrl = picPath.startsWith('/') ? `file://${picPath}` : picPath
+        await updateWebDAVMusicMeta(musicInfo.id, { picUrl: newPicUrl })
+        return { picUrl: newPicUrl, filePath: legacyFilePath }
+      }
+    } catch {
+      // ignore
+    }
+    return { filePath: legacyFilePath }
+  }
 
   if (!exists) {
     try {
@@ -236,18 +281,7 @@ export const handleWebDAVBatchDownload = async(
       const musicDir = `${downloadDir}/music`
       // P1-19：不同远端目录的同名文件，用父目录名区分本地文件名，避免互相覆盖。
       // 如 /music/周杰伦/告白气球.flac → 周杰伦_告白气球.flac
-      let localFileName = fileName
-      const remotePath = musicInfo.meta.remotePath
-      if (remotePath) {
-        const segments = remotePath.split('/').filter(Boolean)
-        // 倒数第二段是父目录名（最后一段是文件名本身）
-        if (segments.length >= 2) {
-          const parentDir = segments[segments.length - 2].replace(/[/\\:*?"<>|]/g, '_')
-          if (parentDir && parentDir.toLowerCase() !== 'music') {
-            localFileName = `${parentDir}_${fileName}`
-          }
-        }
-      }
+      const localFileName = resolveLocalFileName(musicInfo)
       const filePath = `${musicDir}/${localFileName}`
 
       onProgress?.(currentIndex, songs.length, fileName)
@@ -435,6 +469,9 @@ export const handleWebDAVDownloadAndImport = async(
     }
 
     if (downloadedPaths.length === 0) {
+      // 高-7：这条 early return 漏清加载文案——batchLoadingText 永久残留，
+      // 扫描/下载/封面/上传四按钮全被锁死，只能靠点「取消」恢复
+      setLoadingText('')
       toast('没有成功下载任何歌曲')
       return
     }
@@ -629,10 +666,17 @@ export interface BatchCoverFailure {
   reason: string
 }
 
+// 批量取封面取消令牌（中-5）：此前取消按钮只清界面文案，后台照常搜图/下载/上传到全部完成
+let batchCoverCancelRequested = false
+export const requestCancelWebDAVBatchFetchCovers = () => {
+  batchCoverCancelRequested = true
+}
+
 export const handleBatchFetchCoversFromOnline = async(
   songs: LX.WebDAV.MusicInfo[],
   onProgress?: (current: number, total: number, currentSong: string) => void,
-): Promise<{ success: number, failed: number, failures: BatchCoverFailure[], failedSongs: LX.WebDAV.MusicInfo[] }> => {
+): Promise<{ success: number, failed: number, failures: BatchCoverFailure[], failedSongs: LX.WebDAV.MusicInfo[], cancelled: boolean }> => {
+  batchCoverCancelRequested = false
   const failures: BatchCoverFailure[] = []
   const failedSongs: LX.WebDAV.MusicInfo[] = []
   const markFailed = (song: LX.WebDAV.MusicInfo, reason: string) => {
@@ -644,18 +688,21 @@ export const handleBatchFetchCoversFromOnline = async(
 
   let success = 0
   let failed = 0
+  let doneCount = 0 // 完成计数（进度展示用，含跳过/失败）
   let index = 0
   const total = songs.length
 
   const workers = Array.from({ length: 4 }, async() => {
     while (index < total) {
+      if (batchCoverCancelRequested) return
       const i = index++
       const musicInfo = songs[i]
       // 已有网盘封面（或手动指定封面）跳过
       if (musicInfo.meta.picPath || musicInfo.meta.customPicPath) {
+        doneCount++
+        onProgress?.(doneCount, total, musicInfo.name || '')
         continue
       }
-      onProgress?.(i + 1, total, musicInfo.name || '')
       let tmpPath = ''
       try {
         const remoteAudioPath = musicInfo.meta.remotePath || musicInfo.meta.songId || ''
@@ -715,9 +762,13 @@ export const handleBatchFetchCoversFromOnline = async(
         markFailed(musicInfo, friendlyWebDAVError(err))
       } finally {
         if (tmpPath) await unlink(tmpPath).catch(() => {})
+        // 低：进度报「完成数」——此前报 worker 领取序号，4 并发下数字会
+        // 倒退/跳变（仅显示问题，但会让用户以为卡住或回退）
+        doneCount++
+        onProgress?.(doneCount, total, musicInfo.name || '')
       }
     }
   })
   await Promise.all(workers)
-  return { success, failed, failures, failedSongs }
+  return { success, failed, failures, failedSongs, cancelled: batchCoverCancelRequested }
 }

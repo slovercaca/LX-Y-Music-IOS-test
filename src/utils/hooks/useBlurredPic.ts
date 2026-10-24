@@ -34,8 +34,11 @@ export const useBlurredPic = (
       return
     }
 
+    // 中：切歌且无缓存命中时先清旧图——此前没有 else 重置，原生取图
+    // 失败返回 null 时整首歌顶着上一首的背景图（平均色却已刷成新值）
     const cachedPath = getCachedBlurredPic(uri, blurRadius)
     if (cachedPath) setBlurredUri(cachedPath)
+    else setBlurredUri(null)
     const cachedColor = getCachedBgPicColor(uri, blurRadius)
     if (cachedColor) setAvgColor(cachedColor)
 

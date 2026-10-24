@@ -60,6 +60,8 @@ export interface HistorySearchType {
 
 export default forwardRef<HistorySearchType, HistorySearchProps>((props, ref) => {
   const [list, setList] = useState<List>([])
+  const listRef = useRef<List>([])
+  useEffect(() => { listRef.current = list }, [list])
   const isUnmountedRef = useRef(false)
   const t = useI18n()
   const theme = useTheme()
@@ -99,13 +101,13 @@ export default forwardRef<HistorySearchType, HistorySearchProps>((props, ref) =>
   }
 
   const handleRemove = useCallback((keyword: string) => {
-    setList((list) => {
-      list = [...list]
-      const index = list.indexOf(keyword)
-      list.splice(index, 1)
-      removeHistoryWord(index)
-      return list
-    })
+    // 存疑修复：此前在 setState updater 里做存储副作用（updater 必须纯函数，
+    // 重复调用会误删存储），且 index=-1 时 splice(-1, 1) 会删掉最后一项。
+    // 改为先从 ref 里的最新列表算下标，守卫 -1，再分别更新状态与存储。
+    const index = listRef.current.indexOf(keyword)
+    if (index < 0) return
+    removeHistoryWord(index)
+    setList(listRef.current.filter((_, i) => i !== index))
   }, [])
 
   return list.length ? (

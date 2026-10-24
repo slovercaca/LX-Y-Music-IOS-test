@@ -16,7 +16,8 @@ export const getMusicQualityInfo = (id) => {
   const _types = {}
 
   requestObj.promise = requestObj.promise.then(({ statusCode, body }) => {
-    if (statusCode != 200 && body.code != 200) return Promise.reject(new Error('获取音质信息失败'))
+    // 中：判断应为 || ——仅一项失败时不拦截，会在缺失的 body.data 上崩溃或产出错误音质
+    if (statusCode != 200 || body.code != 200) return Promise.reject(new Error('获取音质信息失败'))
 
     const data = body.data
 

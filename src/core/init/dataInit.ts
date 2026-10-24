@@ -58,9 +58,12 @@ export default async(appSetting: LX.AppSetting) => {
     wyUserApi.getUid(wy_cookie)
       .then((uid: any) => {
         setWyUid(uid)
+        // 低：此前独缺 .catch（相邻两段都有），失败变 unhandled rejection 且 bootLog 无记录
         wyUserApi.getLikedSongList(uid, wy_cookie).then((ids: any) => {
           setWyLikedSongs(ids)
           bootLog('Wy like list inited.')
+        }).catch((err: any) => {
+          bootLog(`Wy like list init failed: ${err?.message ?? err}`)
         })
         wyUserApi.getAllSublist().then(artists => {
           setWyFollowedArtists(artists)

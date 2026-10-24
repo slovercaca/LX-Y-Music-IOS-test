@@ -271,10 +271,11 @@ async function getBilibiliMusicUrl(musicInfo, type) {
       log.info('[Bilibili] 非mcdn URL，尝试重试获取mcdn节点')
       for (let retry = 0; retry < 2; retry++) {
         try {
+          // 中：此前 await 的是请求对象而非 .promise，retryReq.body 恒 undefined、mcdn 重试永不生效
           const retryReq = await httpFetch('https://api.bilibili.com/x/player/playurl', {
             headers,
             params: { ...(bvid ? { bvid } : { aid }), cid, fnval: 16 },
-          })
+          }).promise
           const retryData = typeof retryReq.body === 'string' ? JSON.parse(retryReq.body) : retryReq.body
           const retryAudios = retryData?.data?.dash?.audio
           if (retryAudios && retryAudios.length > 0) {
@@ -420,7 +421,8 @@ const bilibili = {
           log.info('[Bilibili] getMusicUrl .then - result.url 值: ' + (result.url ? result.url.substring(0, 80) + '...' : '空'))
           log.info('[Bilibili] getMusicUrl .then - result.headers 是否存在: ' + (result.headers != null))
         }
-        const finalResult = { url: result?.url, headers: result?.headers, type }
+        // 低：实际固定 192k，此前返回请求音质 type——上层按错误音质标记/缓存
+        const finalResult = { url: result?.url, headers: result?.headers, type: bilibiliType }
         log.info('[Bilibili] getMusicUrl .then - 最终返回: url类型=' + typeof finalResult.url + ', url是否为空=' + (finalResult.url == null) + ', type=' + finalResult.type + ', hasHeaders=' + (finalResult.headers != null))
         return finalResult
       })

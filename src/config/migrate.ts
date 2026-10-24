@@ -63,8 +63,10 @@ export const getAllListData = async(): Promise<{
 }> => {
   const defaultListKey = storageDataPrefixOld.list + 'default'
   const loveListKey = storageDataPrefixOld.list + 'love'
+  const tempListKey = storageDataPrefixOld.list + 'temp'
   let defaultList
   let loveList
+  let tempList
   let userList = []
   let keys = await getAllKeys()
   const listKeys: string[] = []
@@ -82,6 +84,11 @@ export const getAllListData = async(): Promise<{
       case loveListKey:
         loveList = value
         break
+      case tempListKey:
+        // 低：旧临时列表此前落进 default 分支被当成用户歌单迁入（或丢失），
+        // 类型声明里有 tempList 却从不返回。单独接住并在下方返回。
+        tempList = value
+        break
       default:
         userList.push(value)
         break
@@ -91,8 +98,14 @@ export const getAllListData = async(): Promise<{
   const listSort: Record<string, number> = (await getData(storageDataPrefixOld.listSort)) ?? {}
 
   userList.sort((a, b) => {
-    if (listSort[a.id] == null) return listSort[b.id] == null ? -1 : 1
-    return listSort[b.id] == null ? 1 : listSort[a.id] - listSort[b.id]
+    // 低：原比较器两边都无序时恒返 -1（违反反对称性）、a 有序 b 无序时
+    // 返 1 把无序排前面——迁移后自建列表顺序错乱。无序统一排末尾。
+    const sa = listSort[a.id]
+    const sb = listSort[b.id]
+    if (sa == null && sb == null) return 0
+    if (sa == null) return 1
+    if (sb == null) return -1
+    return sa - sb
   })
   userList.forEach((list, index) => {
     if (listSort[list.id] == null) {
@@ -104,6 +117,7 @@ export const getAllListData = async(): Promise<{
   return {
     defaultList,
     loveList,
+    tempList,
     userList,
   }
 }
@@ -126,6 +140,7 @@ export const migrateListData = async() => {
     )
   }
   if (playList.loveList) { listDataAll.loveList = filterMusicList(playList.loveList.list.map((m) => toNewMusicInfo(m)!)) }
+  if (playList.tempList) { listDataAll.tempList = filterMusicList(playList.tempList.list.map((m) => toNewMusicInfo(m)!)) }
   if (playList.userList) {
     listDataAll.userList = playList.userList.map((l) => {
       return {

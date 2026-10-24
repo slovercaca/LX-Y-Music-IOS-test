@@ -66,7 +66,10 @@ export default () => {
       headerBarRef.current?.setSource(info.source, info.sortId, info.tagName, info.tagId)
       loadList()
     })
-  }, [loadList, headerKey])
+    // 中：headerKey 只作 HeaderBar 的 key、不进依赖——此前它一变（从详情
+    // 返回时）本 effect 与下面的 effect 各调一次 loadList，双份请求，
+    // 首份还可能用默认参数闪一帧错平台
+  }, [loadList])
 
   useEffect(() => {
     if (!selectedList) {

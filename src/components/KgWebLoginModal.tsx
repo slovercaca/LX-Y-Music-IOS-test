@@ -26,6 +26,7 @@ document.head.appendChild(s);</script></body></html>`
 const KgWebLoginModal = forwardRef<KgWebLoginModalType, object>((_, ref) => {
   const modalRef = useRef<ModalType>(null)
   const theme = useTheme()
+  const statusBarHeight = useStatusbarHeight() // 低：此前在 JSX 里调用 hook（规则违规，条件渲染一变就可能白屏）
   const [phone, setPhone] = useState('')
   const [code, setCode] = useState('')
   const [sending, setSending] = useState(false)
@@ -125,7 +126,7 @@ const KgWebLoginModal = forwardRef<KgWebLoginModalType, object>((_, ref) => {
   return (
     <Modal ref={modalRef} statusBarPadding={false} bgHide={false} bgColor="rgba(0,0,0,0.5)">
       <View style={styles.container}>
-        <View style={[styles.header, { height: 56 + useStatusbarHeight(), paddingTop: useStatusbarHeight(), backgroundColor: theme['c-content-background'] }]}>
+        <View style={[styles.header, { height: 56 + statusBarHeight, paddingTop: statusBarHeight, backgroundColor: theme['c-content-background'] }]}>
           <TouchableOpacity onPress={handleClose} style={styles.backBtn}><Icon name="chevron-left" size={26} color={theme['c-font']} /></TouchableOpacity>
           <Text size={18}>登录</Text>
           <View style={{ width: 44 }} />

@@ -119,12 +119,26 @@ const searchCandidates = async(name: string, singer: string): Promise<SongCandid
   }
 
   const target = cleanName(name).toLowerCase()
+  // 高-3：此前排序完全不看歌手——同名翻唱/Live/他人同名曲排前面就会被当成本歌
+  // 播放（歌词/封面同路径串歌）。歌手归一化后相等或互含的优先；取链是按序
+  // 逐个试、首个成功即播，排序即校验。
+  const targetSinger = cleanName(singer || '').toLowerCase()
+  const singerScore = (c: SongCandidate): number => {
+    if (!targetSinger) return 1
+    const cs = cleanName(c.singer || '').toLowerCase()
+    if (!cs) return 1
+    return cs === targetSinger || cs.includes(targetSinger) || targetSinger.includes(cs) ? 0 : 2
+  }
   result.sort((a, b) => {
     const aMatch = (a.name || '').toLowerCase() === target ? 0 : 1
     const bMatch = (b.name || '').toLowerCase() === target ? 0 : 1
     // 1) 歌名完全匹配优先（跨平台匹配的首要依据）
     if (aMatch !== bMatch) return aMatch - bMatch
-    // 2) 匹配度相同时按平台优先级：企鹅 → 网易 → 酷狗 → 酷我 → 咪咕
+    // 2) 歌手相符优先于平台优先级：先是同一首歌，才轮到选哪家音源
+    const aSinger = singerScore(a)
+    const bSinger = singerScore(b)
+    if (aSinger !== bSinger) return aSinger - bSinger
+    // 3) 匹配度相同时按平台优先级：企鹅 → 网易 → 酷狗 → 酷我 → 咪咕
     // 注：musicSdk.searchMusic 返回顺序由 sources 数组决定，不受 META_SOURCES 控制，
     // 因此这里必须显式按优先级排序，否则平台顺序不稳定。
     const aPriority = SOURCE_PRIORITY[a.source] ?? SOURCE_PRIORITY_FALLBACK
@@ -140,6 +154,10 @@ const searchBilibili = async(name: string, singer: string): Promise<SongCandidat
     const result = (await bilibiliSdk.musicSearch.search(keyword, 1, 10).catch(() => null))
     const first = result?.list?.[0]
     if (!first?.songmid) return null
+    // 高-3：B 站兜底此前取第一条零校验——歌名明显对不上时宁可失败也不能播错歌
+    const targetName = cleanName(name).toLowerCase()
+    const firstName = cleanName(first.name || '').toLowerCase()
+    if (targetName && firstName && !firstName.includes(targetName) && !targetName.includes(firstName)) return null
     return { ...first, source: 'bilibili' }
   } catch {
     return null
@@ -240,9 +258,12 @@ const readSidecarLyric = async(filePath: string): Promise<string | null> => {
 export const getLyricInfo = async({
   target,
   isRefresh: _isRefresh = false,
+  offlineOnly = false,
 }: {
   target: LocalPlayTarget
   isRefresh?: boolean
+  /** 离线模式专用：只读本地（内嵌/同名 .lrc），不联网搜索 */
+  offlineOnly?: boolean
 }): Promise<LX.Player.LyricInfo> => {
   // 1. 离线来源：内嵌歌词 → 同名 .lrc
   if (target.filePath) {
@@ -251,6 +272,8 @@ export const getLyricInfo = async({
     const sidecar = await readSidecarLyric(target.filePath)
     if (sidecar) return buildLyricInfo({ lyric: sidecar })
   }
+
+  if (offlineOnly) return buildLyricInfo({ lyric: '' })
 
   // 2. 内置平台逐平台回退
   const candidates = await searchCandidates(target.name, target.singer)

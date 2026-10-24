@@ -36,11 +36,13 @@ const runWithLimit = async(fn: () => Promise<string>): Promise<string> => {
   })
 }
 
-interface CoverSong { source: string, name: string, singer: string, albumName?: string, songId?: string }
+interface CoverSong { source: string, name: string, singer: string, albumName?: string, songId?: string, id?: string, meta?: { albumName?: string, songId?: string | number } }
 
 const keyOf = (song: CoverSong): string =>
   // P2: key 加入 albumName/songId，同名同歌手多版本不再串封面
-  `${song.source}|${song.name}|${song.singer}|${song.albumName ?? ''}|${song.songId ?? ''}`
+  // 中-14：转换后的歌曲这两字段在 meta 下，只读顶层恒为 undefined、缓存键退化成
+  // 「源|歌名|歌手」→ 不同专辑/版本共用第一个缓存封面串图。两层都读。
+  `${song.source}|${song.name}|${song.singer}|${song.albumName ?? song.meta?.albumName ?? ''}|${song.songId ?? song.meta?.songId ?? song.id ?? ''}`
 
 export const getCachedCoverUrl = (song: CoverSong): string => {
   if (song.source === 'qs') return getCachedQsCover(song as LX.Music.MusicInfoOnline)
@@ -58,7 +60,12 @@ export const fetchCoverUrl = async(song: CoverSong): Promise<string> => {
   if (inflight) return inflight
 
   const task = runWithLimit(async() =>
-    getPicPath({ musicInfo: song as LX.Music.MusicInfo, isRefresh: false }),
+    // 中-7：取封面无超时——任意 4 个请求挂起（慢接口/黑洞地址）就会把并发
+    // 队列堵死、全 App 封面永久排队。照 qsCover 的 12s 口径兜底，超时按无封面处理。
+    Promise.race([
+      getPicPath({ musicInfo: song as LX.Music.MusicInfo, isRefresh: false }),
+      new Promise<string>((resolve) => { setTimeout(() => { resolve('') }, 12000) }),
+    ]),
   )
     .then((url) => {
       if (url) coverCache.set(key, url)

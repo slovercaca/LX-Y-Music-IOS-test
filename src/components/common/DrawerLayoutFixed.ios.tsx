@@ -63,7 +63,10 @@ const DrawerLayoutFixed = forwardRef<DrawerLayoutFixedType, Props>(({
       duration: 180,
       useNativeDriver: true,
     }).start(({ finished }) => {
-      if (finished) setVisible(false)
+      // 低：关抽屉动画被打断（又被打开）时不得恢复首页滚动——此前无条件
+      // 恢复，抽屉还开着背景就能滚
+      if (!finished) return
+      setVisible(false)
       setRasterize(false)
       global.app_event.changeHomePageScrollEnabled?.(true)
     })

@@ -326,12 +326,29 @@ export const handleKgLikeMusic = async(musicInfo: LX.Music.MusicInfoOnline) => {
 
       const meta = musicInfo.meta as any
       const songHash = (meta.hash || '').toString().toLowerCase()
+      // 中：收藏超过 500 首时目标可能在后续页——只查第一页会永远找不到
+      // （且误报 Cookie 失效）。下面匹配不到且第一页是满页时继续翻页找。
       if (global.lx.isEnableLog) console.log('[KgLike] 查找歌曲:', { songHash, totalSongs: songsResult.data.list.length })
 
-      const targetSong = songsResult.data.list.find((s: any) => {
+      // 高-1：hash 为空时 includes('') 恒真，会匹配到「我喜欢」第一首并删掉
+      // （误删无关收藏还提示成功）。空 hash 直接中止；匹配只用精确相等，
+      // 双向 includes 对完整 hash 没有必要、还可能前缀误配。
+      if (!songHash) {
+        toast('取消喜欢失败：歌曲缺少标识信息')
+        return
+      }
+      let targetSong = songsResult.data.list.find((s: any) => {
         const sHash = (s.hash || '').toString().toLowerCase()
-        return sHash === songHash || sHash.includes(songHash) || songHash.includes(sHash)
+        return sHash === songHash
       })
+      for (let page = 2; !targetSong && page <= 20; page++) {
+        const prevPageSize = page === 2 ? songsResult.data.list.length : 500
+        if (prevPageSize < 500) break
+        const more = await getPlaylistSongs(cookie, favoritesPlaylist.id, page, 500).catch(() => null)
+        if (!more?.success || !more.data?.list?.length) break
+        targetSong = more.data.list.find((s: any) => (s.hash || '').toString().toLowerCase() === songHash)
+        if (more.data.list.length < 500) break
+      }
 
       if (global.lx.isEnableLog) console.log('[KgLike] 找到歌曲:', { found: !!targetSong, fileId: targetSong?.fileId, listid: favoritesPlaylist.listid })
 
@@ -344,7 +361,8 @@ export const handleKgLikeMusic = async(musicInfo: LX.Music.MusicInfoOnline) => {
           toast(`操作失败: ${removeResult.message}，可能是Cookie已失效，请重新登录`)
         }
       } else {
-        toast('未找到歌曲信息，可能是Cookie已失效，请重新登录')
+        // 中：翻遍全部页仍没有就是不在收藏里，别再误报 Cookie 失效
+        toast('未在「我喜欢」中找到这首歌')
       }
     }
   } catch (error: any) {

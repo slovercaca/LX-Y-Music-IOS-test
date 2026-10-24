@@ -35,7 +35,7 @@ export default memo(() => {
       onPress={toggle}
     >
       <Icon
-        name="download"
+        name="download-2"
         size={14}
         color={offlineMode ? theme['c-primary-light-1000'] : theme['c-primary-font']}
       />

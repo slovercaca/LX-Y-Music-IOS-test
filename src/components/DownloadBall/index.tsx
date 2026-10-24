@@ -8,6 +8,7 @@ import { useSafeAreaBottom } from '@/store/common/hook'
 import { createStyle, clamp01 } from '@/utils/tools'
 import { navigations } from '@/navigation'
 import commonState from '@/store/common/state'
+import downloadState from '@/store/download/state'
 
 import DownloadTask = LX.Download.DownloadTask
 
@@ -74,14 +75,32 @@ export default memo(() => {
       })
     }
 
+    // 中-19：任务被删时没有任何事件通知悬浮球，删掉等待中任务后球里会残留
+    // 僵尸条目（pendingCount 恒 ≥1、永不自动收起）。用 list_changed 对账：
+    // 只保留仍在下载状态表里的任务。
+    const handleListChanged = () => {
+      const alive = new Set(downloadState.tasks.map(t => t.id))
+      setActiveTasks(prev => {
+        let changed = false
+        const next = new Map<string, DownloadTask>()
+        for (const [id, task] of prev) {
+          if (alive.has(id)) next.set(id, task)
+          else changed = true
+        }
+        return changed ? next : prev
+      })
+    }
+
     global.app_event.on('download_task_add', handleTaskAdd)
     global.app_event.on('download_progress_update', handleProgressUpdate)
     global.app_event.on('download_status_update', handleStatusUpdate)
+    global.app_event.on('download_list_changed', handleListChanged)
 
     return () => {
       global.app_event.off('download_task_add', handleTaskAdd)
       global.app_event.off('download_progress_update', handleProgressUpdate)
       global.app_event.off('download_status_update', handleStatusUpdate)
+      global.app_event.off('download_list_changed', handleListChanged)
     }
   }, [isVisible, scaleAnim])
 

@@ -100,15 +100,16 @@ export default {
       headers: this.defaultHeaders,
     })
     return requestObj_listDetailInfo.promise.then(({ body }) => {
-      if (body.code !== this.successCode) return this.getListDetail(id, ++tryNum)
+      // 中：重试误调 getListDetail（签名 (id, page, retryNum)）参数错位——应重试本函数 getListDetailInfo
+      if (body.code !== this.successCode) return this.getListDetailInfo(id, ++tryNum)
       // console.log(JSON.stringify(body))
       // console.log(body)
       const cachedDetailInfo = this.cachedDetailInfo[id] = {
         name: body.data.title,
-        img: body.data.imgItem.img,
+        img: body.data.imgItem?.img,
         desc: body.data.summary,
         author: body.data.ownerName,
-        play_count: formatPlayCount(body.data.opNumItem.playNum),
+        play_count: formatPlayCount(body.data.opNumItem?.playNum),
       }
       return cachedDetailInfo
     })
@@ -218,7 +219,7 @@ export default {
       // console.log(body)
       // if (body.retCode !== '000000') return this.getList(sortId, tagId, page, ++tryNum)
       if (body.code !== '000000') return this.getList(sortId, tagId, page, ++tryNum)
-      const list = body.data.contents ? this.filterList2(body.data.contents) : this.filterList(body.data.contentItemList[1].itemList)
+      const list = body.data.contents ? this.filterList2(body.data.contents) : this.filterList(body.data.contentItemList?.[1]?.itemList ?? []) // 低：结构变化时此前无守卫崩溃
       return {
         list,
         total: 99999,

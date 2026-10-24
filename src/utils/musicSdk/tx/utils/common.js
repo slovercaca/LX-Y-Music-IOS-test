@@ -42,31 +42,31 @@ export const parseTxQualityTypes = (file) => {
   if (!file) return { types: [], _qualitys: {} }
   const types = []
   const _qualitys = {}
-  if (file.size_128mp3 != 0) {
+  if (file.size_128mp3) {
     types.push({ type: '128k', size: file.size_128mp3 })
     _qualitys['128k'] = { size: file.size_128mp3 }
   }
-  if (file.size_320mp3 !== 0) {
+  if (file.size_320mp3) {
     types.push({ type: '320k', size: file.size_320mp3 })
     _qualitys['320k'] = { size: file.size_320mp3 }
   }
-  if (file.size_flac !== 0) {
+  if (file.size_flac) {
     types.push({ type: 'flac', size: file.size_flac })
     _qualitys.flac = { size: file.size_flac }
   }
-  if (file.size_hires !== 0) {
+  if (file.size_hires) {
     types.push({ type: 'hires', size: file.size_hires })
     _qualitys.hires = { size: file.size_hires }
   }
-  if (file.size_new?.[1] !== 0) {
+  if (file.size_new?.[1]) {
     types.push({ type: 'atmos', size: file.size_new?.[1] })
     _qualitys.atmos = { size: file.size_new?.[1] }
   }
-  if (file.size_new?.[2] !== 0) {
+  if (file.size_new?.[2]) {
     types.push({ type: 'atmos_plus', size: file.size_new?.[2] })
     _qualitys.atmos_plus = { size: file.size_new?.[2] }
   }
-  if (file.size_new?.[0] !== 0) {
+  if (file.size_new?.[0]) {
     types.push({ type: 'master', size: file.size_new?.[0] })
     _qualitys.master = { size: file.size_new?.[0] }
   }

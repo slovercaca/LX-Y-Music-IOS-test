@@ -177,7 +177,8 @@ export default {
           })
 
         let img = data.img3 || data.img2 || data.img1 || null
-        if (img && !/https?:/.test(data.img3)) img = 'http://d.musicapp.migu.cn' + img
+        // 低：相对判断此前固定测 img3——img 实际来自 img2/img1 且 img3 缺失时，绝对 URL 被误拼前缀成坏 URL
+        if (img && !/https?:/.test(img)) img = 'http://d.musicapp.migu.cn' + img
 
         list.push({
           singer: formatSingerName(data.singerList),

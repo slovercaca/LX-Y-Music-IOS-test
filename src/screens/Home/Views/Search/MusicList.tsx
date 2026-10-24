@@ -30,6 +30,11 @@ export default forwardRef<MusicListType, { header?: OnlineListProps['ListHeaderC
           searchMusicState.source == source &&
           searchMusicState.listInfos[searchMusicState.source]!.list.length
         ) {
+          // 中：缓存分支也要同步 searchInfoRef 并作废在途请求——此前切回
+          // 命中缓存后 refresh 仍按旧词/旧源搜，会把缓存结果清掉
+          searchInfoRef.current.text = text
+          searchInfoRef.current.source = source
+          requestIdRef.current++
           requestAnimationFrame(() => {
             listRef.current?.setList(
               searchMusicState.listInfos[searchMusicState.source]!.list,
@@ -77,32 +82,41 @@ export default forwardRef<MusicListType, { header?: OnlineListProps['ListHeaderC
 
   const handleRefresh: OnlineListProps['onRefresh'] = () => {
     const page = 1
+    // 高-4：捕获代际与源——此前 refresh/loadMore 无守卫且回调里读新源，
+    // 旧搜索结果会覆盖新搜索、按新源算状态
+    const requestId = requestIdRef.current
+    const source = searchInfoRef.current.source
     listRef.current?.setStatus('refreshing')
-    search(searchInfoRef.current.text, page, searchInfoRef.current.source)
+    search(searchInfoRef.current.text, page, source)
       .then((list) => {
-        // const result = setListInfo(listDetail, searchMusicState.listDetailInfo.id, page)
         if (isUnmountedRef.current) return
-        listRef.current?.setList(list, false, searchInfoRef.current.source == 'all')
+        if (requestId !== requestIdRef.current) return
+        listRef.current?.setList(list, false, source == 'all')
         listRef.current?.setStatus(
-          searchMusicState.listInfos[searchInfoRef.current.source]!.maxPage <= page ? 'end' : 'idle',
+          searchMusicState.listInfos[source]!.maxPage <= page ? 'end' : 'idle',
         )
       })
       .catch(() => {
+        if (requestId !== requestIdRef.current) return
         listRef.current?.setStatus('error')
       })
   }
   const handleLoadMore: OnlineListProps['onLoadMore'] = () => {
+    // 高-4：同 handleRefresh，捕获代际/源/分页基准，回调先验
+    const requestId = requestIdRef.current
+    const source = searchInfoRef.current.source
     listRef.current?.setStatus('loading')
-    const info = searchMusicState.listInfos[searchInfoRef.current.source]!
+    const info = searchMusicState.listInfos[source]!
     const page = info?.list.length ? info.page + 1 : 1
-    search(searchInfoRef.current.text, page, searchInfoRef.current.source)
+    search(searchInfoRef.current.text, page, source)
       .then((list) => {
-        // const result = setListInfo(listDetail, searchMusicState.listDetailInfo.id, page)
         if (isUnmountedRef.current) return
-        listRef.current?.setList(list, true, searchInfoRef.current.source == 'all')
+        if (requestId !== requestIdRef.current) return
+        listRef.current?.setList(list, true, source == 'all')
         listRef.current?.setStatus(info.maxPage <= page ? 'end' : 'idle')
       })
       .catch(() => {
+        if (requestId !== requestIdRef.current) return
         listRef.current?.setStatus('error')
       })
   }

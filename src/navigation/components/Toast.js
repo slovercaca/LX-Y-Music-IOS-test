@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { View, Text, StyleSheet } from 'react-native'
 import state from '@/store/theme/state'
 import commonState from '@/store/common/state'
-import { Navigation } from 'react-native-navigation'
+import { dismissOverlay } from '../utils'
 import { shadow } from '@/utils/shadow'
 
 // 非阻塞 Toast 浮层（替代 iOS 的 Alert.alert）。
@@ -18,11 +18,9 @@ const Toast = ({ componentId, message = '', duration = 2000, position = 'bottom'
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      try {
-        void Navigation.dismissOverlay(componentId)
-      } catch (err) {
-        // 忽略已 dismiss 的情况
-      }
+      // 低：此前 try/catch 包不住异步 dismiss 的 reject（未处理 rejection）；
+      // 改用 navigation/utils 的 dismissOverlay（内部吞错并重试一次）
+      void dismissOverlay(componentId)
     }, duration)
     return () => clearTimeout(timer)
   }, [componentId, duration])

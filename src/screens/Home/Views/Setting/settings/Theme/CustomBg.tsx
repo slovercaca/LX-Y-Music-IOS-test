@@ -26,19 +26,22 @@ export default memo(() => {
         try {
           await mkdir(BG_PIC_DIR)
 
-          if (customBgPath?.startsWith('file://' + BG_PIC_DIR)) {
-            if (await existsFile(customBgPath.replace('file://', ''))) {
-              await unlink(customBgPath.replace('file://', ''))
-            }
-          }
           const rawExt = asset.fileName?.split('.').pop() ??
             uri.split('.').pop()?.split('?')[0] ??
             'jpg'
-          const extension = rawExt.toLowerCase()
+          // 低：扩展名做白名单校验（防拼出含 '/' 的路径）；且先复制成功再
+          // 删旧图——此前先删旧图、新图复制失败时旧背景也丢了
+          const extension = /^[a-z0-9]{1,5}$/.test(rawExt.toLowerCase()) ? rawExt.toLowerCase() : 'jpg'
           const newFileName = `bg_${Date.now()}.${extension}`
           const newPath = `${BG_PIC_DIR}/${newFileName}`
           await copyFile(uri.replace(/^file:\/\//, ''), newPath)
           updateSetting({ 'theme.customBgPicPath': `file://${newPath}` })
+          if (customBgPath?.startsWith('file://' + BG_PIC_DIR)) {
+            const oldPath = customBgPath.replace('file://', '')
+            if (oldPath !== newPath && await existsFile(oldPath)) {
+              await unlink(oldPath).catch(() => {})
+            }
+          }
           toast('背景设置成功')
         } catch (error: any) {
           console.error('设置背景图片失败:', error)

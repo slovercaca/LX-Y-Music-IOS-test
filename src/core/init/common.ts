@@ -75,7 +75,13 @@ export default async(setting: LX.AppSetting) => {
           toast(`网易云数据获取失败: ${err.message}`)
         })
     } else {
+      // 中：清除网易云 Cookie 后此前不清理 store——上一账号的红心/关注/
+      // 收藏专辑在本会话内残留显示，要重启才恢复（tx/kg 分支都有清空）
       console.log('网易云 cookie 已清除')
+      setWyUid('')
+      setWyLikedSongs([])
+      setWyFollowedArtists([])
+      setWySubscribedAlbums([])
     }
   }
 

@@ -22,6 +22,9 @@ export default {
   setTasks(tasks: LX.Download.DownloadTask[]) {
     state.tasks = tasks
     global.app_event.download_list_changed()
+    // 中：watchList 监听的是 downloadListUpdate（播放中下载列表的联动），
+    // 此前从无人 emit——播下载列表时删/覆盖任务不重算 playIndex、不切歌
+    global.app_event.downloadListUpdate()
   },
   addTask(task: DownloadTask) {
     state.tasks.unshift(task)
@@ -34,7 +37,11 @@ export default {
     const taskIndex = state.tasks.findIndex(t => t.id === id)
     if (taskIndex > -1) {
       Object.assign(state.tasks[taskIndex], updatedFields)
-      global.app_event.download_list_changed()
+      // 中-20：纯进度更新不广播 list_changed——它会让 useDownloadTasks 订阅方
+      // 整体刷新，「本地与下载」页的扫描回调随之换引用、以 ~250ms 节拍反复
+      // 全量扫盘。进度有专门的 download_progress_update 事件，行组件各自订阅。
+      const hasNonProgressChange = Object.keys(updatedFields).some(k => k !== 'progress')
+      if (hasNonProgressChange) global.app_event.download_list_changed()
       if ('progress' in updatedFields) {
         // P2: 用 in 判断，progress: 0 不会被当 falsy 跳过
         global.app_event.download_progress_update({ id, progress: updatedFields.progress })
@@ -57,14 +64,17 @@ export default {
     if (index > -1) {
       state.tasks.splice(index, 1)
       global.app_event.download_list_changed()
+      global.app_event.downloadListUpdate() // 中：同 setTasks，补桥接
       markListsChanged()
-      throttledSave()
+      // 低：删除立即落盘——1 秒节流期内杀 App，已删任务重启会「复活」
+      void saveDownloadTasks(state.tasks)
     }
   },
   clearTasks() {
     state.tasks = []
     global.app_event.download_list_changed()
+    global.app_event.downloadListUpdate() // 中：同 setTasks，补桥接
     markListsChanged()
-    throttledSave()
+    void saveDownloadTasks(state.tasks) // 低：同 removeTask，立即落盘
   },
 }

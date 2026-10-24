@@ -33,6 +33,7 @@ import {
   handleWebDAVRemove,
   handleWebDAVDownloadAndImport,
   requestCancelWebDAVBatchDownload,
+  requestCancelWebDAVBatchFetchCovers,
 } from './WebDAVListAction'
 import { friendlyWebDAVError } from '@/core/webdavMusic/client'
 import type { WebDAVListMenuType, SelectInfo as WebDAVSelectInfo } from './WebDAVListMenu'
@@ -435,6 +436,7 @@ export function useWebDAVPage() {
   const handleCancelOperation = useCallback(() => {
     scanCancelRef.current = true
     requestCancelWebDAVBatchDownload()
+    requestCancelWebDAVBatchFetchCovers()
     setBatchLoadingText('')
     setScanText('正在取消...')
   }, [])
@@ -520,8 +522,13 @@ export function useWebDAVPage() {
       setBatchLoadingText('正在获取并上传封面 0/' + targets.length)
       void handleBatchFetchCoversFromOnline(targets, (current, total, songName) => {
         setBatchLoadingText(`正在获取并上传封面 ${current}/${total}`)
-      }).then(async({ success, failed, failures, failedSongs }) => {
+      }).then(async({ success, failed, failures, failedSongs, cancelled }) => {
         setBatchLoadingText('')
+        // 中-5：用户取消后不再弹失败重试框
+        if (cancelled) {
+          toast(`已取消获取封面（已完成 ${success} 首）`)
+          return
+        }
         // W15：失败给明细并可只重试失败项，不再只报一个数字
         if (failed > 0 && failedSongs.length > 0) {
           const detail = failures.slice(0, 5).map(f => `${f.name}（${f.reason}）`).join('；')
@@ -644,6 +651,11 @@ export function useWebDAVPage() {
 
   const handleFetchPicFromOnline = useCallback((info: WebDAVSelectInfo) => {
     void handleFetchWebDAVPicFromOnline(info.musicInfo).then((newPicUrl) => {
+      // 低-9：失败时返回 undefined，此前无条件覆写 picUrl → 封面当场变空白
+      if (!newPicUrl) {
+        toast('获取封面失败，请重试')
+        return
+      }
       patchSongInList(info.musicInfo.id, song => ({ ...song, meta: { ...song.meta, picUrl: newPicUrl } }))
     })
   }, [patchSongInList])
@@ -765,6 +777,13 @@ export function useWebDAVPage() {
           if (!cancelled) setScannedAt(config.scannedAt)
           setScanText('')
 
+          // 中-4：扫描阶段被取消就到此为止——此前照常进入下载，且下载入口会把
+          // 取消令牌复位，用户的取消被彻底抹掉
+          if (cancelled) {
+            toast('已取消扫描，未开始下载')
+            return
+          }
+
           if (scannedSongs.length === 0) {
             toast('没有扫描到可下载的歌曲')
             return
@@ -821,8 +840,12 @@ export function useWebDAVPage() {
   const scrollToMusic = useCallback((musicId: string) => {
     let list = filteredSongs
     let index = list.findIndex(item => item.id === musicId)
-    if (index < 0 && searchText) {
-      setSearchText('')
+    // 中：定位不在当前筛选/搜索范围内的歌时，要同时解除目录筛选——
+    // 此前只清搜索词，filterPath 还在就拿全量下标对过滤列表 scrollToIndex，
+    // 跳错歌或走失败兜底乱跳
+    if (index < 0 && (searchText || filterPath)) {
+      if (searchText) setSearchText('')
+      if (filterPath) setFilterPath(null)
       list = songs
       index = list.findIndex(item => item.id === musicId)
     }
@@ -846,7 +869,7 @@ export function useWebDAVPage() {
         }
       }, searchText ? 160 : 80)
     })
-  }, [filteredSongs, searchText, songs])
+  }, [filteredSongs, searchText, songs, filterPath])
 
   // ================= effects =================
 
@@ -885,10 +908,8 @@ export function useWebDAVPage() {
       pendingJumpIdRef.current = musicInfo.id
       scrollToMusic(musicInfo.id)
     }
-    // @ts-expect-error - jumpWebDAVPosition is a custom event
     global.app_event.on('jumpWebDAVPosition', handleJumpPosition)
     return () => {
-      // @ts-expect-error - jumpWebDAVPosition is a custom event
       global.app_event.off('jumpWebDAVPosition', handleJumpPosition)
     }
   }, [scrollToMusic])

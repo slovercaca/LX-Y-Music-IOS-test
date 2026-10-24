@@ -39,6 +39,9 @@ const audioExts = new Set([
 // 网盘内可作为封面的图片扩展名 + 目录级通用封面文件名
 const picExts = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'heic', 'heif', 'avif'])
 const genericPicNames = new Set(['cover', 'folder', 'front', 'album', 'back', 'poster', 'thumb'])
+// 低：通用封面优先级（高→低）——此前「后到者赢」，cover.jpg 可能被
+// back.jpg 按服务器返回顺序盖掉
+const genericPicPriority = ['cover', 'front', 'folder', 'album', 'poster', 'thumb', 'back']
 
 // ---------------------------------------------------------------------------
 // 小工具
@@ -205,6 +208,8 @@ const scanFolder = async(
   onProgress?: (count: number, folderPath: string) => void,
   parentLrcMap?: Map<string, string>,
   ctx?: ScanContext,
+  parentPicMap?: Map<string, string>,
+  parentGenericPic?: string,
 ): Promise<LX.WebDAV.MusicInfo[]> => {
   const result: LX.WebDAV.MusicInfo[] = []
   const basePath = folder?.path ?? '/'
@@ -245,6 +250,15 @@ const scanFolder = async(
     }
   }
 
+  // 低：封面映射此前只下传歌词不下传封面——music/专辑/ 再下一层的歌
+  // 匹配不到父目录封面（与「规则同 lrc」注释不对称）。同样作 fallback 下传。
+  if (parentPicMap) {
+    for (const [base, path] of parentPicMap) {
+      if (!media.picMap.has(base)) media.picMap.set(base, path)
+    }
+  }
+  if (!media.genericPic && parentGenericPic) media.genericPic = parentGenericPic
+
   for (const entry of entries) {
     if (entry.type !== 'file') continue
     const ext = getExt(entry.name)
@@ -253,7 +267,14 @@ const scanFolder = async(
       media.lrcMap.set(base, entry.path)
     } else if (picExts.has(ext)) {
       media.picMap.set(base, entry.path)
-      if (genericPicNames.has(base)) media.genericPic = entry.path
+      if (genericPicNames.has(base)) {
+        // 低：按固定优先级取通用封面，不再「后到者赢」
+        const currentBase = media.genericPic ? getBaseName(media.genericPic).toLowerCase() : ''
+        if (!media.genericPic
+          || genericPicPriority.indexOf(base) < genericPicPriority.indexOf(currentBase)) {
+          media.genericPic = entry.path
+        }
+      }
     }
   }
 
@@ -266,9 +287,11 @@ const scanFolder = async(
           ...(await scanFolder(
             { id: entry.id, name: entry.name, parentId: folder?.id, path: entry.path },
             onProgress,
-            // 把当前目录的歌词映射传给子目录
+            // 把当前目录的歌词/封面映射传给子目录（子目录本地优先，父级只作 fallback）
             media.lrcMap,
             ctx,
+            media.picMap,
+            media.genericPic,
           )),
         )
       } catch (error: any) {
@@ -345,7 +368,8 @@ export const scanWebDAVSongs = async(
   const scannedIds = new Set(mergedSongs.map(s => s.id))
   for (const existing of config.songs ?? []) {
     if (!scannedIds.has(existing.id)) {
-      const hasLocalState = !!(existing.filePath || existing.customPicPath || existing.customLrcPath)
+      // 中-2：本地状态都在 meta 下（顶层恒 undefined 会让防丢保护永不生效）
+      const hasLocalState = !!(existing.meta?.filePath || (existing.meta as any)?.customPicPath || (existing.meta as any)?.customLrcPath || existing.meta?.picPath || existing.meta?.lrcPath)
       if (hasLocalState) {
         mergedSongs.push(existing)
       }
@@ -400,7 +424,7 @@ export interface WebDAVMusicMetaUpdate {
   picPath?: string
 }
 
-export const updateWebDAVMusicMeta = async(
+const updateWebDAVMusicMetaImpl = async(
   musicId: string,
   update: WebDAVMusicMetaUpdate,
 ): Promise<void> => {
@@ -438,6 +462,19 @@ export const updateWebDAVMusicMeta = async(
 
   config.songs[songIndex] = song
   await saveWebDAVConfig(config)
+}
+
+// 中：meta 更新串行化——本函数是「读整份配置→改一首→写整份」，多首歌
+// 的封面/下载回写并发 fire-and-forget 时，后写者用旧快照整份覆盖，
+// picUrl/filePath/picPath 更新随机丢失。用 promise 链串行执行。
+let metaUpdateChain: Promise<unknown> = Promise.resolve()
+export const updateWebDAVMusicMeta = (
+  musicId: string,
+  update: WebDAVMusicMetaUpdate,
+): Promise<void> => {
+  const run = metaUpdateChain.then(() => updateWebDAVMusicMetaImpl(musicId, update))
+  metaUpdateChain = run.catch(() => {})
+  return run
 }
 
 // ---------------------------------------------------------------------------
@@ -517,7 +554,8 @@ export const downloadWebDAVMusic = async(musicInfo: LX.WebDAV.MusicInfo): Promis
   const filePath = `${cacheDir}/${stringMd5(remotePath)}.${ext}`
 
   if (await existsFile(filePath)) {
-    if (!(await isPoisonedCache(filePath))) return filePath
+    // 中：带期望大小判毒——截断/0 字节缓存不再被当有效文件反复播失败
+    if (!(await isPoisonedCache(filePath, musicInfo.meta.size))) return filePath
     webDAVLog.warn('downloadWebDAVMusic: 发现毒化缓存（错误页面），删除后重新下载', { filePath })
     await unlink(filePath).catch(() => {})
   }
@@ -530,6 +568,8 @@ export const downloadWebDAVMusic = async(musicInfo: LX.WebDAV.MusicInfo): Promis
   await downloadToFileAtomic({
     url: downloadUrl,
     targetPath: filePath,
+    // 高：传期望字节数（扫描时记录的远端大小），截断文件不再当成品落盘
+    expectedSize: musicInfo.meta.size && musicInfo.meta.size > 0 ? musicInfo.meta.size : undefined,
     statusError: (statusCode) => {
       const hint = statusCode === 401 || statusCode === 403
         ? '，请检查用户名密码（暂仅支持 Basic 认证）'

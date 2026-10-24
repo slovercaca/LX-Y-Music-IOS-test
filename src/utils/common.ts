@@ -97,7 +97,10 @@ export const parseUrlParams = (str: string): Record<string, string> => {
   if (typeof str !== 'string') return params
   const paramsArr = str.split('&')
   for (const param of paramsArr) {
-    let [key, value] = param.split('=')
+    // 附带修复：split('=') 解构会截断 value 中含的 '='（如签名/令牌），只切第一处
+    const eqIndex = param.indexOf('=')
+    const key = eqIndex === -1 ? param : param.slice(0, eqIndex)
+    const value = eqIndex === -1 ? '' : param.slice(eqIndex + 1)
     params[key] = value
   }
   return params
@@ -148,7 +151,11 @@ export function debounce<Args extends any[]>(
 }
 
 const fileNameRxp = /[\\/:*?#"<>|]/g
-export const filterFileName = (name: string): string => name.replace(fileNameRxp, '')
+// 中：过滤字符集补 %——fs 的 normalizePath 会对整条路径
+// decodeURIComponent，文件名（多来自远程元数据）含 %2F/%2e%2e 时会被
+// 解成真实分隔符/穿越、写出目标目录之外；含字面 %XX 也会被悄悄改名、
+// 与不解码的调用方寻址不一致。源头剔除 % 后自生成路径不再含编码序列。
+export const filterFileName = (name: string): string => name.replace(fileNameRxp, '').replace(/%/g, '')
 
 // https://blog.csdn.net/xcxy2015/article/details/77164126#comments
 /**

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ScrollView, TouchableOpacity, View } from 'react-native'
 
 import Text from '@/components/common/Text'
@@ -89,10 +89,15 @@ export default ({
   const kgPlaylists = useKgSubscribedPlaylists()
   const uid = useWyUid()
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const refreshingRef = useRef(false)
 
   // Req3: 切换标签时实时刷新在线歌单
   const refreshOnlinePlaylists = useCallback(async(type: 'wy' | 'tx' | 'kg') => {
-    if (isRefreshing) return
+    // 高-6：守卫改 ref——此前 useCallback 依赖 isRefreshing、effect 又依赖
+    // 该回调，finally 置 false → 回调换身份 → effect 重跑，无限刷新循环，
+    // 持续打 wy/tx/kg 接口（限流/封号与耗电风险）
+    if (refreshingRef.current) return
+    refreshingRef.current = true
     setIsRefreshing(true)
     try {
       if (type === 'wy') {
@@ -149,9 +154,10 @@ export default ({
     } catch (err: any) {
       log.warn('[MusicAddModal] 刷新歌单失败', { type, error: err.message })
     } finally {
+      refreshingRef.current = false
       setIsRefreshing(false)
     }
-  }, [isRefreshing])
+  }, [])
 
   useEffect(() => {
     if (playlistType !== 'local') {

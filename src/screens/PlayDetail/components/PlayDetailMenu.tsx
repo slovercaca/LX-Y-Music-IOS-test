@@ -36,6 +36,10 @@ export default forwardRef<PlayDetailMenuType, PlayDetailMenuProps>((props, ref) 
   const [visible, setVisible] = useState(false)
   const menuRef = useRef<MenuType>(null)
   const selectInfoRef = useRef<SelectInfo>(initSelectInfo as SelectInfo)
+  // 中-11：menus 的 useMemo 此前只依赖 isLiked 等，读的却是 ref 里的歌曲——
+  // isLiked 值不变时切歌不重算，菜单按上一首歌生成（源专属项缺失/残留）。
+  // show() 时把当前歌曲存进 state 作为重算依据。
+  const [currentSelectInfo, setCurrentSelectInfo] = useState<SelectInfo>(initSelectInfo as SelectInfo)
   const [isLiked, setIsLiked] = useState(false)
 
   const renderLikeLabel = useCallback((liked: boolean) => (
@@ -49,6 +53,7 @@ export default forwardRef<PlayDetailMenuType, PlayDetailMenuProps>((props, ref) 
   useImperativeHandle(ref, () => ({
     show(selectInfo, position) {
       selectInfoRef.current = selectInfo
+      setCurrentSelectInfo(selectInfo)
       if (selectInfo.musicInfo.source === 'wy') {
         setIsLiked(userState.wy_liked_song_ids.has(String(selectInfo.musicInfo.meta.songId)))
       } else if (selectInfo.musicInfo.source === 'tx') {
@@ -71,7 +76,7 @@ export default forwardRef<PlayDetailMenuType, PlayDetailMenuProps>((props, ref) 
   }))
 
   const menus = useMemo((): Menus => {
-    const musicInfo = selectInfoRef.current.musicInfo
+    const musicInfo = currentSelectInfo.musicInfo
     const menuItems: Array<Menus[number]> = []
     menuItems.push({ action: 'download', label: t('download') })
 
@@ -98,7 +103,7 @@ export default forwardRef<PlayDetailMenuType, PlayDetailMenuProps>((props, ref) 
     menuItems.push({ action: 'clearCache', label: t('clear_music_cache') })
 
     return menuItems
-  }, [t, isLiked, renderLikeLabel])
+  }, [t, isLiked, renderLikeLabel, currentSelectInfo])
 
   const handleMenuPress = ({ action }: (typeof menus)[number]) => {
     const selectInfo = selectInfoRef.current

@@ -57,6 +57,7 @@ const findOfflineLocalFile = async(song: LX.Music.MusicInfo): Promise<string | n
   const normalize = (s: string) => (s || '').trim().toLowerCase()
   const songName = normalize(song.name)
   const songSinger = normalize(song.singer)
+  const nameMatched: Array<{ filePath: string, interval: string | null }> = []
   for (const task of downloadState.tasks) {
     if (task.status !== 'completed' || !task.filePath) continue
     const ti = task.musicInfo
@@ -66,9 +67,19 @@ const findOfflineLocalFile = async(song: LX.Music.MusicInfo): Promise<string | n
       if (await existsFile(task.filePath).catch(() => false)) return task.filePath
       continue
     }
-    // 歌名+歌手匹配
-    if (normalize(ti.name) === songName && normalize(ti.singer) === songSinger && songName) {
-      if (await existsFile(task.filePath).catch(() => false)) return task.filePath
+    // 歌名+歌手匹配（中-8：歌手同为空不算命中——空歌手同名歌会互相误配；
+    // 多个命中时优先时长一致的，避免 Live/重录版被当成本歌离线播放）
+    if (songSinger && normalize(ti.singer) === songSinger && normalize(ti.name) === songName && songName) {
+      nameMatched.push({ filePath: task.filePath, interval: ti.interval })
+    }
+  }
+  if (nameMatched.length) {
+    const byInterval = song.interval
+      ? nameMatched.find(m => m.interval === song.interval)
+      : undefined
+    const ordered = byInterval ? [byInterval, ...nameMatched.filter(m => m !== byInterval)] : nameMatched
+    for (const m of ordered) {
+      if (await existsFile(m.filePath).catch(() => false)) return m.filePath
     }
   }
   return null
@@ -88,7 +99,8 @@ const findLocalCachedPic = async(song: LX.Music.MusicInfo): Promise<string | nul
     const ti = task.musicInfo
     if (!ti) continue
     const matched = (ti.id && song.id && ti.id === song.id) ||
-      (normalize(ti.name) === songName && normalize(ti.singer) === songSinger && songName)
+      // 中-8：同 findOfflineLocalFile 口径，歌手为空不走歌名匹配
+      (songSinger !== '' && normalize(ti.name) === songName && normalize(ti.singer) === songSinger && songName)
     if (!matched) continue
     // 1. 任务自带的本地封面
     const taskPic = (ti.meta as any)?.picUrl
@@ -181,6 +193,20 @@ export const getMusicUrlInfo = async({
   onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
   allowToggleSource?: boolean
 }): Promise<{ url: string, quality: LX.Quality | null }> => {
+  // 中-9：在线歌曲直接走 resolveMusicUrl 拿实际音质——此前用 getMusicUrl 取到
+  // 链接后把请求档位原样回显，实际降级时播放器仍按高档位处理（原生 FLAC
+  // 高精度路径误判）；未指定档位时恒 null、高精度永不启用。
+  const isOnlineSong = !('progress' in musicInfo) && musicInfo.source != 'local' && musicInfo.source != 'qs'
+  if (isOnlineSong && settingState.setting['player.offlineMode'] !== true) {
+    const resolved = await resolveOnlineMusicUrl({
+      musicInfo: musicInfo as LX.Music.MusicInfoOnline,
+      quality,
+      isRefresh,
+      onToggleSource,
+      allowToggleSource,
+    })
+    return { url: resolved.url, quality: resolved.quality }
+  }
   const url = await getMusicUrl({ musicInfo, quality, isRefresh, onToggleSource, allowToggleSource })
   return { url, quality: quality ?? null }
 }
@@ -279,6 +305,21 @@ export const getLyricInfo = async({
       isRefresh,
     })
   } else {
+    // 低-31：离线模式下歌词也只走本地——此前 URL/封面都拦了、唯独歌词照常
+    // 联网取词+换源搜索，与离线语义不一致
+    if (settingState.setting['player.offlineMode'] === true) {
+      const localPath = await findOfflineLocalFile(musicInfo as LX.Music.MusicInfo)
+      return localPlay.getLyricInfo({
+        target: {
+          name: musicInfo.name,
+          singer: musicInfo.singer,
+          filePath: localPath ?? '',
+          picUrl: null,
+        },
+        isRefresh,
+        offlineOnly: true,
+      })
+    }
     return getOnlineLyricInfo({ musicInfo, isRefresh, onToggleSource })
   }
 }

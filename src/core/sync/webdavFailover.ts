@@ -1,5 +1,5 @@
 import settingState from '@/store/setting/state'
-import { updateSetting } from '@/core/common'
+import settingActions from '@/store/setting/action'
 import { toast } from '@/utils/tools'
 import { testConnection, resetClient } from '@/utils/webdav'
 import { webDAVLog } from '@/core/webdavMusic/logger'
@@ -65,7 +65,7 @@ const rotateToWorkingProfile = async(fromName: string): Promise<WebDAVServerProf
   const candidates = await getFailoverCandidates()
   for (const candidate of candidates) {
     try {
-      await applyWebDAVServerProfile(candidate.id)
+      await applyWebDAVServerProfile(candidate.id, { silent: true }) // 中：内部轮换不标脏设置，避免再调度一次额外同步
       await testConnection()
       webDAVLog.info(`[Failover] 「${fromName}」不可用，已切换到「${candidate.name}」`)
       notify(`「${fromName}」连接失败，已自动切换到「${candidate.name}」`)
@@ -75,7 +75,8 @@ const rotateToWorkingProfile = async(fromName: string): Promise<WebDAVServerProf
       webDAVLog.warn(`[Failover] 候选「${candidate.name}」同样不可用：${e?.message ?? e}`)
     }
   }
-  updateSetting(snapshot)
+  // 中：回滚同理走 store 直写，不标脏
+  settingActions.updateSetting(snapshot)
   resetClient()
   return null
 }

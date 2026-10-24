@@ -102,7 +102,7 @@ export default forwardRef<PlayerPlaylistType, {}>((props, ref) => {
     if (playerListId === LIST_IDS.LOVE) return t('list_name_love')
     if (playerListId === LIST_IDS.DOWNLOAD) return t('list_name_download')
     return listState.allList.find(l => l.id === playerListId)?.name ?? t('list_name_play')
-  }, [isTempMode, t, playerListId])
+  }, [isTempMode, t, playerListId, listVersion]) // 低-1：补 listVersion，歌单改名后标题才刷新
 
   // 普通列表模式下，playlist 直接读 store 中的歌单数据（getListMusicSync）。
   // 该数据变化只通过 global.list_event 广播，不会触发组件重新计算，

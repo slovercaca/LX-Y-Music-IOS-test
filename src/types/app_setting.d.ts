@@ -336,6 +336,7 @@ declare global {
       'webdav.uploadResume': boolean
       'webdav.uploadChunked': boolean
       'webdav.uploadChunkSizeMB': number
+      'webdav.uploadStallTimeoutSec': number
       'sync.webdav.syncSettings': boolean
       'sync.webdav.lastSyncTimeSettings': number
       'sync.webdav.lastSyncSettingsHash': string
@@ -353,7 +354,6 @@ declare global {
       'theme.customBgPicPath': string
       'theme.picOpacity': number
       'theme.subContainerOpacity': number
-      'theme.lastDynamicBgPic': string
     }
   }
 }

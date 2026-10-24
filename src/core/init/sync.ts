@@ -16,5 +16,8 @@ export default async(setting: LX.AppSetting) => {
     return
   }
   // 冷启动自动连接：静默连接，不弹 "Sync connected" toast（手动/重连仍会弹）。
-  void connectServer(host, undefined, { silent: true })
+  // 存疑处理：补 catch——此前失败产生未处理 rejection（仅噪声、无数据后果，但污染日志）
+  void connectServer(host, undefined, { silent: true }).catch((err: any) => {
+    console.log('[Sync] 冷启动自动连接失败:', err?.message ?? err)
+  })
 }

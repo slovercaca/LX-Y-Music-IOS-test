@@ -29,10 +29,15 @@ export default async(targetListInfo: LX.List.UserListInfo) => {
     targetListInfo.source,
     targetListInfo.sourceListId,
   )
-  // console.log(list)
-  void overwriteListMusics(targetListInfo.id, list)
-  const now = Date.now()
-  void setListUpdateTime(targetListInfo.id, now)
+  // 存疑处理：此前 overwriteListMusics 未等待就推进更新时间戳——覆盖
+  // 失败时列表显示已同步但内容是旧的、且 rejection 无人处理。改为先
+  // 等落盘成功再记时间，失败记日志不推进时间戳。
+  try {
+    await overwriteListMusics(targetListInfo.id, list)
+    await setListUpdateTime(targetListInfo.id, Date.now())
+  } catch (err: any) {
+    console.warn('[SyncSourceList] 歌单落盘失败:', err?.message ?? err)
+  }
   // TODO
   // setUpdateTime(targetListInfo.id, dateFormat(now))
 }

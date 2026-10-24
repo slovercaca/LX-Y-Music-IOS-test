@@ -120,7 +120,7 @@ export default forwardRef<MusicAddModalType, MusicAddModalProps>(({ onAdded }, r
 
       if (isMove) {
         wyApi.manipulatePlaylistTracks('add', toListId, [songId]).then(() => {
-          if (listInfo.name === (listInfo as any).creator.nickname + '喜欢的音乐') {
+          if (listInfo.name === (listInfo as any).creator?.nickname + '喜欢的音乐') {
             addWyLikedSong(songId)
           }
           const sourcePlaylistId = fromListId.replace('wy__', '')
@@ -150,7 +150,7 @@ export default forwardRef<MusicAddModalType, MusicAddModalProps>(({ onAdded }, r
         })
       } else {
         wyApi.manipulatePlaylistTracks('add', toListId, [songId]).then(() => {
-          if (listInfo.name === (listInfo as any).creator.nickname + '喜欢的音乐') {
+          if (listInfo.name === (listInfo as any).creator?.nickname + '喜欢的音乐') {
             addWyLikedSong(songId)
           }
           onAdded?.()

@@ -93,6 +93,12 @@ const putViaNative = async(
     if (abortRequested || e?.code === 'E_CANCELLED') {
       throw new UploadAbortedError()
     }
+    // 中-3：原生对非 2xx 是 reject（code = E_HTTP_<状态码>），而本函数契约与
+    // 调用方的 409 建目录、Content-Range 不支持降级等判断都按「拿到 statusCode」
+    // 设计。把状态码还原成返回值，那些分支才活；否则全是死代码，且 409 时会
+    // 先白白失败一次、再降级整文件 base64 读内存重传。
+    const httpMatch = /E_HTTP_(\d+)/.exec(String(e?.code ?? ''))
+    if (httpMatch) return Number(httpMatch[1])
     throw e
   } finally {
     try { sub?.remove() } catch { /* 忽略 */ }
@@ -368,18 +374,20 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
       const chunkSizeMB = Number(settingState.setting['webdav.uploadChunkSizeMB'] ?? 5)
       const chunkSize = Math.max(1, Math.min(100, chunkSizeMB)) * 1024 * 1024
 
-      // 断点续传：检查远端已有大小
+      // 断点续传检查（高危修复）：此前只凭远端大小就①拼尾巴续传
+      // ②>= 本地直接报成功——远端同名异内容时拼出「旧头+新尾」混合文件
+      // 且总大小恰对、verifyRemoteSize 只比大小也放行，用户拿到损坏
+      // 歌曲还显示成功；同名异内容整文件则假成功、错文件留在服务器。
+      // 无法验证远端残片/现存文件与本地的内容同一性时，一律从 0 重传/
+      // 覆盖。代价：uploadResume 的跨会话续传停用（同一会话内分块不受
+      // 影响）；换取上传结果可信。
       let startOffset = 0
       if (resumeEnabled) {
         const remoteSize = await getRemoteFileSize(remotePath)
         if (remoteSize > 0 && remoteSize < actualSize) {
-          startOffset = remoteSize
-          webDAVLog.info('[upload] 断点续传', { remotePath, remoteSize, actualSize })
+          webDAVLog.warn('[upload] 远端存在残片，无法验证同一性，从头重传', { remotePath, remoteSize, actualSize })
         } else if (remoteSize >= actualSize && remoteSize > 0) {
-          // 远端已完整，直接成功
-          webDAVLog.info('[upload] 远端已存在完整文件，跳过上传', { remotePath })
-          report(actualSize, actualSize)
-          return
+          webDAVLog.warn('[upload] 远端已存在同名文件，无法验证内容同一性，从头覆盖', { remotePath, remoteSize, actualSize })
         }
       }
 

@@ -1,4 +1,5 @@
 import { LIST_IDS } from '@/config/constant'
+import defaultSetting from '@/config/defaultSetting'
 import {
   createList,
   getListMusics,
@@ -25,7 +26,13 @@ const isObject = (v: any): v is Record<string, any> => typeof v == 'object' && v
  * 避免 overwriteListFull 先把歌单清掉、后面步骤才抛错的半吊子状态。
  */
 const validateBackupData = (data: LX.ConfigFile.AllDataV3['data']) => {
-  if (!isObject(data)) throw new Error('invalid backup data')
+  if (!isObject(data) || Array.isArray(data)) throw new Error('invalid backup data')
+  // 低：空 data（{}/缺字段）此前全过校验、弹「导入成功」却什么都没恢复，
+  // 还掩盖真损坏——至少要含一个已知字段
+  if (data.lists === undefined && data.playHistory === undefined && data.downloadTasks === undefined
+    && data.settings === undefined && data.userApis === undefined) {
+    throw new Error('empty backup data')
+  }
   if (data.lists !== undefined) {
     const lists = data.lists as any
     if (!isObject(lists)
@@ -34,13 +41,39 @@ const validateBackupData = (data: LX.ConfigFile.AllDataV3['data']) => {
       || !Array.isArray(lists.userList)) {
       throw new Error('invalid backup lists')
     }
+    // 中：逐项查结构——残缺 userList（缺 id/list）此前能过校验，
+    // overwriteListFull 把 undefined 写进歌曲表、导入「成功」后开歌单崩溃
+    for (const song of [...lists.defaultList, ...lists.loveList]) {
+      if (!isObject(song)) throw new Error('invalid backup list item')
+    }
+    for (const userList of lists.userList) {
+      if (!isObject(userList) || typeof userList.id !== 'string' || !Array.isArray(userList.list)) {
+        throw new Error('invalid backup userList item')
+      }
+      for (const song of userList.list) {
+        if (!isObject(song)) throw new Error('invalid backup userList song')
+      }
+    }
   }
   if (data.playHistory !== undefined && !Array.isArray(data.playHistory)) throw new Error('invalid backup playHistory')
   if (data.downloadTasks !== undefined && !Array.isArray(data.downloadTasks)) throw new Error('invalid backup downloadTasks')
-  if (data.settings !== undefined && !isObject(data.settings)) throw new Error('invalid backup settings')
+  if (data.settings !== undefined) {
+    // 中：isObject 对数组也为 true，且不查值类型——错误类型会被合并落盘
+    // 持久化（如 theme.blur 写成字符串，消费方算出 NaN 且重启仍在）
+    if (!isObject(data.settings) || Array.isArray(data.settings)) throw new Error('invalid backup settings')
+    for (const [key, value] of Object.entries(data.settings as Record<string, any>)) {
+      const def = (defaultSetting as Record<string, any>)[key]
+      if (def !== undefined && def !== null && value !== null && typeof value !== typeof def) {
+        throw new Error(`invalid backup setting type: ${key}`)
+      }
+    }
+  }
   if (data.userApis !== undefined) {
     const apis = data.userApis as any
-    if (!isObject(apis) || !Array.isArray(apis.list) || (apis.scripts !== undefined && !isObject(apis.scripts))) {
+    // 高：scripts 必须存在且为「id→脚本字符串」对象——缺失时放行会在
+    // overwriteUserApis 里静默清空全部自定义音源脚本且不可回滚
+    if (!isObject(apis) || !Array.isArray(apis.list) || !isObject(apis.scripts) || Array.isArray(apis.scripts)
+      || !Object.values(apis.scripts).every(v => typeof v === 'string')) {
       throw new Error('invalid backup userApis')
     }
   }
@@ -171,6 +204,7 @@ const getAllLists = async() => {
 }
 const importOldListData = async(lists: any[]) => {
   const allLists = await getAllLists()
+  let failedCount = 0
   for (const list of lists) {
     try {
       const targetList = allLists.find((l) => l.id == list.id)
@@ -188,9 +222,13 @@ const importOldListData = async(lists: any[]) => {
         allLists.push(listInfo as LX.List.UserListInfoFull)
       }
     } catch (err) {
+      // 中：此前逐单吞错后照样报「导入成功」——收集失败数，有任一失败
+      // 即中止整包导入（已有数据不动），让外层如实提示失败
+      failedCount++
       console.log(err)
     }
   }
+  if (failedCount > 0) throw new Error(`${failedCount} 个歌单导入失败`)
   const defaultList = allLists.shift()!.list
   const loveList = allLists.shift()!.list
   await overwriteListFull({
@@ -205,6 +243,7 @@ const importNewListData = async(
   >,
 ) => {
   const allLists = await getAllLists()
+  let failedCount = 0
   for (const list of lists) {
     try {
       const targetList = allLists.find((l) => l.id == list.id)
@@ -222,9 +261,11 @@ const importNewListData = async(
         allLists.push(data as LX.List.UserListInfoFull)
       }
     } catch (err) {
+      failedCount++
       console.log(err)
     }
   }
+  if (failedCount > 0) throw new Error(`${failedCount} 个歌单导入失败`)
   const defaultList = allLists.shift()!.list
   const loveList = allLists.shift()!.list
   await overwriteListFull({
@@ -372,6 +413,9 @@ const importPlayList = async(path: string) => {
 
     default:
       showImportTip(configData.type)
+      // 中：必须 return true——此前返回 undefined，外层把 falsy 的 skipTip
+      // 当成功，又弹一条「导入成功」，失败说明与成功提示同屏矛盾
+      return true
   }
 }
 

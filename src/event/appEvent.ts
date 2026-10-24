@@ -148,6 +148,12 @@ export class AppEvent extends Event {
     this.emit('webdavPicUpdated', musicId, picUrl)
   }
 
+  // 低：WebDAV「定位当前播放」此前只有监听方、没有这个 emit 方法，
+  // 整条链是死的（监听处还要靠 @ts-expect-error 绕类型）
+  jumpWebDAVPosition() {
+    this.emit('jumpWebDAVPosition')
+  }
+
   lyricUpdated() {
     this.emit('lyricUpdated')
   }

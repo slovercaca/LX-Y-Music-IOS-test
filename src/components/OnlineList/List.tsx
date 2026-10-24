@@ -115,7 +115,12 @@ const List = forwardRef<ListType, ListProps>(
         // 引用相同（数据已是该数组）时跳过整表替换，阻断
         // musicInfoUpdate → onListUpdate 回传父组件 → 父组件回传 setList 的回环，
         // 避免播放中 FlatList 渲染窗口被反复重置（列表“只显示 12 条下方空白”）。
-        if (lastSetListRef.current === list) return
+        if (lastSetListRef.current === list) {
+          // 存疑修复：同引用只跳过整表替换，但 showSource 是展示开关，
+          // 一并跳过会让「显示来源」切换不生效
+          setShowSource(showSource)
+          return
+        }
         lastSetListRef.current = list
         listDataRef.current = list
         setList(list)
@@ -162,7 +167,9 @@ const List = forwardRef<ListType, ListProps>(
           // 程序化定位：先停用幽灵守卫，避免它把定位结果拉回顶部
           phantomGuard.stop()
           flatListRef.current?.scrollToIndex({
-            index: Math.floor(index / numColumns),
+            // 中-16：scrollToIndex 要的是条目下标，行换算已在 getItemLayout 里做；
+            // 这里再除一次列数会滚到约一半位置（双列时第 101 条滚到 ~50 条）
+            index,
             viewPosition: 0.3,
             animated: true,
           })
@@ -203,8 +210,10 @@ const List = forwardRef<ListType, ListProps>(
     }, [onListUpdate])
 
     const handleUpdateSelectedList = (newList: LX.Music.MusicInfoOnline[]) => {
-      if (selectedListRef.current.length && newList.length == currentList.length) onSelectAll(true)
-      else if (selectedListRef.current.length == currentList.length) onSelectAll(false)
+      // 低：判定改看新列表长度——此前从 0 选满时两支都不成立（旧 ref 长度
+      // 为 0、又不等于全长），顶栏全选状态错位一拍
+      if (newList.length > 0 && newList.length == currentList.length) onSelectAll(true)
+      else if (newList.length < currentList.length) onSelectAll(false)
       selectedListRef.current = newList
       setSelectedList(newList)
     }
@@ -417,7 +426,7 @@ const List = forwardRef<ListType, ListProps>(
         delaysContentTouches={false}
         // 行数据原地更新（musicInfoUpdate）+ 播放状态变化时驱动对应行重渲染；
         // data 引用保持稳定、renderItem 引用固定，VirtualizedList 不重置渲染窗口。
-        extraData={`${listVersion}|${playingId ?? ''}|${showSource ? '1' : '0'}|${selectedList.length}`}
+        extraData={`${listVersion}|${playingId ?? ''}|${showSource ? '1' : '0'}|${selectedList.map(m => m.id).join(',')}`} // 中：此前只拼选中数量，等长换选行不重渲、高亮与实际选区不符
         renderItem={renderItem}
         keyExtractor={getkey}
         getItemLayout={getItemLayout}

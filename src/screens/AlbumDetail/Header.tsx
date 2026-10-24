@@ -91,7 +91,7 @@ export default memo(({ albumInfo, componentId }: Props) => {
           <Text style={styles.albumName} size={20} color={theme['c-font']} numberOfLines={2}>{albumInfo.name}</Text>
           <View style={styles.artistContainer}>{artists}</View>
           <Text style={styles.metaInfo} size={designTypography.caption} color={theme['c-font-label']}>
-            {albumInfo.publishTime ? `${dateFormat(albumInfo.publishTime, 'Y.M.D') || albumInfo.publishTime} • ` : ''}{albumInfo.size || albumInfo.total} 首
+            {albumInfo.publishTime ? `${dateFormat(albumInfo.publishTime, 'Y.M.D') || albumInfo.publishTime} • ` : ''}{(albumInfo.size || albumInfo.total) ? `${albumInfo.size || albumInfo.total} 首` : ''}
           </Text>
         </View>
         {albumInfo.source !== 'tx' && albumInfo.source !== 'kg' && (

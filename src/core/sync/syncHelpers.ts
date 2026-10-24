@@ -32,6 +32,17 @@ export const filterSensitiveSettingsForSync = (settings: Partial<LX.AppSetting>,
   for (const key of keysToRemove) {
     delete nextSettings[key]
   }
+  // 高：同步元数据与服务器身份绝不跨设备搬运——lastSync* 时间戳/hash
+  // 随设置上传后在另一台设备原样落盘，B 的时间戳被 A 推进后永远拉不到
+  // A 的新歌单、甚至把旧歌单反向覆盖云端；url/username 被切成 A 的后
+  // B 直接连错服务器。此过滤同时用于上传载荷与下载落盘，两头都剔除。
+  for (const key of Object.keys(nextSettings)) {
+    if (key.startsWith('sync.webdav.lastSync')
+      || key === 'sync.webdav.url'
+      || key === 'sync.webdav.username') {
+      delete nextSettings[key as keyof LX.AppSetting]
+    }
+  }
   return nextSettings
 }
 

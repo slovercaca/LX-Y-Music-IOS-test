@@ -50,13 +50,17 @@ const LoadingSpinner = () => {
   const theme = useTheme()
 
   useEffect(() => {
-    Animated.loop(
+    // 低（存疑加固）：loop 动画保存实例、卸载时停——此前不保存不停止，
+    // 组件卸载后可能残留空转
+    const anim = Animated.loop(
       Animated.timing(spinAnim, {
         toValue: 1,
         duration: 1000,
         useNativeDriver: true,
       }),
-    ).start()
+    )
+    anim.start()
+    return () => { anim.stop() }
   }, [spinAnim])
 
   const spin = spinAnim.interpolate({

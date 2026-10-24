@@ -74,9 +74,11 @@ export default forwardRef<MusicListType, { header?: ReactElement }>((props, ref)
           markRefreshed(`boardSongs|${id}`)
           return getListDetail(id, page, page === 1)
             .then((listDetail) => {
-              const result = setListDetail(listDetail, id, page)
+              // 高-3：守卫必须在写 store 之前——此前先 setListDetail 覆写共享
+              // store 才查 loadId，切榜后迟到的旧榜数据已把新榜整表替换
               if (isUnmountedRef.current) return
               if (loadId !== loadIdRef.current) return
+              const result = setListDetail(listDetail, id, page)
               requestAnimationFrame(() => {
                 listRef.current?.setList(result.list)
                 listRef.current?.setStatus(
@@ -109,30 +111,41 @@ export default forwardRef<MusicListType, { header?: ReactElement }>((props, ref)
   }
   const handleRefresh: OnlineListProps['onRefresh'] = () => {
     const page = 1
+    // 高-3：捕获发起时的榜 id 与代际，回调先验再写 store（此前裸奔，
+    // 切榜后旧榜刷新结果会整表替换新榜）
+    const id = boardState.listDetailInfo.id
+    const loadId = loadIdRef.current
     listRef.current?.setStatus('refreshing')
-    getListDetail(boardState.listDetailInfo.id, page, true)
+    getListDetail(id, page, true)
       .then((listDetail) => {
-        const result = setListDetail(listDetail, boardState.listDetailInfo.id, page)
         if (isUnmountedRef.current) return
+        if (loadId !== loadIdRef.current || boardState.listDetailInfo.id !== id) return
+        const result = setListDetail(listDetail, id, page)
         listRef.current?.setList(result.list)
         listRef.current?.setStatus(boardState.listDetailInfo.maxPage <= page ? 'end' : 'idle')
       })
       .catch(() => {
+        if (loadId !== loadIdRef.current || boardState.listDetailInfo.id !== id) return
         if (boardState.listDetailInfo.list.length && page == 1) clearListDetail()
         listRef.current?.setStatus('error')
       })
   }
   const handleLoadMore: OnlineListProps['onLoadMore'] = () => {
+    // 高-3：同 handleRefresh，捕获 id/代际，回调先验再写
+    const id = boardState.listDetailInfo.id
+    const loadId = loadIdRef.current
     listRef.current?.setStatus('loading')
     const page = boardState.listDetailInfo.list.length ? boardState.listDetailInfo.page + 1 : 1
-    getListDetail(boardState.listDetailInfo.id, page)
+    getListDetail(id, page)
       .then((listDetail) => {
-        const result = setListDetail(listDetail, boardState.listDetailInfo.id, page)
         if (isUnmountedRef.current) return
+        if (loadId !== loadIdRef.current || boardState.listDetailInfo.id !== id) return
+        const result = setListDetail(listDetail, id, page)
         listRef.current?.setList(result.list, true)
         listRef.current?.setStatus(boardState.listDetailInfo.maxPage <= page ? 'end' : 'idle')
       })
       .catch(() => {
+        if (loadId !== loadIdRef.current || boardState.listDetailInfo.id !== id) return
         if (boardState.listDetailInfo.list.length && page == 1) clearListDetail()
         listRef.current?.setStatus('error')
       })

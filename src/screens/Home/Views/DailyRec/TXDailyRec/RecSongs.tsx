@@ -104,6 +104,9 @@ export default memo(({ header, type, onOpenDetail }: Props) => {
 
       if (result?.list) {
         listRef.current?.setList(result.list, false)
+        // 中：成功分支必须收尾状态——此前从不复位，刷新菊花永不停、
+        // 空态被压制（finally 里不能补，会覆盖 catch 的 error，见下方注释）
+        listRef.current?.setStatus('end')
       }
     } catch (error) {
       console.error(`获取QQ${type === 'radar' ? '雷达推荐' : '推荐新歌'}失败:`, error)

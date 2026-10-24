@@ -10,7 +10,7 @@ const enc_key = Buffer.from(
 )
 export const decodeLyric = (str) =>
   new Promise((resolve, _reject) => {
-    if (!str.length) return
+    if (!str.length) return resolve('') // 高：此前直接 return，Promise 永不 settle，空 KRC 歌词时歌词加载永久挂起
     const buf_str = Buffer.from(str, 'base64').slice(4)
     for (let i = 0, len = buf_str.length; i < len; i++) {
       buf_str[i] = buf_str[i] ^ enc_key[i % 16]

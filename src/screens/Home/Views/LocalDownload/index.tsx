@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FlatList, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native'
 import LandscapeDetailLayout from '@/components/LandscapeDetailLayout'
 import Text from '@/components/common/Text'
@@ -189,6 +189,8 @@ export default memo(() => {
   // 底部悬浮层（迷你播放器 + 底部 Tab + 安全区）统一避让高度
   const bottomInset = useBottomOverlayInset()
   const tasks = useDownloadTasks()
+  const tasksRef = useRef(tasks)
+  useEffect(() => { tasksRef.current = tasks }, [tasks])
   const playMusicInfo = usePlayMusicInfo()
 
   const [items, setItems] = useState<MergedItem[]>([])
@@ -234,8 +236,11 @@ export default memo(() => {
     }
   }, [completedKey])
 
+  const scanGenRef = useRef(0)
   // 扫描本地库并与下载任务合并
   const scanLibrary = useCallback(async() => {
+    // 低-11：代际守卫——多次扫描重叠时只认最新一次结果，防旧结果后到覆写
+    const gen = ++scanGenRef.current
     setLoading(true)
     try {
       const root = getLibraryRoot()
@@ -281,7 +286,7 @@ export default memo(() => {
 
       // 任务条目优先（信息全：歌名/歌手/音质/原歌曲信息）
       for (const task of completedTasks) {
-        const base = task.fileName.toLowerCase()
+        const base = baseNameOf(task.fileName).toLowerCase() // 中：集合里存的是去扩展名基名，此前带扩展名比对永远命不中、任务歌恒显示「无歌词/封面」
         merged.push({
           id: task.id,
           kind: 'task',
@@ -298,8 +303,15 @@ export default memo(() => {
         })
       }
       // 未被任务覆盖的裸文件
+      const unfinishedTaskPaths = new Set(
+        tasksRef.current.filter(task => task.status !== 'completed').map(task => task.filePath).filter(Boolean),
+      )
       for (const file of audioFiles) {
         if (taskPaths.has(file.path)) continue
+        // 中-23：下载中的临时文件（*.download.*）与失败/暂停任务的半截文件不是
+        // 完整歌曲，不能当本地歌展示（点播会半截断、还会多出怪名条目）
+        if (file.fileName.includes('.download.')) continue
+        if (unfinishedTaskPaths.has(file.path)) continue
         const parsed = parseFileName(file.fileName)
         const base = baseNameOf(file.fileName).toLowerCase()
         merged.push({
@@ -314,9 +326,9 @@ export default memo(() => {
         })
       }
       merged.sort((a, b) => a.name.localeCompare(b.name))
-      setItems(merged)
+      if (gen === scanGenRef.current) setItems(merged)
     } finally {
-      setLoading(false)
+      if (gen === scanGenRef.current) setLoading(false)
     }
   }, [completedTasks])
 
@@ -411,6 +423,12 @@ export default memo(() => {
         try {
           if (item.missing) {
             // 文件本就不存在：只删任务记录，不算失败（D8）
+            // 低-13：它的同名歌词/封面可能还在，一并清掉，否则会变孤儿且
+            // 孤儿判定按基名又把它们算作有效、删不干净
+            const lrcPath = await findLyricForAudio(item.path).catch(() => null)
+            if (lrcPath) await unlink(lrcPath).catch(() => {})
+            const picPath = await findPictureForAudio(item.path).catch(() => null)
+            if (picPath) await unlink(picPath).catch(() => {})
             if (item.kind === 'task') downloadActions.removeTask(id)
             continue
           }

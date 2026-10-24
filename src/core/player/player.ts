@@ -1,4 +1,4 @@
-import { isInitialized, initial as playerInitial, isEmpty, setPause, setPlay, setResource, setStop, initTrackInfo, getPosition } from '@/plugins/player'
+import { isInitialized, initial as playerInitial, isEmpty, setPause, setPlay, setResource, setStop, initTrackInfo, getPosition, cancelPendingSetResource } from '@/plugins/player'
 import {
   setStatusText,
 } from '@/core/player/playStatus'
@@ -101,18 +101,21 @@ const delayRetry = async(musicInfo: LX.Music.MusicInfo | LX.Download.ListItem, i
     setStatusText(global.i18n.t('player__getting_url_delay_retry', { time }))
     const tiemout = setTimeout(() => {
       getMusicPlayUrl(musicInfo, isRefresh, true).then((result) => {
-        cancelDelayRetry = null
+        // 低-13：只清属于本轮的句柄——新一轮重试已接管时，旧回调无条件置 null
+        // 会把新句柄吞掉，暂停时再也取消不了新重试
+        if (cancelDelayRetry === myCancel) cancelDelayRetry = null
         resolve(result)
       }).catch(async(err: any) => {
-        cancelDelayRetry = null
+        if (cancelDelayRetry === myCancel) cancelDelayRetry = null
         reject(err)
       })
     }, time * 1000)
-    cancelDelayRetry = () => {
+    const myCancel = () => {
       clearTimeout(tiemout)
-      cancelDelayRetry = null
+      if (cancelDelayRetry === myCancel) cancelDelayRetry = null
       resolve(null)
     }
+    cancelDelayRetry = myCancel
   })
 }
 const getMusicPlayUrl = async(musicInfo: LX.Music.MusicInfo | LX.Download.ListItem, isRefresh = false, isRetryed = false, quality?: LX.Quality): Promise<PlayUrlInfo | null> => {
@@ -406,7 +409,7 @@ export const getNextPlayMusicInfo = async(): Promise<LX.Player.PlayMusicInfo | n
     }
     // 从已播放列表移除播放列表已删除的歌曲
     let index
-    for (index = playedList.findIndex(m => m.musicInfo.id === currentId) + 1; index < playedList.length; index++) {
+    for (index = currentId ? playedList.findIndex(m => m.musicInfo.id === currentId) + 1 : playedList.length; index < playedList.length; index++) { // 低-14：tempPlay 索引越界时 currentId 为空，跳过 playedList 定位防基准错位
       const playMusicInfo = playedList[index]
       const currentId = playMusicInfo.musicInfo.id
       if (playMusicInfo.listId == currentListId && !currentList.some(m => m.id === currentId)) {
@@ -503,7 +506,7 @@ export const playNext = async(isAutoToggle = false): Promise<void> => {
     }
     // 从已播放列表移除播放列表已删除的歌曲
     let index
-    for (index = playedList.findIndex(m => m.musicInfo.id === currentId) + 1; index < playedList.length; index++) {
+    for (index = currentId ? playedList.findIndex(m => m.musicInfo.id === currentId) + 1 : playedList.length; index < playedList.length; index++) { // 低-14：tempPlay 索引越界时 currentId 为空，跳过 playedList 定位防基准错位
       const playMusicInfo = playedList[index]
       const currentId = playMusicInfo.musicInfo.id
       if (playMusicInfo.listId == currentListId && !currentList.some(m => m.id === currentId)) {
@@ -744,6 +747,8 @@ export const pause = async() => {
   // 2026-10-05 fix（逻辑-P1-1）：取消 200ms 内 pending 的切歌播放，
   // 否则用户快速"下一首→暂停"后音乐仍会自己响起来
   debouncePlay.cancel()
+  // 中-4：一并取消 setResource 的 800ms 延迟装载，防暂停/停止后到点自响
+  cancelPendingSetResource()
   await setPause()
 }
 
@@ -760,6 +765,8 @@ export const stop = async() => {
   clearLoadTimeout()
   // 2026-10-05 fix（逻辑-P1-1）：同 pause，取消 pending 的切歌播放
   debouncePlay.cancel()
+  // 中-4：一并取消 setResource 的 800ms 延迟装载，防暂停/停止后到点自响
+  cancelPendingSetResource()
   await setStop()
   setTimeout(() => {
     global.app_event.stop()

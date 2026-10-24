@@ -133,6 +133,7 @@ const filterInfoByPlayMusic = (musicInfo) => {
         ],
         musicInfo,
       )
+      break // 高：此前缺 break 穿透到 default，mg 校验通过仍 100% 抛 Unknown source、咪咕歌无法经 deeplink 播放
     default:
       throw new Error('Unknown source: ' + musicInfo.source)
   }

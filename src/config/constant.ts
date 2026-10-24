@@ -58,6 +58,8 @@ export const storageDataPrefix = {
   syncHostHistory: '@sync_host_history',
 
   openStoragePath: '@open_storage_path',
+  soundEffectEQPresetList: '@sound_effect_eq_preset_list',
+  soundEffectConvolutionPresetList: '@sound_effect_convolution_preset_list',
   selectedManagedFolder: '@selected_managed_folder',
   notificationTipEnable: '@notification_tip_enable',
   ignoringBatteryOptimizationTipEnable: '@ignoring_battery_optimization_tip_enable',
@@ -161,9 +163,16 @@ export const getEffectiveFlatOrder = (
   const allMenuIds = NAV_MENUS.map(m => m.id)
   // 过滤已废弃的菜单 id（如合并前的 nav_download_music / nav_local_music），
   // 避免老用户持久化顺序里的残留项渲染成未知页面
+  // 低：base 含重复 id 时此前不去重，数据损坏会渲染两个相同页面；去重
+  // （nav_discovery 置顶是既定锚点行为，保持）
+  const seenIds = new Set<NAV_ID_Type>(['nav_discovery'])
   const validBase: NAV_ID_Type[] = [
     'nav_discovery',
-    ...base.filter(id => allMenuIds.includes(id) && id !== 'nav_discovery'),
+    ...base.filter(id => {
+      if (!allMenuIds.includes(id) || id === 'nav_discovery' || seenIds.has(id)) return false
+      seenIds.add(id)
+      return true
+    }),
   ]
   const set = new Set(validBase)
   const extra = allMenuIds.filter(id => !set.has(id))

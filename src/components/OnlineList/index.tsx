@@ -245,6 +245,16 @@ export default forwardRef<OnlineListType, OnlineListProps>(
           for (const song of songsResult.data.list) {
             if (song.songmid && song.fileId) hashToFileId.set(song.songmid.toLowerCase(), song.fileId)
           }
+          // 中：歌单超过 500 首时只建第一页映射，后面的歌永远删不掉——
+          // 满页就继续翻页补全（上限 20 页）
+          for (let page = 2; songsResult.data.list.length >= 500 && page <= 20; page++) {
+            const more = await getKgPlaylistSongs(kgCookie, playlistId, page, 500).catch(() => null)
+            if (!more?.success || !more.data?.list?.length) break
+            for (const song of more.data.list) {
+              if (song.songmid && song.fileId) hashToFileId.set(song.songmid.toLowerCase(), song.fileId)
+            }
+            if (more.data.list.length < 500) break
+          }
           const selectedHashes = musicInfos.map(m => {
             const meta = m.meta as any
             return (meta?.songmid || meta?.songId || m.id || '').toString().toLowerCase()
@@ -252,6 +262,11 @@ export default forwardRef<OnlineListType, OnlineListProps>(
           console.log('[KuGou] 歌单歌曲 hash 列表:', [...hashToFileId.keys()].slice(0, 5))
           console.log('[KuGou] 选中歌曲 hash:', selectedHashes.slice(0, 5))
           const fileids = selectedHashes.map(h => hashToFileId.get(h) || 0).filter(id => id > 0)
+          // 中：部分选中歌曲没找到时要明示数目，不能删了子集却报全成功
+          const missingCount = selectedHashes.length - fileids.length
+          if (missingCount > 0) {
+            toast(`有 ${missingCount} 首未在歌单中找到，未删除`, 'long')
+          }
           if (fileids.length === 0) {
             toast('找不到对应的歌曲')
             return

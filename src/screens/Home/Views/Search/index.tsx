@@ -127,10 +127,17 @@ export default () => {
       searchInfo.current.searchType = (type || info.type) as SearchType
       setSource(searchInfo.current.source)
       setSourceType(searchInfo.current.searchType)
+      // 中-12：深链改源也要广播，否则 SearchTypeSelector 的源停在旧值，
+      // 歌手/专辑置灰判断全错（该拦的没拦、能用的被置灰）
+      global.app_event.emit('searchSourceChanged', searchInfo.current.source)
       if (type) {
         global.app_event.searchTypeChanged(searchInfo.current.searchType)
       }
       if (keyword) {
+        // 中-17：关键词写回搜索状态与输入框——此前只 loadList 一次，之后切源/
+        // 切类型读到的还是旧词（空则直接不搜），输入框里也是空的
+        setSearchState(keyword)
+        headerBarRef.current?.setText(keyword)
         listRef.current?.loadList(
           keyword,
           searchInfo.current.source,

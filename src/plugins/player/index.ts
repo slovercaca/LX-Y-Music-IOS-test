@@ -140,6 +140,7 @@ export {
 
 export {
   setResource,
+  cancelPendingSetResource,
   setPause,
   setPlay,
   setCurrentTime,

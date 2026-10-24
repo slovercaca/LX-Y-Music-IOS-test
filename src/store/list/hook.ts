@@ -79,9 +79,13 @@ export const useMusicExistsList = (list: LX.List.MyListInfo, musicInfo: LX.Music
   const [isExists, setExists] = useState(false)
 
   useEffect(() => {
+    // 存疑修复：快速切歌/切单时旧请求后到会把「已存在」标错；卸载后 setState 亦无谓
+    let ignore = false
     void getListMusics(list.id).then((musics) => {
+      if (ignore) return
       setExists(musics.some((s) => s.id == musicInfo.id))
     })
+    return () => { ignore = true }
   }, [list.id, musicInfo.id])
 
   return isExists
@@ -91,6 +95,9 @@ export const useListFetching = (listId: string) => {
   const [fetching, setFetching] = useState(!!state.fetchingListStatus[listId])
 
   useEffect(() => {
+    // 中：切换 listId 时先按新 id 同步一次当前状态并重置 prevStatus——
+    // 此前只换订阅不换值，加载指示会永久卡在旧歌单的状态上
+    setFetching(!!state.fetchingListStatus[listId])
     let prevStatus = state.fetchingListStatus[listId]
     const handleUpdate = (status: InitState['fetchingListStatus']) => {
       let currentStatus = status[listId]

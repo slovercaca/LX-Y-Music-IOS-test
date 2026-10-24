@@ -49,6 +49,8 @@ export default memo(({ componentId, artistInfo }: { componentId: string, artistI
   const componentIdRef = useRef(componentId)
   const songListRef = useRef<any>(null)
   const songsLoadingRef = useRef(false)
+  const albumsLoadingRef = useRef(false)
+  const albumsHasMoreRef = useRef(true)
   const songsRequestIdRef = useRef(0)
   const isFirstSortEffect = useRef(true)
   const playerMusicInfo = usePlayerMusicInfo()
@@ -87,7 +89,7 @@ export default memo(({ componentId, artistInfo }: { componentId: string, artistI
         api: artistInfo.source === 'tx' ? 'txApi' : 'wyApi',
       })
       api.getDetail(artistParam).then((data: any) => {
-        setArtistDetailCache(artistInfo.id, data)
+        setArtistDetailCache(artistParam, data) // 低：读端用 artistParam 作键，写端原用 id——tx 歌手详情缓存永远不命中、每次进页重拉
         setArtistDetail(data)
       }).catch((err: any) => {
         console.error('[ArtistDetail] 歌手详情加载失败', err)
@@ -206,26 +208,15 @@ export default memo(({ componentId, artistInfo }: { componentId: string, artistI
     const currentApi = getApi(artistInfo.source)
     const currentArtistParam = getArtistParam(artistInfo)
 
-    log.info('[ArtistDetail] === loadAlbums 被调用 ===', {
-      artistId: artistInfo.id,
-      artistMid: artistInfo.mid,
-      artistParam: currentArtistParam,
-      artistSource: artistInfo.source,
-      page,
-      isRefresh,
-      timestamp: new Date().toISOString(),
-    })
-    const cacheKey = `${currentArtistParam}_albums_${page}`
+    // 中：同步 ref 锁——此前缓存分支无守卫可重复 append；网络请求还写在
+    // setState updater 里（非纯函数，updater 重放会重复发请求再叠一层重复）
+    if (albumsLoadingRef.current) return
+    if (!isRefresh && !albumsHasMoreRef.current) return
 
+    const cacheKey = `${currentArtistParam}_albums_${page}`
     const cachedData = getArtistCache(cacheKey)
     if (!isRefresh && cachedData) {
-      log.info('[ArtistDetail] === 使用缓存的专辑列表 ===', {
-        artistId: artistInfo.id,
-        artistParam: currentArtistParam,
-        cacheKey,
-        albumCount: cachedData.hotAlbums.length,
-        hasMore: cachedData.hasMore,
-      })
+      albumsHasMoreRef.current = cachedData.hasMore
       setAlbums(p => ({
         ...p,
         list: page === 1 ? cachedData.hotAlbums : [...p.list, ...cachedData.hotAlbums],
@@ -236,41 +227,25 @@ export default memo(({ componentId, artistInfo }: { componentId: string, artistI
       return
     }
 
-    setAlbums(prev => {
-      if (!isRefresh && (prev.loading || !prev.hasMore)) {
-        log.info('[ArtistDetail] === 跳过专辑加载 ===', {
-          reason: prev.loading ? '正在加载' : '没有更多数据',
-          loading: prev.loading,
-          hasMore: prev.hasMore,
-        })
-        return prev
-      }
-      const offset = (page - 1) * ALBUM_LIMIT
-      log.info('[ArtistDetail] === 请求歌手专辑列表 ===', {
-        artistId: artistInfo.id,
-        artistParam: currentArtistParam,
-        artistSource: artistInfo.source,
-        page,
-        offset,
-        limit: ALBUM_LIMIT,
-      })
-      currentApi.getAlbums(currentArtistParam, ALBUM_LIMIT, offset).then((data: any) => {
-        log.info('[ArtistDetail] 歌手专辑加载成功', { artistId: artistInfo.id, albumCount: data.hotAlbums.length, hasMore: data.hasMore })
-        setArtistCache(cacheKey, { hotAlbums: data.hotAlbums, hasMore: data.hasMore })
-
-        setAlbums(p => ({
-          ...p,
-          list: page === 1 ? data.hotAlbums : [...p.list, ...data.hotAlbums],
-          hasMore: data.hasMore,
-          page: page + 1,
-          loading: false,
-        }))
-      }).catch((err: any) => {
-        log.error('[ArtistDetail] 歌手专辑加载失败', { artistId: artistInfo.id, error: err.message })
-        toast('获取专辑失败')
-        setAlbums(p => ({ ...p, loading: false }))
-      })
-      return { ...prev, loading: true }
+    albumsLoadingRef.current = true
+    setAlbums(prev => ({ ...prev, loading: true }))
+    const offset = (page - 1) * ALBUM_LIMIT
+    currentApi.getAlbums(currentArtistParam, ALBUM_LIMIT, offset).then((data: any) => {
+      setArtistCache(cacheKey, { hotAlbums: data.hotAlbums, hasMore: data.hasMore })
+      albumsHasMoreRef.current = data.hasMore
+      setAlbums(p => ({
+        ...p,
+        list: page === 1 ? data.hotAlbums : [...p.list, ...data.hotAlbums],
+        hasMore: data.hasMore,
+        page: page + 1,
+        loading: false,
+      }))
+    }).catch((err: any) => {
+      log.error('[ArtistDetail] 歌手专辑加载失败', { artistId: artistInfo.id, error: err.message })
+      toast('获取专辑失败')
+      setAlbums(p => ({ ...p, loading: false }))
+    }).finally(() => {
+      albumsLoadingRef.current = false
     })
   }, [artistInfo])
 

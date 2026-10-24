@@ -5,10 +5,14 @@ const DOWNLOAD_TASKS_KEY = storageDataPrefix.downloadList
 
 export const normalizeDownloadTasks = (tasks: LX.Download.DownloadTask[]): LX.Download.DownloadTask[] =>
   tasks.map(task => {
-    if (task.status === 'downloading' || task.status === 'waiting') {
-      return { ...task, status: 'paused' }
+    // 中存疑-25：存量旧任务补齐 metadataStatus 默认值，防渲染期裸解引用闪退
+    const withMeta = task.metadataStatus
+      ? task
+      : { ...task, metadataStatus: { cover: 'pending', lyric: 'pending', tags: 'pending' } as LX.Download.DownloadTask['metadataStatus'] }
+    if (withMeta.status === 'downloading' || withMeta.status === 'waiting') {
+      return { ...withMeta, status: 'paused' }
     }
-    return task
+    return withMeta
   })
 
 export const normalizeDownloadTasksForSync = (tasks: LX.Download.DownloadTask[]): LX.Download.DownloadTask[] =>
@@ -41,7 +45,8 @@ export const normalizeRemoteSyncedDownloadTasks = (tasks: LX.Download.DownloadTa
 
 export const getDownloadTasks = async(): Promise<LX.Download.DownloadTask[]> => {
   const tasks = await getData<LX.Download.DownloadTask[]>(DOWNLOAD_TASKS_KEY)
-  return normalizeDownloadTasks(tasks || [])
+  // 存疑处理：存储被写成非数组时此前 .map 抛错——形状守卫兜底为空数组
+  return normalizeDownloadTasks(Array.isArray(tasks) ? tasks : [])
 }
 
 export const saveDownloadTasks = async(tasks: LX.Download.DownloadTask[]) => {

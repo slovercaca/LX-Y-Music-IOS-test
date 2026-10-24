@@ -84,6 +84,12 @@ let cursorTools = {
       cursor = cacheData.cursor = cacheData.prevCursor = Date.now()
       orderType = 1
       offset = 0
+    } else if (page > 1 && !cacheData.page) {
+      // 低：未请求过第 1 页直接请求 page>1 时此前 cursor/orderType/offset
+      // 全 undefined、评论参数残缺——按从头翻页近似初始化
+      cursor = cacheData.cursor = cacheData.prevCursor = Date.now()
+      orderType = 1
+      offset = (page - 1) * limit
     } else if (cacheData.page) {
       cursor = cacheData.cursor
       if (page > cacheData.page) {
@@ -125,7 +131,7 @@ export default {
 
     const cursorInfo = cursorTools.getCursor(songmid, page, limit)
 
-    const _requestObj = httpFetch('https://music.163.com/weapi/comment/resource/comments/get', {
+    const _requestObj = this._requestObj = httpFetch('https://music.163.com/weapi/comment/resource/comments/get', {
       method: 'post',
       headers: {
         'User-Agent':
@@ -161,7 +167,7 @@ export default {
 
     const id = 'R_SO_4_' + songmid
 
-    const _requestObj2 = httpFetch(`https://music.163.com/weapi/v1/resource/hotcomments/${id}`, {
+    const _requestObj2 = this._requestObj2 = httpFetch(`https://music.163.com/weapi/v1/resource/hotcomments/${id}`, {
       method: 'post',
       headers: {
         'User-Agent':

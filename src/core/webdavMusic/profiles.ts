@@ -1,5 +1,6 @@
 import { getData, saveData } from '@/plugins/storage'
 import { updateSetting } from '@/core/common'
+import settingActions from '@/store/setting/action'
 import settingState from '@/store/setting/state'
 import { resetClient } from '@/utils/webdav'
 
@@ -32,7 +33,11 @@ const genId = () => `${Date.now().toString(36)}_${Math.random().toString(36).sli
 
 export const getWebDAVServerProfiles = async(): Promise<WebDAVServerProfile[]> => {
   const list = await getData<WebDAVServerProfile[]>(PROFILES_KEY)
-  return Array.isArray(list) ? list : []
+  // 存疑处理：元素零校验时，存储被旧版本/备份写坏一条（缺 url/name）
+  // 会让 findActive/故障转移候选直接 TypeError、整链挂掉无降级。
+  // 读取时过滤掉形状不完整的条目。
+  if (!Array.isArray(list)) return []
+  return list.filter(p => !!p && typeof p.url === 'string' && typeof p.name === 'string')
 }
 
 const persistProfiles = (profiles: WebDAVServerProfile[]) => saveData(PROFILES_KEY, profiles)
@@ -95,11 +100,15 @@ export const getActiveWebDAVProfileId = async(): Promise<string | null> => {
  * 注意：不清空已扫描歌曲缓存——若新服务器上没有这些文件，播放时会报 404
  * 并提示重新扫描；切回旧服务器时歌曲列表还在，无需重扫。
  */
-export const applyWebDAVServerProfile = async(id: string): Promise<WebDAVServerProfile | null> => {
+export const applyWebDAVServerProfile = async(id: string, options?: { silent?: boolean }): Promise<WebDAVServerProfile | null> => {
   const profiles = await getWebDAVServerProfiles()
   const profile = profiles.find(p => p.id === id)
   if (!profile) return null
-  updateSetting({
+  // 中：故障转移内部调用传 silent——走 core 的 updateSetting 会
+  // markSettingsChanged 标脏、再调度一次注定失败的同步（与标记清除
+  // 时序赛跑还可能残留 true 反复触发）。静默路径直写 store。
+  const write = options?.silent ? settingActions.updateSetting : updateSetting
+  write({
     'sync.webdav.url': profile.url,
     'sync.webdav.username': profile.username,
     'sync.webdav.password': profile.password,

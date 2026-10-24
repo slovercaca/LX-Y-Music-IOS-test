@@ -20,7 +20,7 @@ export default {
           {
             album_audio_id:
               songInfo.songmid.length == 32
-                ? songInfo.audioId.split('_')[0]
+                ? (songInfo.audioId?.split('_')[0] || songInfo.songmid) // 中：无 audioId 时 split 崩溃（如从用户歌单构造的 kg 歌曲取封面）
                 : songInfo.songmid,
             album_id: songInfo.albumId,
             hash: songInfo.hash,

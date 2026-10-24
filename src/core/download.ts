@@ -4,7 +4,7 @@ import { getMusicUrl, getMusicUrlWithQuality, getLyricInfo } from '@/core/music'
 import { getFileExtension, getFileExtensionFromUrl } from '@/screens/Home/Views/Mylist/MusicList/download/utils'
 import { mergeLyrics } from '@/screens/Home/Views/Mylist/MusicList/download/lrcTool'
 import { writeFile, unlink, downloadFile, moveFile, stopDownload } from '@/utils/fs'
-import { getMusicDir, getLrcDir, getPictureDir, ensureLibraryDirs, findLibraryPicture, cacheCoverToLibrary } from '@/utils/localLibrary'
+import { getMusicDir, getLrcDir, getPictureDir, ensureLibraryDirs, findLibraryPicture, cacheCoverToLibrary, truncateToUtf8Bytes } from '@/utils/localLibrary'
 import { writeMetadata, writePic, writeLyric, isWriteSupported } from '@/utils/localMediaMetadata'
 import settingState from '@/store/setting/state'
 import downloadState from '@/store/download/state'
@@ -27,9 +27,17 @@ export const friendlyDownloadError = (err: any): string => {
 // 用户主动暂停的任务 id：stopDownload 会让下载 Promise 以错误结束，
 // processQueue 的 catch 靠这个集合区分「暂停」与「真失败」（D1 真暂停）
 const pausedTaskIds = new Set<string>()
+// 用户删除（取消）下载中任务的 id：与暂停区分——删除后静默收尾，不报失败、不计批量失败（中-18）
+const cancelledTaskIds = new Set<string>()
+// 批量入队计数（中-21）：多批重叠触发时合并统计，全部入队完才允许排空汇总
+let batchAddingCount = 0
 
 // 批量下载汇总（D5）：批量期间逐首完成/失败 toast 静默，队列排空后只弹一条汇总
 let batchState: { success: number, fail: number, adding: boolean } | null = null
+// 中：批量成员 id 集合——此前计数/提示抑制只看全局 batchState 是否存在，
+// 批量进行期间单下的歌被吞提示且计入批量成败、第二批还会把计数清零。
+// 改为按任务归属判定：只有批量添加的任务才计入批量。
+const batchTaskIds = new Set<string>()
 import wySdk from '@/utils/musicSdk/wy'
 import bilibiliSdk from '@/utils/musicSdk/bilibili'
 
@@ -59,26 +67,46 @@ const processQueue = async() => {
   try {
     await startDownload(task)
   } catch (error: any) {
-    if (pausedTaskIds.has(task.id)) {
+    if (cancelledTaskIds.has(task.id)) {
+      // 用户删掉了这个下载中任务：静默收尾，不报失败、不计入批量失败（中-18）
+      cancelledTaskIds.delete(task.id)
+    } else if (pausedTaskIds.has(task.id)) {
       // 用户主动暂停：保留任务与已下载进度，不报失败（D1）
       pausedTaskIds.delete(task.id)
       downloadActions.updateTask(task.id, { status: 'paused' })
     } else {
       console.log('[Download] 下载失败:', task.fileName, error?.message || error)
       downloadActions.updateTask(task.id, { status: 'error', errorMsg: friendlyDownloadError(error) })
-      if (batchState) batchState.fail++
-      else toast(`${task.fileName} ${friendlyDownloadError(error)}`, 'short')
+      // 中：失败清半截文件——同扩展名时下载直接写最终路径，中途失败的
+      // 截断音频会留在 music/ 被本地库当正常歌曲列出、播到一半断裂
+      void unlink(task.filePath).catch(() => {})
+      void unlink(downloadTempVariantPath(task)).catch(() => {})
+      if (batchTaskIds.has(task.id)) {
+        if (batchState) batchState.fail++
+      } else toast(`${task.fileName} ${friendlyDownloadError(error)}`, 'short')
     }
   } finally {
+    // 高：无论何种路径结束，都清掉本任务的暂停/取消残留标记——元数据
+    // 阶段点的暂停此前无人消费，标记按确定性 id 残留，同歌重下会静默卡死
+    pausedTaskIds.delete(task.id)
+    cancelledTaskIds.delete(task.id)
     isProcessing = false
     processQueue()
     // 批量队列排空 → 只弹一条汇总（D5）
-    if (batchState && !batchState.adding && taskQueue.length === 0 && !isProcessing) {
+    if (batchState && batchAddingCount === 0 && taskQueue.length === 0 && !isProcessing) {
       const { success, fail } = batchState
       batchState = null
+      batchTaskIds.clear()
       if (success + fail > 0) toast(`批量下载完成：成功 ${success} 首${fail ? `，失败 ${fail} 首` : ''}`, 'long')
     }
   }
+}
+
+// .download 临时变体路径（扩展名不一致/B站下载时实际写入的路径）
+const downloadTempVariantPath = (task: DownloadTask): string => {
+  const extMatch = /\.([^.]+)$/.exec(task.filePath)
+  if (!extMatch || task.filePath.includes('.download.')) return ''
+  return task.filePath.replace(/\.([^.]+)$/, '.download.$1')
 }
 
 const startDownload = async(task: DownloadTask) => {
@@ -101,8 +129,16 @@ const startDownload = async(task: DownloadTask) => {
       }
       url = result.url
     } catch (error: any) {
-      if (batchState) batchState.fail++
-      else toast(`${task.musicInfo.name} ${friendlyDownloadError(error)}`, 'short')
+      // 中：取链窗口期点了暂停又恰好取链失败——此前直接删任务，与暂停
+      // 语义冲突（通用分支同场景是保留为 paused）
+      if (pausedTaskIds.has(task.id)) {
+        pausedTaskIds.delete(task.id)
+        downloadActions.updateTask(task.id, { status: 'paused' })
+        return
+      }
+      if (batchTaskIds.has(task.id)) {
+        if (batchState) batchState.fail++
+      } else toast(`${task.musicInfo.name} ${friendlyDownloadError(error)}`, 'short')
       removeTask(task.id)
       return
     }
@@ -117,8 +153,14 @@ const startDownload = async(task: DownloadTask) => {
           console.log('[Download] 使用 bilibili 自定义 headers')
         }
       } catch (error: any) {
-        if (batchState) batchState.fail++
-        else toast(`${task.musicInfo.name} ${friendlyDownloadError(error)}`, 'short')
+        if (pausedTaskIds.has(task.id)) {
+          pausedTaskIds.delete(task.id)
+          downloadActions.updateTask(task.id, { status: 'paused' })
+          return
+        }
+        if (batchTaskIds.has(task.id)) {
+          if (batchState) batchState.fail++
+        } else toast(`${task.musicInfo.name} ${friendlyDownloadError(error)}`, 'short')
         removeTask(task.id)
         return
       }
@@ -178,6 +220,18 @@ const startDownload = async(task: DownloadTask) => {
     // 统一本地库结构：根目录 + music/ + lrc/ + picture/
     await ensureLibraryDirs()
 
+    // 高-3：取链后的几段 await（权限/空间/建目录）期间用户可能已点暂停；
+    // 此刻还没建下载对象、stopDownload 无从停起，必须在这里再查一次，
+    // 否则下载会照常下完并把状态覆写回 completed，暂停被吞。
+    if (pausedTaskIds.has(task.id)) {
+      pausedTaskIds.delete(task.id)
+      return
+    }
+    if (cancelledTaskIds.has(task.id)) {
+      cancelledTaskIds.delete(task.id)
+      return
+    }
+
     const downloadTask = downloadFile(url, downloadFilePath, {
       headers,
       progress: (res) => {
@@ -206,17 +260,43 @@ const startDownload = async(task: DownloadTask) => {
     })
 
     currentDownloadTask = downloadTask
-    await downloadTask.promise
+    const downloadResult: any = await downloadTask.promise
+    // 高：此前丢弃下载结果——403/404 错误页或 0 字节文件会被存成音频
+    // 并标记 completed，毒文件长期留在 music/ 被当正常歌曲
+    if (!downloadResult || downloadResult.statusCode < 200 || downloadResult.statusCode >= 300 || !(downloadResult.bytesWritten > 0)) {
+      await unlink(downloadFilePath).catch(() => {})
+      throw new Error(`下载失败（HTTP ${downloadResult?.statusCode ?? '未知'}）`)
+    }
+    // 高-3：文件刚下完、写元数据期间被暂停的场景——stopDownload 对已完成的
+    // Promise 无效，此处消费暂停标记，保持 paused，不覆写 completed；
+    // 残留标记若不清除，会按任务 id 毒化之后同歌重下（静默 return 卡死）。
+    if (pausedTaskIds.has(task.id)) {
+      pausedTaskIds.delete(task.id)
+      downloadActions.updateTask(task.id, { status: 'paused' })
+      return
+    }
+    if (cancelledTaskIds.has(task.id)) {
+      cancelledTaskIds.delete(task.id)
+      return
+    }
     downloadedFilePath = downloadFilePath
     console.log('下载完成:', downloadedFilePath)
 
     if (finalFilePath !== downloadedFilePath) {
       try {
+        // 低-12：目标已存在同名文件是改名失败主因（moveFile 不覆盖）——先清掉再改。
+        // 改名若失败，任务会以 *.download.* 临时名完成，而歌词/封面按正式名存，
+        // 这首歌的离线歌词/封面将永远匹配不上。
+        await unlink(finalFilePath).catch(() => {})
         await moveFile(downloadedFilePath, finalFilePath)
         downloadedFilePath = finalFilePath
         console.log(`[Download] 重命名为最终路径: ${downloadedFilePath}`)
       } catch (renameError) {
+        // 高：此前吞掉改名失败、带着 .download 临时名标记 completed，
+        // 歌词/封面按正式名存永远匹配不上。改为进失败分支（文件保留
+        // 在临时路径，重试/删除时按变体路径一并清理）
         console.warn('[Download] 重命名失败:', renameError)
+        throw new Error('下载文件改名失败，请重试')
       }
     }
 
@@ -225,6 +305,18 @@ const startDownload = async(task: DownloadTask) => {
     } else {
       console.log('[Download] Bilibili 源跳过元数据处理')
       downloadActions.updateTask(task.id, { metadataStatus: { cover: 'success', lyric: 'success', tags: 'success' } })
+    }
+    // 元数据阶段用户删/暂停了任务：文件已下完，删除按其意愿清文件，
+    // 暂停保留文件与 paused 状态，都不再覆写 completed
+    if (cancelledTaskIds.has(task.id)) {
+      cancelledTaskIds.delete(task.id)
+      await unlink(downloadedFilePath).catch(() => {})
+      return
+    }
+    if (pausedTaskIds.has(task.id)) {
+      pausedTaskIds.delete(task.id)
+      downloadActions.updateTask(task.id, { status: 'paused', filePath: downloadedFilePath })
+      return
     }
     try {
       await RNFetchBlob.fs.scanFile([{ path: downloadedFilePath }])
@@ -239,8 +331,9 @@ const startDownload = async(task: DownloadTask) => {
     // 下载完成后把封面缓存到 picture/（已存在则跳过），列表/播放各处优先读本地缓存
     void cacheDownloadedCover(task)
 
-    if (batchState) batchState.success++
-    else if (!task.isForceCookie) {
+    if (batchTaskIds.has(task.id)) {
+      if (batchState) batchState.success++
+    } else if (!task.isForceCookie) {
       toast(`${task.fileName} 下载完成!`, 'short')
     }
   } finally {
@@ -322,7 +415,13 @@ const handleMetadata = async(task: DownloadTask, filePath: string) => {
       const picPath = `${getPictureDir()}/${task.fileName}.${extension}`
       console.log(`[Metadata] 下载封面: ${picUrl} -> ${picPath}`)
       const { promise } = downloadFile(picUrl, picPath)
-      await promise
+      const picResult: any = await promise
+      // 中：此前不校验结果——404 的 HTML 以 .jpg 落盘 picture/，之后
+      // 只判存在就复用、永不重下，这首歌封面被永久毒缓存顶掉
+      if (!picResult || picResult.statusCode < 200 || picResult.statusCode >= 300 || !(picResult.bytesWritten > 0)) {
+        await unlink(picPath).catch(() => {})
+        throw new Error(`封面下载失败（HTTP ${picResult?.statusCode ?? '未知'}）`)
+      }
       console.log('[Metadata] 封面下载完成，开始写入到音频文件')
       await writePic(filePath, picPath)
       console.log('[Metadata] 封面写入完成')
@@ -412,7 +511,11 @@ export const retryMetadata = async(taskId: string) => {
 
       console.log(`[Retry Metadata] 下载封面: ${picUrl} -> ${picPath}`)
       const { promise } = downloadFile(picUrl, picPath)
-      await promise
+      const picResult: any = await promise
+      if (!picResult || picResult.statusCode < 200 || picResult.statusCode >= 300 || !(picResult.bytesWritten > 0)) {
+        await unlink(picPath).catch(() => {})
+        throw new Error(`封面下载失败（HTTP ${picResult?.statusCode ?? '未知'}）`)
+      }
       console.log('[Retry Metadata] 封面下载完成，开始写入')
       await writePic(filePath, picPath)
       metadataStatus.cover = 'success'
@@ -468,7 +571,8 @@ export const retryTask = (taskId: string) => {
     toast('正在重新下载...')
     removeTask(task.id)
     setTimeout(() => {
-      addTask(task.musicInfo, task.quality)
+      // 低：此前丢弃 isForceCookie——网易云 Cookie 任务重试静默降级普通链路
+      addTask(task.musicInfo, task.quality, task.isForceCookie)
     }, 200)
   } else if (Object.values(task.metadataStatus ?? {}).includes('fail')) {
     void retryMetadata(task.id)
@@ -505,19 +609,29 @@ export const resumeTask = async(taskId: string) => {
     return
   }
 
-  try {
-    await unlink(task.filePath)
-  } catch (error) {
-    // Ignore cleanup failures so we can still restart the download.
-  }
-
+  // 中-22：先同步把状态改出 paused 再做异步清理——否则确认框双开/连点时，
+  // 两次调用都通过上面的检查，同一任务会被入队下载两遍
   downloadActions.updateTask(task.id, {
     status: 'waiting',
     errorMsg: '',
     progress: { percent: 0, speed: '', downloaded: 0, total: 0 },
     metadataStatus: { cover: 'pending', lyric: 'pending', tags: 'pending' },
   })
-  taskQueue.push(task)
+
+  try {
+    await unlink(task.filePath)
+    // 中：.download 变体一并清——只删 filePath 时半截临时文件永留存
+    const variant = downloadTempVariantPath(task)
+    if (variant) await unlink(variant).catch(() => {})
+  } catch (error) {
+    // Ignore cleanup failures so we can still restart the download.
+  }
+
+  // 存疑处理：unlink 期间任务可能被删——复查仍在列表且仍是 waiting 才入队，
+  // 否则会下出一个没有 UI 对应物的幽灵下载
+  const freshTask = downloadState.tasks.find(t => t.id === task.id)
+  if (!freshTask || freshTask.status !== 'waiting') return
+  taskQueue.push(freshTask)
   processQueue()
 }
 
@@ -537,11 +651,22 @@ export const addTask = (
   if (musicInfo.artists && musicInfo.artists.length > 6) {
     finalSingerString = musicInfo.artists.slice(0, 6).map(artist => artist.name).join('、') + '...'
   }
+  // 低：链式 replace 只替首处、且替换串里的 $&/$' 会被特殊展开——用
+  // 函数式 replacer 全量替换；文件名加 UTF-8 字节上限，长标题（中文
+  // 3 字节/字）超 255 字节分量上限此前每次必 ENAMETOOLONG 失败
   let fileName = settingState.setting['download.fileName']
-    .replace('歌名', musicInfo.name)
-    .replace('歌手', finalSingerString)
-  fileName = filterFileName(fileName)
-  const filePath = `${getMusicDir()}/${fileName}.${extension}`
+    .replace(/歌名/g, () => musicInfo.name)
+    .replace(/歌手/g, () => finalSingerString)
+  fileName = truncateToUtf8Bytes(filterFileName(fileName).trim(), 180)
+  // 中：路径碰撞——同名同歌手的异歌、或同歌不同音质（扩展名同为 mp3）
+  // 共用一条路径，后下覆盖先下、删一个连另一个的文件一起删。被其他
+  // 任务占用时给文件名加歌曲 id 短后缀并写回任务
+  let filePath = `${getMusicDir()}/${fileName}.${extension}`
+  if (downloadState.tasks.some(t => t.filePath === filePath)) {
+    const suffix = String(musicInfo.id).replace(/[^a-zA-Z0-9]/g, '').slice(-6) || 'x'
+    fileName = `${fileName}-${suffix}`
+    filePath = `${getMusicDir()}/${fileName}.${extension}`
+  }
 
   const task: DownloadTask = {
     id: toMD5(`${musicInfo.id}-${quality}`),
@@ -566,6 +691,8 @@ export const addTask = (
     return
   }
 
+  // 中：批量入队（silent 且批次进行中）盖戳，成败只计入所属批次
+  if (silent && batchState) batchTaskIds.add(task.id)
   downloadActions.addTask(task)
   taskQueue.push(task)
   processQueue()
@@ -584,6 +711,10 @@ export const addTask = (
 
 export const removeTask = (id: string) => {
   const taskToRemove = downloadState.tasks.find(t => t.id === id)
+  // 中-18/高-3：删下载中任务先打取消标记，让在途的 catch/完成路径静默收尾；
+  // 同时清掉可能残留的暂停标记，防止按 id 毒化同歌重下
+  if (taskToRemove && taskToRemove.status === 'downloading') cancelledTaskIds.add(id)
+  pausedTaskIds.delete(id)
   if (currentDownloadTask && taskToRemove && taskToRemove.status === 'downloading') {
     const jobId = currentDownloadTask.jobId
     if (typeof jobId === 'number') {
@@ -591,11 +722,15 @@ export const removeTask = (id: string) => {
     }
     if (taskToRemove.filePath) {
       void unlink(taskToRemove.filePath).catch(() => {})
+      const variant = downloadTempVariantPath(taskToRemove)
+      if (variant) void unlink(variant).catch(() => {})
       console.log(`[Download Manager] Canceled and deleted partial file: ${taskToRemove.filePath}`)
     }
     currentDownloadTask = null
   } else if (taskToRemove && taskToRemove.status !== 'completed' && taskToRemove.filePath) {
     void unlink(taskToRemove.filePath).catch(() => {})
+    const variant = downloadTempVariantPath(taskToRemove)
+    if (variant) void unlink(variant).catch(() => {})
   }
   const taskIndex = taskQueue.findIndex(t => t.id === id)
   if (taskIndex > -1) taskQueue.splice(taskIndex, 1)
@@ -611,7 +746,9 @@ export const removeTask = (id: string) => {
  * @param musicInfos Selected song list
  */
 export const batchDownload = async(musicInfos: LX.Music.MusicInfo[]) => {
-  batchState = { success: 0, fail: 0, adding: true }
+  // 中-21：上一批还在入队时再触发一批，不覆写全局计数——合并进当前批次一起汇总
+  if (!batchState) batchState = { success: 0, fail: 0, adding: true }
+  batchAddingCount++
   const cookie = settingState.setting['common.wy_cookie']
   const hasWyMusic = musicInfos.some(m => m.source === 'wy')
 
@@ -637,11 +774,13 @@ export const batchDownload = async(musicInfos: LX.Music.MusicInfo[]) => {
     addTask(musicInfo, quality, isWyAndHasCookie, true)
     await new Promise(resolve => setTimeout(resolve, 1000))
   }
-  if (batchState) batchState.adding = false
+  batchAddingCount--
+  if (batchState) batchState.adding = batchAddingCount > 0
   // 全部任务瞬间失败/未入队等极端情况：processQueue 不会再被触发，这里补一次排空检查
-  if (batchState && taskQueue.length === 0 && !isProcessing) {
+  if (batchState && batchAddingCount === 0 && taskQueue.length === 0 && !isProcessing) {
     const { success, fail } = batchState
     batchState = null
+    batchTaskIds.clear()
     if (success + fail > 0) toast(`批量下载完成：成功 ${success} 首${fail ? `，失败 ${fail} 首` : ''}`, 'long')
   }
 }

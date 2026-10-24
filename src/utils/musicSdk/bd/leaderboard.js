@@ -106,7 +106,7 @@ export default {
       // types.reverse()
 
       return {
-        singer: item.song_artist.replace(',', '、'),
+        singer: (item.song_artist ?? '').replace(',', '、'),
         name: item.song_title,
         albumName: item.album_title,
         albumId: item.album_id,

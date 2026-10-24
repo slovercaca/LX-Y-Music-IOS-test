@@ -4,6 +4,8 @@ import { getMusicInfo } from './musicInfo'
 const getSongId = async(mInfo) => {
   if (mInfo.songmid != mInfo.copyrightId) return mInfo.songmid
   const musicInfo = await getMusicInfo(mInfo.copyrightId)
+  // 中：反查结果可能为空（data[0] 为 undefined），直取 .songmid 崩溃——回退用原 songmid 降级
+  if (!musicInfo?.songmid) return mInfo.songmid
   return musicInfo.songmid
 }
 

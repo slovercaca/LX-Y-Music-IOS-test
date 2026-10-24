@@ -10,7 +10,7 @@ import {
   stat as statLocalFile,
   unlink,
 } from '@/utils/fs'
-import { getClient, getWebDAVAuthHeaders } from './client'
+import { getClient, getWebDAVAuthHeaders, readWebDAVCredentials } from './client'
 import { webDAVLog } from './logger'
 
 /**
@@ -89,9 +89,10 @@ export const ensureRemoteDir = async(dirPath: string): Promise<void> => {
       await client.createDirectory(current)
     } catch (error: any) {
       const status = error?.status ?? error?.response?.status
-      // 405/409/412 通常表示已存在，继续下一级；其它错误上抛
-      if (status === 405 || status === 409 || status === 412) continue
-      // 兜底：用 stat 确认是否真的已存在
+      // 中：只有 405 才是「已存在」（RFC 4918）；409 是父集合不存在/
+      // 冲突——此前把 409 也当已存在跳过，最终 PUT 才以 409 失败，
+      // 报错点与真因脱节。409/412 先 stat 核实，真的在才继续。
+      if (status === 405) continue
       if (await checkWebDAVRemoteExists(current).catch(() => false)) continue
       throw error
     }
@@ -101,7 +102,15 @@ export const ensureRemoteDir = async(dirPath: string): Promise<void> => {
 /** stat：存在返回 FileStat，不存在（404）返回 null（与旧 getStat 一致） */
 export const getStat = async(remotePath: string): Promise<FileStat | null> => {
   try {
-    return (await getClient().stat(remotePath)) as FileStat
+    // 中-6：30s 超时——服务器只挂不回时 stat 永不结算，上传的续传预检/传后校验
+    // 会把队列 worker 永久挂住（看门狗对无 abort 句柄的阶段无限续命、校验阶段
+    // 又被豁免），暂停恢复也救不回，只能杀 App。
+    return (await Promise.race([
+      getClient().stat(remotePath) as Promise<FileStat>,
+      new Promise<never>((_, reject) => {
+        setTimeout(() => { reject(new Error('检查远端文件超时（30 秒无响应）')) }, 30000)
+      }),
+    ]))
   } catch (error: any) {
     // P2（2026-10-06）：404 判断统一口径 error?.status ?? error?.response?.status，
     // 与 ensureRemoteDir 一致（某错误只带 response.status 时不再误抛）
@@ -220,7 +229,16 @@ export const uploadBinaryFile = async(
  * （XML/HTML，首字节必为 '<'）会被当成正常文件缓存。音频文件的首字节
  * 不可能是 '<'，命中则删掉并走正常下载流程；读不到首字节时保守地视为有效。
  */
-export const isPoisonedCache = async(filePath: string): Promise<boolean> => {
+export const isPoisonedCache = async(filePath: string, expectedSize?: number): Promise<boolean> => {
+  // 中：此前只看首字节——0 字节文件与读失败不可区分、截断音频首字节
+  // 合法也会判有效，坏文件每次交给播放器都失败且永不重新下载。有
+  // 期望大小（扫描记录的 meta.size）时先比大小，0 字节直接判毒。
+  try {
+    const st = await statLocalFile(filePath)
+    const size = Number((st as any)?.size ?? -1)
+    if (size === 0) return true
+    if (expectedSize && expectedSize > 0 && size > 0 && size !== expectedSize) return true
+  } catch { /* stat 失败时退回首字节判定 */ }
   const head = await read(filePath, 1, 0, 'utf8').catch(() => '')
   return head === '<'
 }
@@ -251,7 +269,20 @@ export const downloadToFileAtomic = async(options: {
   try {
     // 诊断日志：404 排查用。记录完整 URL 和 headers（密码脱敏）。
     // 如果下载 404 但 PROPFIND 正常，对比两者差异定位问题。
-    const headers = getWebDAVAuthHeaders()
+    // 高-2 安全：Authorization 只发给已配置的 WebDAV 服务器同源地址。
+    // 本函数也被用来下载外部封面图（酷我/酷狗 CDN），无条件带头会把账密发给第三方。
+    let headers = getWebDAVAuthHeaders()
+    try {
+      const creds = readWebDAVCredentials()
+      const sameOrigin = creds ? new URL(url).origin === new URL(creds.url).origin : false
+      if (!sameOrigin) {
+        const { Authorization: _auth, ...rest } = headers
+        headers = rest
+      }
+    } catch {
+      const { Authorization: _auth, ...rest } = headers
+      headers = rest
+    }
     const safeHeaders: Record<string, string> = {}
     for (const k of Object.keys(headers)) {
       if (k.toLowerCase() === 'authorization') {
@@ -269,6 +300,16 @@ export const downloadToFileAtomic = async(options: {
     const result = await rnDownloadFile(url, tmpPath, { headers: headersNoUA }).promise
     // P2（2026-10-06）：0 字节下载不再一律判失败。若远端确为空文件（expectedSize === 0），算成功
     const isEmptyFileOk = result.bytesWritten === 0 && expectedSize === 0
+    // 高：给了 expectedSize 就必须精确相等——此前只验状态码与非空，
+    // 截断文件（网络中断但连接正常关闭）会被 move 成正式缓存且无法自愈
+    if (expectedSize != null && expectedSize > 0 && result.bytesWritten !== expectedSize) {
+      webDAVLog.error('downloadToFileAtomic: 字节数不符（疑似截断）', {
+        url,
+        bytesWritten: result.bytesWritten,
+        expectedSize,
+      })
+      throw new Error(`下载不完整：期望 ${expectedSize} 字节，实际 ${result.bytesWritten} 字节`)
+    }
     if (result.statusCode < 200 || result.statusCode >= 300 || (!result.bytesWritten && !isEmptyFileOk)) {
       webDAVLog.error('downloadToFileAtomic: 下载失败', {
         statusCode: result.statusCode,
@@ -305,8 +346,11 @@ export const downloadToFileAtomic = async(options: {
  */
 const cleanStaleTmpFiles = async(): Promise<void> => {
   try {
-    const { getCacheDir } = await import('@/utils/tools')
-    const cacheDir = getCacheDir()
+    // 中：原先动态 import 的 getCacheDir 在 tools.ts 根本不存在，解构得
+    // undefined、调用即 TypeError 被外层 catch 吞掉——清扫从未执行过，
+    // 且目录还少了 /WebDAV 一段。改与 library.ts 同口径计算缓存根。
+    const { temporaryDirectoryPath } = await import('@/utils/fs')
+    const cacheDir = `${temporaryDirectoryPath}/WebDAV`
     const dirs = [`${cacheDir}/covers`, `${cacheDir}/music`]
     for (const dir of dirs) {
       try {
@@ -321,8 +365,9 @@ const cleanStaleTmpFiles = async(): Promise<void> => {
         // 目录不存在，跳过
       }
     }
-  } catch {
-    // 清扫失败不影响主流程
+  } catch (err) {
+    // 清扫失败不影响主流程，但至少留一条日志，不再静默吞掉
+    webDAVLog.warn('cleanStaleTmpFiles: 清扫失败', { err })
   }
 }
 

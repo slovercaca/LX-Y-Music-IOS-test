@@ -59,7 +59,7 @@ export default memo(({
       <View style={styles.coverWrapper}>
         <Image
           url={item.img}
-          nativeID={`${NAV_SHEAR_NATIVE_IDS.songlistDetail_pic}_from_${item.id}`}
+          nativeID={`${NAV_SHEAR_NATIVE_IDS.songlistDetail_pic}_from_${item.source}_${item.id}`}
           style={coverStyle}
         />
         {showSource ? (

@@ -231,7 +231,9 @@ export default memo(({ componentId }: { componentId: string }) => {
   }, [currentUid])
 
   const handleSendComment = useCallback((content: string, replyInfo: ReplyInfo | null) => {
-    if (!musicInfo || musicInfo.source !== 'wy') return
+    // 低：返回成败给输入框——此前输入框发送即清空，网络失败后内容与
+    // 回复对象全丢、无法重试。失败时保留输入（见 CommentInput）
+    if (!musicInfo || musicInfo.source !== 'wy') return Promise.resolve(false)
     const songmid = String(musicInfo.meta.songId)
     setIsSending(true)
 
@@ -239,15 +241,17 @@ export default memo(({ componentId }: { componentId: string }) => {
       ? replyComment(songmid, content, replyInfo.commentId)
       : sendComment(songmid, content)
 
-    promise
+    return promise
       .then(() => {
         toast(t((replyInfo ? 'comment_reply_success' : 'comment_send_success') as any))
         // Delay refresh to allow server to propagate the new comment
         setTimeout(() => { setRefreshKey(k => k + 1) }, 1500)
+        return true
       })
       .catch((err: any) => {
         console.error('Send comment failed:', err)
         toast(t((replyInfo ? 'comment_reply_failed' : 'comment_send_failed') as any))
+        return false
       })
       .finally(() => {
         setIsSending(false)

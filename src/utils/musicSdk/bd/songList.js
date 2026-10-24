@@ -219,7 +219,7 @@ export default {
       const types = []
       const _types = {}
       let size = null
-      let itemTypes = item.all_rate.split(',')
+      let itemTypes = (item.all_rate ?? '').split(',') // 低：字段缺失守卫，同 musicSearch
       if (itemTypes.includes('128')) {
         types.push({ type: '128k', size })
         _types['128k'] = {
@@ -241,7 +241,7 @@ export default {
       // types.reverse()
 
       return {
-        singer: item.author.replace(',', '、'),
+        singer: (item.author ?? '').replace(',', '、'),
         name: item.title,
         albumName: item.album_title,
         albumId: item.album_id,

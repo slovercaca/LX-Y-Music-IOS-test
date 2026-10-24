@@ -38,7 +38,9 @@ const handleRequestData = async({
     } else if (options.formData) {
       headers['Content-Type'] = 'multipart/form-data'
       const formBody = []
-      for (let [key, value] of Object.entries(options.form)) {
+      // 中：此前遍历不存在的 options.form，Object.entries(undefined) 必抛
+      // TypeError——自定义源传 formData 的请求（取链/歌词/封面）全崩
+      for (let [key, value] of Object.entries(options.formData)) {
         let encodedKey = encodeURIComponent(key)
         let encodedValue = encodeURIComponent(value)
         formBody.push(`${encodedKey}=${encodedValue}`)

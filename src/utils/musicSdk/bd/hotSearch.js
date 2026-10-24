@@ -6,7 +6,7 @@ export default {
     if (this._requestObj) this._requestObj.cancelHttp()
     if (retryNum > 2) return Promise.reject(new Error('try max num'))
 
-    const _requestObj = httpFetch('http://musicapi.qianqian.com/v1/restserver/ting?from=android&version=7.0.2.0&channel=ppzs&operator=0&method=baidu.ting.search.hot', {
+    const _requestObj = this._requestObj = httpFetch('http://musicapi.qianqian.com/v1/restserver/ting?from=android&version=7.0.2.0&channel=ppzs&operator=0&method=baidu.ting.search.hot', {
       method: 'get',
       headers: {
         'User-Agent': 'android_7.0.2.0;baiduyinyue',

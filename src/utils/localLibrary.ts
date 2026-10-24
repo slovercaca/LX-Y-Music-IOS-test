@@ -35,6 +35,20 @@ export const ensureLibraryDirs = async(): Promise<void> => {
   await mkdir(getPictureDir()).catch(() => {})
 }
 
+/** 按 UTF-8 字节数截断字符串（不切坏多字节字符） */
+export const truncateToUtf8Bytes = (str: string, maxBytes: number): string => {
+  let bytes = 0
+  let out = ''
+  for (const ch of str) {
+    const cp = ch.codePointAt(0) ?? 0
+    const b = cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4
+    if (bytes + b > maxBytes) break
+    bytes += b
+    out += ch
+  }
+  return out
+}
+
 /** 文件名（可带扩展名）→ 不带扩展名的基名 */
 export const baseNameOf = (fileName: string): string => fileName.replace(/\.[^/.]+$/, '')
 
@@ -44,7 +58,10 @@ export const baseNameOf = (fileName: string): string => fileName.replace(/\.[^/.
  */
 export const coverBaseForSong = (name: string, singer: string): string => {
   const template = settingState.setting['download.fileName'] || '歌名 - 歌手'
-  return filterFileName(template.replace('歌名', name || '').replace('歌手', singer || '')).trim()
+  // 低：与下载文件名同一口径——函数式全量替换（防 $ 展开）+ 字节截断，
+  // 否则长标题/含 $ 的歌名下封面基名与音频基名对不上
+  const raw = template.replace(/歌名/g, () => name || '').replace(/歌手/g, () => singer || '')
+  return truncateToUtf8Bytes(filterFileName(raw).trim(), 180)
 }
 
 /** 在 picture/ 里按基名找封面文件，找到返回完整路径 */

@@ -25,12 +25,14 @@ export default {
     // console.log(rawData)
     for (let i = 0; i < rawData.length; i++) {
       const info = rawData[i]
+      // 中：单条坏数据此前拖垮整页——MUSICRID 缺失即崩、一条缺 N_MINFO 就整页 return null 重试后 reject
+      if (!info.MUSICRID) continue
       let songId = info.MUSICRID.replace('MUSIC_', '')
       // const format = (info.FORMATS || info.formats).split('|')
 
       if (!info.N_MINFO) {
-        console.log('N_MINFO is undefined')
-        return null
+        console.log('N_MINFO is undefined, skip item')
+        continue
       }
 
       const types = []

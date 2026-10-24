@@ -45,8 +45,12 @@ export default forwardRef<ListType, { header?: ReactElement, onOpenDetail: (item
           void getList(source, tagId, sortId, 1, true)
             .then((info) => {
               if (isUnmountedRef.current) return
+              // 高-5：守卫要用发起时的 currentLoadId——此前传解析时刻的
+              // loadIdRef.current，守卫与自己比恒真；且 setList 先写了全局
+              // 状态，切平台/排序/标签后旧结果照样上屏
+              if (currentLoadId !== loadIdRef.current) return
               const result = setList(info, tagId, sortId, 1)
-              applyListResult(result, 1, loadIdRef.current)
+              applyListResult(result, 1, currentLoadId)
             })
             .catch(() => {})
         }

@@ -98,6 +98,9 @@ export const initUnifiedPlayerController = () => {
     clearLoadingTimeout()
     if (global.lx.isPlayedStop) return
     if (!isEmpty()) void setStop()
+    // 失败歌曲名先在函数作用域取好：终态 toast 在下方 if 块外使用，
+    // 若直接用块内声明的 currentMusicInfo 会 ReferenceError（曾与 descExpanded 同型）
+    const failedName = playerState.playMusicInfo.musicInfo?.name ?? ''
 
     // 【对齐上游 usePlayEvent.handleError】失败策略：① 音质逐级降级重试 →
     // ② 同 URL 刷新 ×2 → ③ 失败终态（错误状态 + 延迟自动跳下一首）
@@ -134,7 +137,7 @@ export const initUnifiedPlayerController = () => {
     // 【对齐上游 usePlayEvent.handleError 终态】autoSkipOnError 关闭时停留错误状态，
     // 不自动跳下一首
     if (settingState.setting['player.autoSkipOnError']) {
-      toast(`《${currentMusicInfo.name}》播放失败，已自动跳过`, 'short')
+      toast(failedName ? `《${failedName}》播放失败，已自动跳过` : '播放失败，已自动跳过', 'short')
       setTimeout(addDelayNextTimeout)
     }
   }
@@ -162,6 +165,9 @@ export const initUnifiedPlayerController = () => {
             break
           case 'playing':
             clearLoadingTimeout()
+            // 低-12：真正播起来了就清零失败重试计数——此前只在切歌时清，
+            // 同曲中途恢复后再次出错会直接跳过 URL 刷新额度进终态
+            retryNum = 0
             setStatusText('')
             if (event.driver == 'nativeFlac') {
               global.lx.playerTrackId = getNativeFlacTrackId()

@@ -88,6 +88,9 @@ const doGetListLimit = async(
         result.list.map((m) => toNewMusicInfo(m)).filter(Boolean) as LX.Music.MusicInfoOnline[],
       )
       let p = page
+      // 中：sourcePage 先递增再写页（与 songlist.ts 一致）——此前合并页
+      // 写入的是未递增的旧页号，下一页按旧页号重复抓同一源页、整段重复
+      sourcePage++
       const tempList = listCache.get(tempListKey) as ListDetailInfo['list']
       if (tempList) {
         listCache.delete(tempListKey)
@@ -102,7 +105,6 @@ const doGetListLimit = async(
         })
         p++
       }
-      sourcePage++
       do {
         if (
           result.list.length < LIST_LOAD_LIMIT &&
@@ -122,7 +124,20 @@ const doGetListLimit = async(
         })
         p++
       } while (result.list.length > 0)
-      return (listCache.get(`${source}__${bangId}__${page}`) as PageCache).data
+      // 中：兜底（同 songlist.ts）——源页过滤后不足一页时本页可能一个
+      // 缓存条目都没写，此前直接对 undefined 取 .data 抛 TypeError。
+      // 把 temp 余数提升为本页交付，绝不返回 undefined。
+      let pageCache = listCache.get(`${source}__${bangId}__${page}`) as PageCache
+      if (!pageCache) {
+        const rest = (listCache.get(tempListKey) as ListDetailInfo['list']) ?? []
+        listCache.delete(tempListKey)
+        pageCache = {
+          data: { ...result, list: rest, page, limit: LIST_LOAD_LIMIT },
+          sourcePage,
+        }
+        listCache.set(`${source}__${bangId}__${page}`, pageCache)
+      }
+      return pageCache.data
     }) ?? Promise.reject(new Error('source not found'))
   )
 }

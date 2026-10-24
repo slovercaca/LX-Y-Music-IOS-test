@@ -139,49 +139,49 @@ export default {
     return rawList.map((item) => {
       let types = []
       let _types = {}
-      if (item.file.size_128mp3 !== 0) {
+      if (item.file.size_128mp3) {
         let size = sizeFormate(item.file.size_128mp3)
         types.push({ type: '128k', size })
         _types['128k'] = {
           size,
         }
       }
-      if (item.file.size_320mp3 !== 0) {
+      if (item.file.size_320mp3) {
         let size = sizeFormate(item.file.size_320mp3)
         types.push({ type: '320k', size })
         _types['320k'] = {
           size,
         }
       }
-      if (item.file.size_flac !== 0) {
+      if (item.file.size_flac) {
         let size = sizeFormate(item.file.size_flac)
         types.push({ type: 'flac', size })
         _types.flac = {
           size,
         }
       }
-      if (item.file.size_hires !== 0) {
+      if (item.file.size_hires) {
         let size = sizeFormate(item.file.size_hires)
         types.push({ type: 'hires', size })
         _types.hires = {
           size,
         }
       }
-      if (item.file.size_new?.[1] !== 0) {
+      if (item.file.size_new?.[1]) {
         let size = sizeFormate(item.file.size_new[1])
         types.push({ type: 'atmos', size })
         _types.atmos = {
           size,
         }
       }
-      if (item.file.size_new?.[2] !== 0) {
+      if (item.file.size_new?.[2]) {
         let size = sizeFormate(item.file.size_new[2])
         types.push({ type: 'atmos_plus', size })
         _types.atmos_plus = {
           size,
         }
       }
-      if (item.file.size_new?.[0] !== 0) {
+      if (item.file.size_new?.[0]) {
         let size = sizeFormate(item.file.size_new[0])
         types.push({ type: 'master', size })
         _types.master = {

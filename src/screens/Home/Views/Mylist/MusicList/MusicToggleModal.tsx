@@ -299,6 +299,9 @@ const Modal = forwardRef<ModalType, {}>((props, ref) => {
   const dialogRef = useRef<DialogType>(null)
   const isUnmountedRef = useUnmounted()
   const [toggleSource, setToggleSource] = useState<LX.Music.MusicInfoOnline | null>(null)
+  // 中：候选请求代际——对 A 打开未选完关掉、再对 B 打开时，A 的迟到结果
+  // 不得覆写 B 的候选列表（此前 show 不清候选、不作废旧请求）
+  const loadGenRef = useRef(0)
 
   const handlePlay = useCallback((musicInfo: LX.Music.MusicInfoOnline) => {
     setToggleSource(musicInfo)
@@ -308,6 +311,7 @@ const Modal = forwardRef<ModalType, {}>((props, ref) => {
   }, [])
 
   const loadData = useCallback((selectInfo: SelectInfo = infoRef.current) => {
+    const gen = ++loadGenRef.current
     setSourceInfo({ sourceInfo: [], lists: {}, loading: true, error: false })
     searchMusic({
       name: selectInfo.musicInfo.name,
@@ -315,6 +319,7 @@ const Modal = forwardRef<ModalType, {}>((props, ref) => {
       source: '',
     }).then((result: Array<{ source: LX.OnlineSource, list: LX.Music.MusicInfoOnline[] }>) => {
       if (isUnmountedRef.current) return
+      if (gen !== loadGenRef.current) return
       const tags: LX.OnlineSource[] = []
       const lists: Partial<Record<LX.OnlineSource, LX.Music.MusicInfoOnline[]>> = {}
       for (const s of result) {
@@ -325,13 +330,15 @@ const Modal = forwardRef<ModalType, {}>((props, ref) => {
       if (tags.length) setSource(tags[0])
     }).catch(() => {
       if (isUnmountedRef.current) return
-      setSourceInfo({ ...sourceInfo, error: true })
+      if (gen !== loadGenRef.current) return
+      setSourceInfo(prev => ({ ...prev, loading: false, error: true }))
     })
-  }, [isUnmountedRef, sourceInfo])
+  }, [isUnmountedRef])
   useImperativeHandle(ref, () => ({
     show(info) {
       infoRef.current = info
       setSource('')
+      setToggleSource(null) // 中：清掉上一首歌未确认的候选，防确认到新歌上
       loadData(info)
       requestAnimationFrame(() => {
         dialogRef.current?.setVisible(true)

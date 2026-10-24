@@ -5,6 +5,9 @@ import settingState from '@/store/setting/state'
 import { preloadLog } from '@/utils/preloadLog'
 
 let isPreloading = false
+// 中-5：预加载代际——stopPreload 只翻布尔时，在途循环还活着，停了又启会叠出
+// 两条并发预加载循环重复取链。代际递增让旧循环在下一轮自退。
+let preloadGen = 0
 
 const preloadNextMusic = async() => {
   if (isPreloading) return
@@ -17,6 +20,7 @@ const preloadNextMusic = async() => {
   }
 
   isPreloading = true
+  const gen = preloadGen
   preloadLog.info('========== Preload Start ==========')
 
   try {
@@ -45,6 +49,10 @@ const preloadNextMusic = async() => {
     const isDeterministicNotFound = (err: any) => /404|找不到该文件/.test(String(err?.message ?? err))
 
     while (!success && tryCount < maxTries) {
+      if (gen !== preloadGen) {
+        preloadLog.info('Preload superseded by stop/restart, exit loop')
+        return
+      }
       try {
         preloadLog.info(`Attempt ${tryCount + 1}/${maxTries} for "${currentInfo.name}" from "${currentInfo.source}"`)
 
@@ -95,7 +103,8 @@ const preloadNextMusic = async() => {
   } catch (err: any) {
     preloadLog.error(`Unexpected error: ${err?.message || err}`)
   } finally {
-    isPreloading = false
+    // 被新一代接管时不碰标志，避免把新循环的运行状态误清
+    if (gen === preloadGen) isPreloading = false
     preloadLog.info('========== Preload End ==========')
   }
 }
@@ -107,5 +116,6 @@ export const startPreload = () => {
 }
 
 export const stopPreload = () => {
+  preloadGen++
   isPreloading = false
 }

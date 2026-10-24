@@ -308,7 +308,19 @@ const AnnouncementModal = ({ componentId }: { componentId: string }) => {
               </TouchableOpacity>
             ))}
           </View>
-        ) : null}
+        ) : (
+          // 低：兜底关闭入口——公告数据按钮为空/全 disabled 时 overlay 又拦截
+          // 外部点击，用户只能杀 App。内置公告恒有启用的关闭按钮，这是防
+          // 配置改坏的最后一道（文案与内置公告的关闭按钮一致）
+          <View style={[styles.btnRow, { justifyContent: 'space-between' }]}>
+            <TouchableOpacity
+              style={[styles.actionBtn, { backgroundColor: theme['c-button-background'] }]}
+              onPress={() => { void handleClose() }}
+            >
+              <Text color={theme['c-button-font']}>关闭</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     </ModalContent>
   )

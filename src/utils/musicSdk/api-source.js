@@ -18,7 +18,12 @@ const apis = (source) => {
   if (source === 'bilibili') {
     return bilibili
   }
-  if (/^user_api/.test(settingState.setting['common.apiSource'])) return global.lx.apis[source]
+  // 低：user_api 模式未实现某源时此前返回 undefined，调用方以难懂的 TypeError 崩溃（内置路径会 throw 'Api is not found'）
+  if (/^user_api/.test(settingState.setting['common.apiSource'])) {
+    const userApi = global.lx.apis?.[source]
+    if (userApi) return userApi
+    throw new Error('Api is not found')
+  }
   const api = getAPI(source)
   if (api) return api
   throw new Error('Api is not found')

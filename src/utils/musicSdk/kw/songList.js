@@ -146,7 +146,7 @@ export default {
       if (!item.label) return
       list.push(
         ...item.list.map((item) => ({
-          play_count: item.play_count && this.formatPlayCount(item.listencnt),
+          play_count: this.formatPlayCount(item.listencnt), // 低：此前字段组合错误——假值时把假值当播放量、真值时格式化的是另一个字段（与同文件其它处口径统一）
           id: `digest-${item.digest}__${item.id}`,
           author: item.uname,
           name: item.name,
@@ -190,7 +190,8 @@ export default {
       `http://qukudata.kuwo.cn/q.k?op=query&cont=ninfo&node=${id}&pn=0&rn=1&fmt=json&src=mbox&level=2`,
     )
     return requestObj.promise.then(({ statusCode, body }) => {
-      if (statusCode != 200 || !body.child) return this.getListDetail(id, ++tryNum)
+      // 高：重试参数错位——getListDetail 签名 (id, page, retryNum)，tryNum 被塞进 page、retryNum 归零，接口持续非 200 时无限重试、Promise 永不 settle
+      if (statusCode != 200 || !body.child) return this.getListDetail(id, 1, ++tryNum)
       // console.log(body)
       return body.child.length ? body.child[0].sourceid : null
     })
@@ -295,7 +296,7 @@ export default {
           plat: 'h5',
         },
       },
-    ).promise.catch(() => ({ code: 0 }))
+    ).promise.catch(() => ({ body: { code: 0 } })) // 中：原兜底形状错误——调用方解构 .body，catch 命中时 infoData 为 undefined、取 .code 崩溃
 
     if (infoData.code != 200) return null
 
@@ -317,7 +318,7 @@ export default {
           plat: 'h5',
         },
       },
-    ).promise.catch(() => ({ code: 0 }))
+    ).promise.catch(() => ({ body: { code: 0 } })) // 中：同上，兜底形状须带 body
 
     if (infoData.code != 200) return null
 

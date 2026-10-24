@@ -32,7 +32,6 @@ const mergeSetting = (
   const updatedSetting: Partial<LX.AppSetting> = {}
 
   if (targetSetting) {
-    const originSettingKeys = Object.keys(originSettingCopy)
     const targetSettingKeys = Object.keys(targetSetting)
 
     const processKey = (key: keyof LX.AppSetting) => {
@@ -47,30 +46,38 @@ const mergeSetting = (
           if (arraysEqual(targetValue, originSettingCopy[key])) shouldSkip = true
         } else if (typeof targetValue === 'object' && typeof originSettingCopy[key] === 'object' && targetValue !== null && originSettingCopy[key] !== null) {
           if (JSON.stringify(targetValue) === JSON.stringify(originSettingCopy[key])) shouldSkip = true
-        } else if (targetValue == originSettingCopy[key]) {
+        } else if (targetValue === originSettingCopy[key]) {
           shouldSkip = true
         }
-      } else if (targetValue == originSettingCopy[key]) {
+      } else if (targetValue === originSettingCopy[key]) {
+        // 低：原为松散 == ——导入把数值写成字符串（"theme.blur":"18"）时
+        // 被判「未变更」静默不生效；改严格相等
         shouldSkip = true
       }
 
       if (!shouldSkip) {
         updatedSettingKeys.push(key)
-        updatedSetting[key] = targetValue
-        originSettingCopy[key] = targetValue
+        // 中：DEEP 对象键逐键合并而非整表替换——老用户持久化的
+        // search.enabledSources 缺后加的平台键时，整表替换会让缺键平台
+        // 从聚合/歌单搜索静默消失（其他 DEEP 消费方有 ?? true 兜底、它没有）
+        const mergedValue = DEEP_KEYS.includes(key as string)
+          && !Array.isArray(targetValue)
+          && typeof targetValue === 'object' && targetValue !== null
+          && typeof originSettingCopy[key] === 'object' && originSettingCopy[key] !== null
+          && !Array.isArray(originSettingCopy[key])
+          ? { ...(originSettingCopy[key] as Record<string, any>), ...(targetValue as Record<string, any>) }
+          : targetValue
+        updatedSetting[key] = mergedValue
+        originSettingCopy[key] = mergedValue
       }
     }
 
-    if (originSettingKeys.length > targetSettingKeys.length) {
-      for (const key of targetSettingKeys as Array<keyof LX.AppSetting>) {
-        processKey(key)
-      }
-    } else {
-      for (const key of originSettingKeys as Array<keyof LX.AppSetting>) {
-        if (targetSetting[key] !== undefined) {
-          processKey(key)
-        }
-      }
+    // 低：统一遍历目标键——此前按「键数量」选分支：目标键多时合法新键被
+    // 静默丢弃、少时未知键又会被写进设置落盘，同份导入数据结果不一致。
+    // 现在不在当前默认集内的未知键一律显式丢弃。
+    for (const key of targetSettingKeys as Array<keyof LX.AppSetting>) {
+      if (!(key in originSettingCopy)) continue
+      processKey(key)
     }
   }
 
@@ -124,6 +131,10 @@ export const initSetting = async() => {
   // 用户当时的开关意图带过来，语义由新功能重新定义（见 core/init/player/playInfo.ts）。
   if (setting && setting['player.startupAutoPlay'] === undefined && typeof setting['player.autoPlayOnReturn'] === 'boolean') {
     setting['player.startupAutoPlay'] = setting['player.autoPlayOnReturn']
+  }
+  // 低：迁完删旧键——此前只读不删，设置文件长期留着无消费方的旧键
+  if (setting && 'player.autoPlayOnReturn' in setting) {
+    delete (setting as Record<string, any>)['player.autoPlayOnReturn']
   }
 
   const updatedSetting = updateSetting(setting, true)

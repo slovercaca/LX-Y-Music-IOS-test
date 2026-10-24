@@ -47,7 +47,11 @@ export default forwardRef<MusicMultiAddModalType, MusicMultiAddModalProps>(({ on
   const subscribedPlaylists = useWySubscribedPlaylists()
 
   useEffect(() => {
-    getPlaylistType().then((type) => { setPlaylistType(type as 'local' | 'wy' | 'tx') })
+    // 中：持久化的类型可能是单曲弹窗存的 'kg'——本弹窗没有 kg 分支，
+    // 强转吞掉后会按本地歌单处理且无 tab 高亮。读入时净化为已知值。
+    getPlaylistType().then((type) => {
+      setPlaylistType(type === 'wy' || type === 'tx' ? type : 'local')
+    })
   }, [])
 
   const handlePlaylistTypeChange = (type: 'local' | 'wy' | 'tx') => {
@@ -129,7 +133,7 @@ export default forwardRef<MusicMultiAddModalType, MusicMultiAddModalProps>(({ on
 
       if (isMove) {
         wyApi.manipulatePlaylistTracks('add', toListId, songIds).then(() => {
-          if (listInfo.name === (listInfo as any).creator.nickname + '喜欢的音乐') {
+          if (listInfo.name === (listInfo as any).creator?.nickname + '喜欢的音乐') {
             for (const songId of songIds) {
               addWyLikedSong(songId)
             }
@@ -163,7 +167,7 @@ export default forwardRef<MusicMultiAddModalType, MusicMultiAddModalProps>(({ on
         })
       } else {
         wyApi.manipulatePlaylistTracks('add', toListId, songIds).then(() => {
-          if (listInfo.name === (listInfo as any).creator.nickname + '喜欢的音乐') {
+          if (listInfo.name === (listInfo as any).creator?.nickname + '喜欢的音乐') {
             for (const songId of songIds) {
               addWyLikedSong(songId)
             }

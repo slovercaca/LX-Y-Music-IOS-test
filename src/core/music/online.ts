@@ -161,11 +161,14 @@ export const resolveMusicUrl = async({
       const result: any = await wySdk.cookie.getMusicUrl(currentMusicInfo, targetQuality).promise
       const url: string | undefined = result?.url
       if (url) {
-        // 缓存仍按「请求档位」存，避免换 key 后播放缓存失效；实际档位只作为返回值上报
-        void saveMusicUrl(currentMusicInfo, targetQuality, url)
-        setLastTryQuality(currentMusicInfo.id, targetQuality)
-        if (currentMusicInfo.id !== musicInfo.id) void saveMusicUrl(musicInfo, targetQuality, url)
-        return { url, quality: WY_LEVEL_TO_QUALITY[result?.level] ?? targetQuality }
+        // 中-10：按实际档位存缓存与上报——此前按请求档位存，低码率 URL 被当
+        // 高音质长期复用（播放器按 hires 走高精度路径、降级逻辑也被误导）。
+        // 首次多一次取链，换来缓存里的音质永远真实。
+        const actualQuality = WY_LEVEL_TO_QUALITY[result?.level] ?? targetQuality
+        void saveMusicUrl(currentMusicInfo, actualQuality, url)
+        setLastTryQuality(currentMusicInfo.id, actualQuality)
+        if (currentMusicInfo.id !== musicInfo.id) void saveMusicUrl(musicInfo, actualQuality, url)
+        return { url, quality: actualQuality }
       }
     } catch (error) {
       if (!silent) console.log('Get music url with cookie failed, fallback to custom api', error)

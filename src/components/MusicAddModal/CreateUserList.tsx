@@ -17,6 +17,7 @@ export default ({ isEdit, onHide, playlistType }: { isEdit: boolean, onHide: () 
 
   useEffect(() => {
     if (isEdit) {
+      submittedRef.current = false
       setText('')
       requestAnimationFrame(() => {
         inputRef.current?.focus()
@@ -24,7 +25,12 @@ export default ({ isEdit, onHide, playlistType }: { isEdit: boolean, onHide: () 
     }
   }, [isEdit])
 
+  const submittedRef = useRef(false)
   const handleSubmitEditing = async() => {
+    // 低（存疑加固）：onSubmitEditing 与 onBlur 绑同一提交——回车提交后
+    // 输入框失焦会再触发一次，建出两个同名歌单。加已提交守卫。
+    if (submittedRef.current) return
+    submittedRef.current = true
     onHide()
     const name = text.trim()
     if (!name.length) return

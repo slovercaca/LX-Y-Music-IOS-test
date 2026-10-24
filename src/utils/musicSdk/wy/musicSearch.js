@@ -92,7 +92,9 @@ export default {
 
     return rawList.map(item => {
       // console.log('[网易云原始数据]', JSON.stringify(item, null, 2))
-      item = item.baseInfo.simpleSongData
+      // 中：单条缺 baseInfo 此前直取 .simpleSongData 崩溃、拖垮整页搜索
+      item = item.baseInfo?.simpleSongData
+      if (!item) return null
 
       const types = []
       const _types = {}
@@ -153,7 +155,7 @@ export default {
           noCopyrightRcmd: item.noCopyrightRcmd,
         },
       }
-    })
+    }).filter(Boolean)
   },
 
   search(str, page = 1, limit, retryNum = 0, options = {}) {
@@ -173,12 +175,13 @@ export default {
 
       this.total = Math.max(result.data.totalCount || 0, list.length)
       this.page = page
-      this.allPage = this.total ? Math.ceil(this.total / this.limit) : 0
+      // 中：分页用入参 limit（已在函数头解析缺省），此前误用 this.limit，自定义 limit 时总数算错
+      this.allPage = this.total ? Math.ceil(this.total / limit) : 0
 
       return {
         list,
         allPage: this.allPage,
-        limit: this.limit,
+        limit,
         total: this.total,
         source: 'wy',
       }

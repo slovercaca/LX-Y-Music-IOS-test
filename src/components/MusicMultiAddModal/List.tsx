@@ -28,6 +28,10 @@ const EditListItem = ({ itemWidth, playlistType }: { itemWidth: number, playlist
   const [isEdit, setEdit] = useState(false)
   const theme = useTheme()
   const t = useI18n()
+  // 中：CreateUserList 只认 'local'|'online'（online=网易云建单）。此前把
+  // 'wy'/'tx' 强转直传，两个都落进本地分支——以为建在线歌单、实际静默
+  // 建了本地歌单。tx 无建单接口，不渲染新建项。
+  if (playlistType === 'tx') return null
 
   return (
     <View style={{ ...listStyles.listItem, width: itemWidth }}>
@@ -56,7 +60,7 @@ const EditListItem = ({ itemWidth, playlistType }: { itemWidth: number, playlist
           onHide={() => {
             setEdit(false)
           }}
-          playlistType={playlistType as 'local' | 'online'}
+          playlistType={playlistType === 'wy' ? 'online' : 'local'}
         />
       ) : null}
     </View>

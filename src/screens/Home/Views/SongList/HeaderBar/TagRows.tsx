@@ -53,6 +53,9 @@ export default forwardRef<TagRowsType, TagRowsProps>(({ onTagChange }, ref) => {
       void getTags(source)
         .then((tagInfo) => {
           if (isUnmountedRef.current) return
+          // 中：快速切平台 A→B 时 A 的标签晚回会覆盖 B——比对发起时的
+          // source（prevSource 已在发起前更新为最新源），不一致丢弃
+          if (source !== prevSource.current) return
           setGroups(
             [
               {

@@ -16,6 +16,7 @@ import IsS2T from './IsS2T'
 import ClearCache from './ClearCache'
 import IsAutoPlayOnStartup from './IsAutoPlayOnStartup'
 import IsAutoCacheOnlinePic from './IsAutoCacheOnlinePic'
+import IsShowNotificationImage from './IsShowNotificationImage'
 
 export default memo(() => {
   return (
@@ -33,6 +34,9 @@ export default memo(() => {
       <IsShowLyricRoma />
       <IsShowBluetoothLyric />
       <IsS2T />
+      {/* 低：该开关组件此前无任何引用——键被导入/同步写成 false 后锁屏与
+          通知栏封面永不显示且界面无解。补回渲染。 */}
+      <IsShowNotificationImage />
       <ClearCache />
       <PlayHighQuality />
     </Section>

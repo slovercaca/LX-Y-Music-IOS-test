@@ -43,11 +43,14 @@ export const checkUpdateList = async(changedIds: string[]) => {
 
 const fixListIdType = (lists: LX.List.UserListInfo[] | LX.List.UserListInfoFull[]) => {
   for (const list of lists) {
+    // 低：两字段各自独立判型——此前 id 的转换嵌套在 sourceListId 为
+    // number 的分支里，跨端同步来的「id 是 number、sourceListId 是
+    // string」数据 id 保持 number，后续 string 键比对全对不上
     if (typeof list.sourceListId == 'number') {
       list.sourceListId = String(list.sourceListId)
-      if (typeof list.id == 'number') {
-        list.id = String(list.id)
-      }
+    }
+    if (typeof (list.id as any) == 'number') {
+      list.id = String(list.id as any)
     }
   }
 }
@@ -78,7 +81,10 @@ export class ListEvent extends Event {
   async list_data_overwrite(listData: MakeOptional<LX.List.ListDataFull, 'tempList'>, isRemote: boolean = false) {
     fixListIdType(listData.userList)
     const oldIds = userLists.map((l) => l.id)
-    const changedIds = listDataOverwrite(listData)
+    const rawChangedIds = listDataOverwrite(listData)
+    // 中：同 list_remove——覆盖后消失的旧歌单若从未加载过，不会出现在
+    // changedIds 里，active/播放列表不刷新。用「旧 id 差集 + 新全集」兜底
+    const changedIds = [...new Set([...rawChangedIds, ...oldIds, ...listData.userList.map((l) => l.id)])]
     await updateUserList(userLists)
     const removedList = oldIds.filter((id) => !allMusicList.has(id))
     if (removedList.length) await removeListMusics(removedList)
@@ -104,9 +110,11 @@ export class ListEvent extends Event {
    */
   async list_create(position: number, lists: LX.List.UserListInfo[], isRemote: boolean = false) {
     fixListIdType(lists)
-    for (const list of lists) {
-      userListCreate({ ...list, position })
-    };
+    // 低：批量同 position 逐个插入会逆序——按 position + i 递增插入
+    // （position 为负表示末尾追加时保持原值，见 userListCreate）
+    lists.forEach((list, i) => {
+      userListCreate({ ...list, position: position < 0 ? position : position + i })
+    });
     await updateUserList(userLists)
     this.emit('list_create', position, lists, isRemote)
     if (!isRemote) {
@@ -125,8 +133,12 @@ export class ListEvent extends Event {
     await updateUserList(userLists)
     await removeListMusics(ids)
     this.emit('list_remove', ids, isRemote)
-    global.app_event.myListMusicUpdate(changedIds)
-    checkListExist(changedIds)
+    // 中：changedIds 只含「本次启动以来加载过歌曲」的歌单——删一个从未
+    // 加载过的歌单时它不在 changedIds 里，通知与 active 检查全漏，
+    // 界面继续指向已删歌单。用入参 ids 并集兜底。
+    const notifyIds = [...new Set([...changedIds, ...ids])]
+    global.app_event.myListMusicUpdate(notifyIds)
+    checkListExist(notifyIds)
     if (!isRemote) {
       await logOperation({ action: 'list_remove', data: ids })
       markListsChanged()

@@ -5,6 +5,12 @@ import settingState from '@/store/setting/state'
 // 调用点常在 catch 里打日志——日志抛错会掩盖原始错误。加兜底。
 const safeStringify = (v: unknown): string => {
   if (typeof v === 'string') return v
+  // 低：Error 的 message/stack 不可枚举，JSON.stringify 只得 {}——失败
+  // 日志丢光原因（多处诊断路径全中）。先展开 Error 再序列化。
+  if (v instanceof Error) {
+    const anyErr = v as any
+    return `${v.name}: ${v.message}${anyErr?.status ? ` (status ${anyErr.status})` : ''}${anyErr?.code ? ` [${anyErr.code}]` : ''}`
+  }
   try {
     return JSON.stringify(v)
   } catch {

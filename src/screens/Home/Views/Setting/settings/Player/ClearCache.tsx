@@ -119,6 +119,7 @@ export default memo(() => {
         resetIgnoringBatteryOptimizationCheck(),
       ])
         .then(() => { toast(t('setting_other_cache_clear_success_tip')) })
+        .catch(() => { toast('清理失败，请重试') }) // 低：此前六条清理链均无 catch，失败时无提示且留 unhandled rejection
         .finally(() => {
           refreshAll()
           setAppCleaning(false)
@@ -136,6 +137,7 @@ export default memo(() => {
       setSonglistCleaning(true)
       void clearSonglistDetailCache()
         .then(() => { toast(t('setting_other_cache_clear_success_tip')) })
+        .catch(() => { toast('清理失败，请重试') }) // 低：此前六条清理链均无 catch，失败时无提示且留 unhandled rejection
         .finally(() => {
           refreshSonglistCache()
           setSonglistCleaning(false)
@@ -153,6 +155,7 @@ export default memo(() => {
       setUrlCleaning(true)
       void clearMusicUrl(metaCache.musicUrlKeys)
         .then(() => { toast(t('setting_other_cache_clear_success_tip')) })
+        .catch(() => { toast('清理失败，请重试') }) // 低：此前六条清理链均无 catch，失败时无提示且留 unhandled rejection
         .finally(() => {
           refreshMetaCache()
           setUrlCleaning(false)
@@ -170,6 +173,7 @@ export default memo(() => {
       setPlaylistIndexCleaning(true)
       void clearPlaylistIndexCache()
         .then(() => { toast(t('setting_other_cache_clear_success_tip')) })
+        .catch(() => { toast('清理失败，请重试') }) // 低：此前六条清理链均无 catch，失败时无提示且留 unhandled rejection
         .finally(() => {
           refreshPlaylistIndexCache()
           setPlaylistIndexCleaning(false)
@@ -187,6 +191,7 @@ export default memo(() => {
       setLyricCleaning(true)
       void clearLyric(metaCache.lyricKeys)
         .then(() => { toast(t('setting_other_cache_clear_success_tip')) })
+        .catch(() => { toast('清理失败，请重试') }) // 低：此前六条清理链均无 catch，失败时无提示且留 unhandled rejection
         .finally(() => {
           refreshMetaCache()
           setLyricCleaning(false)
@@ -204,6 +209,7 @@ export default memo(() => {
       setOtherSourceCleaning(true)
       void clearOtherSource(metaCache.otherSourceKeys)
         .then(() => { toast(t('setting_other_cache_clear_success_tip')) })
+        .catch(() => { toast('清理失败，请重试') }) // 低：此前六条清理链均无 catch，失败时无提示且留 unhandled rejection
         .finally(() => {
           refreshMetaCache()
           setOtherSourceCleaning(false)

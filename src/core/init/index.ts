@@ -16,7 +16,7 @@ import { cheatTip } from '@/utils/tools'
 import initUiMode from './uiMode'
 import { Platform } from 'react-native'
 import RNFS from 'react-native-fs'
-import { mkdir, readDir, moveFile, existsFile } from '@/utils/fs'
+import { mkdir, readDir, moveFile, existsFile, unlink } from '@/utils/fs'
 import { getDefaultDownloadPath } from '@/utils/downloadPath'
 import { getDownloadTasks, saveDownloadTasks } from '@/utils/data/download'
 import downloadActions from '@/store/download/action'
@@ -73,12 +73,23 @@ export default async() => {
   bootLog('Playback Service Registered.')
   await withTimeout(initPlayer(setting), 'Player', undefined)
   bootLog('Player inited.')
-  void dataInit(setting)
-    .then(() => { bootLog('Data inited.') })
-    .catch((err: any) => { bootLog(`Data init failed: ${err?.stack ?? err?.message ?? err}`) })
-  void initDownloadPath(setting)
-    .then(() => { bootLog('Download path inited.') })
-    .catch((err: any) => { bootLog(`Download path init failed: ${err?.stack ?? err?.message ?? err}`) })
+  // 中存疑-24：两步必须串行——dataInit 把下载任务读进内存，initDownloadPath 做
+  // 路径迁移并写回。此前并发：时序不利时内存里还是旧路径的任务，后续保存会把
+  // 旧路径写回磁盘、抵消本次迁移（已迁移歌曲被误判 missing）。
+  void (async() => {
+    try {
+      await dataInit(setting)
+      bootLog('Data inited.')
+    } catch (err: any) {
+      bootLog(`Data init failed: ${err?.stack ?? err?.message ?? err}`)
+    }
+    try {
+      await initDownloadPath(setting)
+      bootLog('Download path inited.')
+    } catch (err: any) {
+      bootLog(`Download path init failed: ${err?.stack ?? err?.message ?? err}`)
+    }
+  })()
   await withTimeout(initCommonState(setting), 'Common State', undefined)
   bootLog('Common State inited.')
 
@@ -133,8 +144,18 @@ const initDownloadPath = async(_setting: LX.AppSetting) => {
           console.warn(`[Download Path] Failed to move ${item.path} to ${targetPath}:`, moveErr)
         }
       }
-      updateSetting({ 'download.path': '' })
-      console.log('[Download Path] Migrated legacy download directory into 本地.')
+      // 中：此前只要旧目录存在就无条件把 download.path 重置为空——
+      // 空目录永不删除，于是每次启动都重置，经同步/备份带入的自定义
+      // 下载路径永远存不住。只在真迁移了文件、或设置正指向旧目录时
+      // 才重置；迁完删掉旧空目录，下次启动不再进入本分支。
+      const currentPath = (_setting['download.path'] ?? '').trim()
+      if (movedPaths.size > 0 || currentPath.startsWith(oldDefaultPath)) {
+        updateSetting({ 'download.path': '' })
+      }
+      if (movedPaths.size > 0) {
+        await unlink(oldDefaultPath).catch(() => {})
+        console.log('[Download Path] Migrated legacy download directory into 本地.')
+      }
     }
   } catch (err) {
     console.error('[Download Path] Failed to migrate legacy download directory:', err)

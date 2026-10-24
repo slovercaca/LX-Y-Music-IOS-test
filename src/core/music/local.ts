@@ -88,7 +88,8 @@ const getOtherSourceByLocal = async <T>(
     musicInfo.meta.filePath.split(/\/|\\/).at(-1)
   if (fileName) {
     fileName = fileName.substring(0, fileName.lastIndexOf('.'))
-    if (fileName != musicInfo.name) {
+    // 存疑修复：无扩展名文件会把名字截成空串，拿空歌名去跨源匹配可能播错歌
+    if (fileName && fileName != musicInfo.name) {
       if (fileName.includes('-')) {
         // P2: singer 取第一段，歌名取剩余全部 join
         const parts = fileName.split('-').map((val) => val.trim())
@@ -290,7 +291,9 @@ export const getPicUrl = async({
           const ext = fileName.substring(fileName.lastIndexOf('.')).toLowerCase()
           const baseName = fileName.substring(0, fileName.lastIndexOf('.'))
 
-          if (coverExtensions.includes(ext) && baseName.includes(audioFileName)) {
+          // 低-14：原来用子串 includes 匹配——短歌名（如 Love）会命中别人的
+          // 封面（Love Story.jpg）。改精确相等。
+          if (coverExtensions.includes(ext) && baseName === audioFileName) {
             foundPicUrl = `file://${picCachePath}/${fileName}`
             break
           }
@@ -374,8 +377,11 @@ export const getPicUrl = async({
 
   try {
     const result = await getOnlineOtherSourcePicByLocal(musicInfo)
-    webDAVLog?.info('getPicUrl: fetched online cover', { url: result.url })
-    return result.url
+    // 低-25：空 URL 不是成功——直接 return 会截断下面的换源兜底
+    if (result.url) {
+      webDAVLog?.info('getPicUrl: fetched online cover', { url: result.url })
+      return result.url
+    }
   } catch (err) {
     webDAVLog?.warn('getPicUrl: getOnlineOtherSourcePicByLocal failed', { err })
   }

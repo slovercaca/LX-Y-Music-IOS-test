@@ -18,8 +18,10 @@ const playSongListDetail = async(source: LX.OnlineSource, link: string, playInde
   // console.log(source, link, playIndex)
   if (link == null) return
   let isPlayingList = false
-  const id = decodeURIComponent(link)
-  const playListId = `${source}__${decodeURIComponent(link)}`
+  // 低：link 已在 deeplink 入口统一解码过一次，此前再解一次——含 %XX
+  // 被篡改拉错歌单、裸 % 抛 URIError 被包装成笼统报错
+  const id = link
+  const playListId = `${source}__${link}`
   let list = (await getListDetail(id, source, 1)).list
   if (playIndex == null || list.length > playIndex) {
     isPlayingList = true
@@ -28,7 +30,9 @@ const playSongListDetail = async(source: LX.OnlineSource, link: string, playInde
   }
   list = await getListDetailAll(source, id)
   if (isPlayingList) {
-    if (listState.tempListMeta.id == id) await setTempList(playListId, list)
+    // 中：此前拿裸 id 与 tempListMeta.id（kw__123 形式）比较恒 false，
+    // 全量列表永远换不进临时列表、只剩第一页 ≤30 首
+    if (listState.tempListMeta.id == playListId) await setTempList(playListId, list)
   } else {
     await setTempList(playListId, list)
     await playList(LIST_IDS.TEMP, getListPlayIndex(list, playIndex))

@@ -68,7 +68,7 @@ const Pic = ({
         </View>
       ) : (
         <Image
-          nativeID={`${NAV_SHEAR_NATIVE_IDS.songlistDetail_pic}_to_${info.id}`}
+          nativeID={`${NAV_SHEAR_NATIVE_IDS.songlistDetail_pic}_to_${info.source}_${info.id}`}
           url={pic}
           style={{ flex: 1, borderRadius: 4 }}
         />

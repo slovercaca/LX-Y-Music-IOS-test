@@ -158,7 +158,10 @@ export default {
 
       const list = results.filter(item => item !== null && item.name)
 
-      return { list }
+      // 中-11：原来只回 { list }，上层拿不到 total/allPage → hasMore 恒 false，
+      // 酷狗歌手搜索永远翻不了第二页。口径与同文件 searchAlbum 对齐（歌曲总数/30 页）。
+      const songTotal = body.data.total || 0
+      return { list, total: songTotal, allPage: Math.ceil(songTotal / 30) }
     } catch (err) {
       console.error('[KuGou] searchSinger error:', err)
       if (retryNum <= 3) return this.searchSinger(keyword, page, limit, retryNum)

@@ -11,7 +11,11 @@ import { handleFileMusicAction, handleFileJSAction, handleFileLXMCAction } from 
 
 const handleLinkAction = async(link: string) => {
   // console.log(link)
-  const [url, hash] = link.split('#')
+  // 低：只在第一个 '#' 切分——此前 split('#') 取前两段，链接里出现
+  // 第二个 '#' 时其后参数被静默丢弃
+  const hashIdx = link.indexOf('#')
+  const url = hashIdx >= 0 ? link.substring(0, hashIdx) : link
+  const hash = hashIdx >= 0 ? link.substring(hashIdx + 1) : ''
   const [type, action, ...paths] = url.replace('lxmusic://', '').split('/')
   const params: {
     paths: string[]
@@ -40,7 +44,9 @@ const handleLinkAction = async(link: string) => {
       }
     }
   }
-  if (params.data) params.data = JSON.parse(decodeURIComponent(params.data))
+  // 中：params 循环里已 decodeURIComponent 过一次——此前这里再解一次，
+  // 发送方只编码一次时 data 内嵌的 % 会被二次解码损坏或抛 URIError
+  if (params.data) params.data = JSON.parse(params.data)
   params.paths = paths.map((p) => decodeURIComponent(p))
   console.log(params)
   switch (type) {

@@ -49,14 +49,14 @@ export default {
   setNowPlayTime(time: number) {
     state.progress.nowPlayTime = time
     state.progress.nowPlayTimeStr = formatPlayTime2(time)
-    state.progress.progress = state.progress.maxPlayTime ? time / state.progress.maxPlayTime : 0
+    state.progress.progress = state.progress.maxPlayTime ? clamp01(time / state.progress.maxPlayTime) : 0 // 低：引擎上报 position>duration 时进度溢出，与 setProgress 同口径钳制
 
     global.state_event.playProgressChanged({ ...state.progress })
   },
   setMaxplayTime(time: number) {
     state.progress.maxPlayTime = time
     state.progress.maxPlayTimeStr = formatPlayTime2(time)
-    state.progress.progress = time ? state.progress.nowPlayTime / time : 0
+    state.progress.progress = time ? clamp01(state.progress.nowPlayTime / time) : 0 // 低：同上
 
     global.state_event.playProgressChanged({ ...state.progress })
   },

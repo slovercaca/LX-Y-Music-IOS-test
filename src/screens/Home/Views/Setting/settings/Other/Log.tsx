@@ -12,6 +12,7 @@ import { useI18n } from '@/lang'
 import Text from '@/components/common/Text'
 import { useTheme } from '@/store/theme/hook'
 import settingState from '@/store/setting/state'
+import { useSettingValue } from '@/store/setting/hook'
 import { updateSetting } from '@/core/common'
 import { searchLog } from '@/utils/searchLog'
 import { playerLog } from '@/utils/playerLog'
@@ -26,12 +27,25 @@ export default memo(() => {
   const [isTruncated, setIsTruncated] = useState(false)
   const isUnmountedRef = useRef(true)
 
-  const [isEnableLog, setIsEnableLog] = useState(settingState.setting['common.isEnableLog'])
-  const [isEnableSyncErrorLog, setIsEnableSyncErrorLog] = useState(settingState.setting['common.isEnableSyncLog'])
-  const [isEnableUserApiLog, setIsEnableUserApiLog] = useState(settingState.setting['common.isEnableUserApiLog'])
-  const [isEnableWebDAVLog, setIsEnableWebDAVLog] = useState(settingState.setting['common.isEnableWebDAVLog'])
-  const [isEnableSearchLog, setIsEnableSearchLog] = useState(settingState.setting['common.isEnableSearchLog'])
-  const [isEnablePlayerLog, setIsEnablePlayerLog] = useState(settingState.setting['common.isEnablePlayerLog'])
+  // 低：六个开关改订阅设置值——此前只在挂载时读一次快照，停留期间被
+  // WebDAV 同步等外部改动后显示旧值，按旧值取反写入还会覆盖新值
+  const isEnableLog = useSettingValue('common.isEnableLog')
+  const isEnableSyncErrorLog = useSettingValue('common.isEnableSyncLog')
+  const isEnableUserApiLog = useSettingValue('common.isEnableUserApiLog')
+  const isEnableWebDAVLog = useSettingValue('common.isEnableWebDAVLog')
+  const isEnableSearchLog = useSettingValue('common.isEnableSearchLog')
+  const isEnablePlayerLog = useSettingValue('common.isEnablePlayerLog')
+  // 低：阈值被外部（同步/导入）改动时同步本地草稿，避免按旧值覆盖
+  useEffect(() => {
+    const handleUpdate = (keys: Array<keyof LX.AppSetting>) => {
+      if (!keys.includes('common.logMaxLines')) return
+      const saved = Number(settingState.setting['common.logMaxLines'])
+      setMaxLogLines(Number.isFinite(saved) && saved > 0 ? saved : DEFAULT_MAX_LOG_LINES)
+    }
+    global.state_event.on('configUpdated', handleUpdate)
+    return () => { global.state_event.off('configUpdated', handleUpdate) }
+  }, [])
+
   // 阈值持久化到设置（原来只是页面内 state，离开设置页再进来就回到默认 2000）。
   const [maxLogLines, setMaxLogLines] = useState(() => {
     const saved = Number(settingState.setting['common.logMaxLines'])
@@ -111,36 +125,33 @@ export default memo(() => {
   }
 
   const handleSetEnableLog = (enable: boolean) => {
-    setIsEnableLog(enable)
-    global.lx.isEnableLog = enable
+        global.lx.isEnableLog = enable
     updateSetting({ 'common.isEnableLog': enable })
   }
 
   const handleSetEnableSyncErrorLog = (enable: boolean) => {
-    setIsEnableSyncErrorLog(enable)
-    global.lx.isEnableSyncLog = enable
+        global.lx.isEnableSyncLog = enable
     updateSetting({ 'common.isEnableSyncLog': enable })
   }
 
   const handleSetEnableUserApiLog = (enable: boolean) => {
-    setIsEnableUserApiLog(enable)
-    global.lx.isEnableUserApiLog = enable
+        global.lx.isEnableUserApiLog = enable
     updateSetting({ 'common.isEnableUserApiLog': enable })
   }
 
   const handleSetEnableWebDAVLog = (enable: boolean) => {
-    setIsEnableWebDAVLog(enable)
+
     updateSetting({ 'common.isEnableWebDAVLog': enable })
   }
 
   const handleSetEnableSearchLog = (enable: boolean) => {
-    setIsEnableSearchLog(enable)
+
     updateSetting({ 'common.isEnableSearchLog': enable })
     searchLog.updateEnabled(enable)
   }
 
   const handleSetEnablePlayerLog = (enable: boolean) => {
-    setIsEnablePlayerLog(enable)
+
     updateSetting({ 'common.isEnablePlayerLog': enable })
     playerLog.updateEnabled(enable)
   }

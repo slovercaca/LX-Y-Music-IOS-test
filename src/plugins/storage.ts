@@ -182,8 +182,31 @@ export const saveDataMultiple = async(datas: Array<[string, any]>) => {
     for (const [key, value] of datas) {
       buildData(key, value, allData)
     }
-    await removeDataMultiple(datas.map((k) => k[0]))
+    // 中-8：原实现「先 removeDataMultiple 后 multiSet」与 saveData 修过的 P0-3 同型：
+    // multiSet 失败（磁盘满等）时旧数据已删、新数据未落盘，歌单歌曲/自定义音源
+    // 脚本的保存一次失败即永久丢失。改同 saveData：先覆盖写，再清 stale 旧分片。
+    let oldPartKeys: string[] = []
+    try {
+      const olds = await AsyncStorage.multiGet(datas.map(([k]) => k))
+      for (const [, oldValue] of olds) {
+        if (!oldValue) continue
+        if (partKeyPrefixRxp.test(oldValue)) {
+          oldPartKeys.push(...oldValue.replace(partKeyPrefixRxp, '').split(keySplit))
+        } else if (partKeyArrPrefixRxp.test(oldValue)) {
+          oldPartKeys.push(...(JSON.parse(oldValue.replace(partKeyArrPrefixRxp, '')) as string[]))
+        }
+      }
+    } catch {
+      // 读旧值失败，跳过清理（宁可残留，不丢数据）
+    }
     await AsyncStorage.multiSet(allData)
+    const newKeys = new Set(allData.map(([k]) => k))
+    const staleKeys = oldPartKeys.filter(k => !newKeys.has(k))
+    if (staleKeys.length) {
+      await AsyncStorage.multiRemove(staleKeys).catch(() => {
+        // 清理失败不抛错
+      })
+    }
   } catch (e: any) {
     // save error
     log.error('storage error[saveDataMultiple]:', e.message)

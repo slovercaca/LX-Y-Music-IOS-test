@@ -61,6 +61,9 @@ export default {
     if (tryNum > 2) return Promise.reject(new Error('try max num'))
 
     const { id, cookie } = await this.getListId(rawId)
+    // 中：模块单例 cookie 永不清除——先开带 token 的私密歌单后，后续
+    // 所有歌单详情请求都带着上一个歌单的凭据。每次先重置再按本次赋值。
+    this.cookie = null
     if (cookie) this.cookie = cookie
 
     const requestObj_listDetail = httpFetch('https://music.163.com/weapi/v3/playlist/detail', {
@@ -338,7 +341,8 @@ export default {
     })
     return this._requestObj_hotTags.promise.then(({ body }) => {
       // console.log(JSON.stringify(body))
-      if (body.code !== this.successCode) return this.getTag(++tryNum)
+      // 中：失败重试误调 getTag（返回普通标签且不走 filterHotTagInfo，hotTag 字段形状错误）
+      if (body.code !== this.successCode) return this.getHotTag(++tryNum)
       return this.filterHotTagInfo(body.tags)
     })
   },

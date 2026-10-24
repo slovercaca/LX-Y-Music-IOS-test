@@ -54,6 +54,12 @@ export const reorderUserApi = async(list: LX.UserApi.UserApiInfo[]) => {
 }
 
 export const overwriteUserApis = async(data: { list: LX.UserApi.UserApiInfo[], scripts: Record<string, string> }) => {
+  // 高：scripts 缺失时绝不能继续——下方会以空脚本集为新全集先删本地全部
+  // 旧脚本再写入 list，自定义音源只剩名单、脚本全灭且不抛错。备份校验与
+  // WebDAV 同步两条路都经过这里，在源头拒绝
+  if (!data.scripts || typeof data.scripts !== 'object' || Array.isArray(data.scripts)) {
+    throw new Error('userApis scripts missing or invalid')
+  }
   try {
     const allKeys = await getAllKeys()
     const oldScriptKeys = allKeys.filter(key => key.startsWith(storageDataPrefix.userApi) && key !== storageDataPrefix.userApi)

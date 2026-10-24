@@ -186,7 +186,8 @@ export function useUploadManager(deps: UploadManagerDeps) {
       error: item.error,
       finishedAt: item.finishedAt ?? Date.now(),
     }
-    historyRef.current = [record, ...historyRef.current].slice(0, HISTORY_LIMIT)
+    // 低-6：同 id 只留最新一条（失败→重试成功会再推一条同 id 记录，列表 key 冲突）
+    historyRef.current = [record, ...historyRef.current.filter(h => h.id !== record.id)].slice(0, HISTORY_LIMIT)
     setHistory([...historyRef.current])
     persistHistory()
   }, [persistHistory])
@@ -584,7 +585,7 @@ export function useUploadManager(deps: UploadManagerDeps) {
         ;(item as any).__autoRetry = autoRetryCount + 1
         // P1-9（2026-10-06）：自动重试时清除 409 重试标记，否则重试中再次 409
         // 时直接失败不再弹窗（手动 retryItem 会清，自动路径漏了）
-        delete (item as any).__retry409
+        delete (item as any)[`__retry409_${item.id}`] // 低-7：标记实际带 id 后缀，此前删的是无后缀键、永远删不掉
         item.phase = 'preparing'
         item.phaseDetail = `网络错误，${backoffMs / 1000} 秒后自动重试 (${autoRetryCount + 1}/${MAX_AUTO_RETRY})`
         webDAVLog.info('[upload] 网络错误，自动重试', {
@@ -725,7 +726,7 @@ export function useUploadManager(deps: UploadManagerDeps) {
       const remoteState = await checkWebDAVRemoteState(it.remotePath)
       if (remoteState === 'unknown') {
         unknownSkipped.push(it.fileName)
-        it.status = 'cancelled'
+        finishItem(it, 'cancelled') // 低-8：走统一终态收尾（删文件App临时文件等），此前直写绕过清理
         continue
       }
       const exists = remoteState === 'exists'
@@ -740,7 +741,7 @@ export function useUploadManager(deps: UploadManagerDeps) {
       }
       if (overwriteAll === false) {
         skippedByUser.push(it.fileName)
-        it.status = 'cancelled'
+        finishItem(it, 'cancelled') // 低-8：走统一终态收尾（删文件App临时文件等），此前直写绕过清理
         continue
       }
       // 逐个询问
@@ -758,7 +759,7 @@ export function useUploadManager(deps: UploadManagerDeps) {
         if (choice === 'overwrite-all') overwriteAll = true
       } else {
         skippedByUser.push(it.fileName)
-        it.status = 'cancelled'
+        finishItem(it, 'cancelled') // 低-8：走统一终态收尾（删文件App临时文件等），此前直写绕过清理
         if (choice === 'skip-all') overwriteAll = false
       }
     }

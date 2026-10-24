@@ -64,26 +64,25 @@ const withAlpha = (color: string, alpha: number): string => {
 
 export const buildActiveThemeColors = (theme: LX.Theme): LX.ActiveTheme => {
   let bgImg: ImageSourcePropType | undefined
+  // 低：全程只在本地副本上拼路径/解 var()，不回写 theme 源对象——此前把
+  // 容器绝对路径 mutate 进 userThemes 的 extInfo 并经 saveTheme 落盘，
+  // 重装/跨设备恢复后容器路径变化、幂等守卫不命中会再拼一遍，背景图
+  // 路径彻底损坏
+  const extInfo = { ...theme.config.extInfo }
   if (theme.isCustom) {
-    const bgImage = theme.config.extInfo['bg-image']
-    // 2026-10-05 fix（P1-6）：幂等守卫——getTheme() 返回 userThemes 数组里的同一对象
-    // 引用，直接 mutation 会导致反复调用时逐层嵌套拼接路径（isUrl 只认 http(s)://）。
-    // 已含前缀的不再拼接。
+    const bgImage = extInfo['bg-image']
     if (bgImage && !isUrl(bgImage) && !bgImage.startsWith(privateStorageDirectoryPath)) {
-      theme.config.extInfo['bg-image'] = `${privateStorageDirectoryPath}/theme_images/${bgImage}`
+      extInfo['bg-image'] = `${privateStorageDirectoryPath}/theme_images/${bgImage}`
     }
   } else {
-    const extInfo = (theme as LocalTheme).config.extInfo
     if (extInfo['bg-image']) {
       bgImg = BG_IMAGES[extInfo['bg-image']]
     }
   }
 
-  theme.config.extInfo = { ...theme.config.extInfo }
-
-  for (const [k, v] of Object.entries(theme.config.extInfo)) {
+  for (const [k, v] of Object.entries(extInfo)) {
     if (!v.startsWith('var(')) continue
-    (theme.config.extInfo as any)[k] = theme.config.themeColors[v.replace(varColorRxp, '$1') as ColorsKey]
+    ;(extInfo as any)[k] = theme.config.themeColors[v.replace(varColorRxp, '$1') as ColorsKey]
   }
 
   const activeTheme: LX.ActiveTheme = {
@@ -91,7 +90,7 @@ export const buildActiveThemeColors = (theme: LX.Theme): LX.ActiveTheme => {
     name: theme.name,
     isDark: theme.isDark,
     ...theme.config.themeColors,
-    ...theme.config.extInfo,
+    ...extInfo,
     'c-font': theme.config.themeColors['c-850'],
     'c-font-label': theme.config.themeColors['c-450'],
     'c-primary-font': theme.config.themeColors['c-primary'],
@@ -110,7 +109,7 @@ export const buildActiveThemeColors = (theme: LX.Theme): LX.ActiveTheme => {
     'c-list-header-border-bottom': theme.config.themeColors['c-primary-alpha-900'],
     'c-content-background': theme.config.themeColors['c-primary-light-1000'],
     'c-border-background': theme.config.themeColors['c-primary-light-100-alpha-700'],
-    'c-liked': theme.config.extInfo['c-liked']!,
+    'c-liked': extInfo['c-liked']!,
     'bg-image': bgImg,
   }
 

@@ -79,6 +79,17 @@ export default memo(() => {
     void refreshStats()
   }, [refreshStats])
 
+  // 低：登录态此前只在挂载时统计——同页刚完成网页登录/保存 Cookie 后仍
+  // 显示「未登录」、按钮保持禁用，须退出重进。订阅三个 cookie 键变化重跑。
+  useEffect(() => {
+    const cookieKeys = COOKIE_SOURCES.map(c => c.settingKey as string)
+    const handleUpdate = (keys: Array<keyof LX.AppSetting>) => {
+      if (keys.some(k => cookieKeys.includes(k as string))) void refreshStats()
+    }
+    global.state_event.on('configUpdated', handleUpdate)
+    return () => { global.state_event.off('configUpdated', handleUpdate) }
+  }, [refreshStats])
+
   const cachedInfo = useMemo(() => rows.filter(row => row.playlistCount > 0 || row.indexCount > 0), [rows])
 
   /** 刷新某个平台的 cookie 歌单（索引）：重新拉取并重新写缓存 */

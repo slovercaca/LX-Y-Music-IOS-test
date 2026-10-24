@@ -106,6 +106,9 @@ export const getOtherSource = async(
   //   const cachedInfo = await getOtherSourceFromStore(musicInfo.id)
   //   if (cachedInfo.length) return cachedInfo
   // }
+  // 中-6：isRefresh 此前被完全忽略——刷新也吃旧缓存；且空结果也入缓存，
+  // 一次断网搜出 [] 后该歌本会话内永远换不到源（播放/歌词/封面三链共用）
+  if (_isRefresh) otherSourceCache.delete(musicInfo)
   if (otherSourceCache.has(musicInfo)) {
     userApiLog.info('[在线匹配源] 命中缓存 - 直接返回缓存结果')
     const cachedResult = otherSourceCache.get(musicInfo)!
@@ -174,7 +177,8 @@ export const getOtherSource = async(
         }
 
         const source = otherSource.map(toNewMusicInfo) as LX.Music.MusicInfoOnline[]
-        otherSourceCache.set(musicInfo, source)
+        // 中-6：空结果不入缓存，避免瞬时失败毒化整个会话
+        if (source.length > 0) otherSourceCache.set(musicInfo, source)
 
         userApiLog.info('[在线匹配源] 搜索完成 ==========')
         userApiLog.info(`[在线匹配源] 最终找到结果: ${source.length} 个`)
@@ -230,10 +234,12 @@ export const buildLyricInfo = async(
       lyricInfo.lxlyric ? langS2T(lyricInfo.lxlyric) : Promise.resolve(''),
     ]
     if (lyricInfo.rawlrcInfo) {
-      tasks.push(lyricInfo.lyric ? langS2T(lyricInfo.lyric) : Promise.resolve(''))
-      tasks.push(lyricInfo.tlyric ? langS2T(lyricInfo.tlyric) : Promise.resolve(''))
-      tasks.push(lyricInfo.rlyric ? langS2T(lyricInfo.rlyric) : Promise.resolve(''))
-      tasks.push(lyricInfo.lxlyric ? langS2T(lyricInfo.lxlyric) : Promise.resolve(''))
+      // 低-28：raw 副本应转换 rawlrcInfo 自己的字段——此前重复转换主歌词，
+      // 原文歌词丢失、「编辑过歌词」的识别随之失效
+      tasks.push(lyricInfo.rawlrcInfo.lyric ? langS2T(lyricInfo.rawlrcInfo.lyric) : Promise.resolve(''))
+      tasks.push(lyricInfo.rawlrcInfo.tlyric ? langS2T(lyricInfo.rawlrcInfo.tlyric) : Promise.resolve(''))
+      tasks.push(lyricInfo.rawlrcInfo.rlyric ? langS2T(lyricInfo.rawlrcInfo.rlyric) : Promise.resolve(''))
+      tasks.push(lyricInfo.rawlrcInfo.lxlyric ? langS2T(lyricInfo.rawlrcInfo.lxlyric) : Promise.resolve(''))
     }
     return Promise.all(tasks).then(
       ([lyric, tlyric, rlyric, lxlyric, lyric_raw, tlyric_raw, rlyric_raw, lxlyric_raw]) => {
@@ -480,7 +486,8 @@ export const getPlayQuality = (
   preferredQuality: LX.Quality,
   musicInfo: LX.Music.MusicInfoOnline,
 ): LX.Quality => {
-  const availableQualities = musicInfo.meta._qualitys
+  // 存疑修复：导入/旧备份歌曲可能没有 _qualitys，裸读 [quality] 会 TypeError 致取链失败
+  const availableQualities = musicInfo.meta?._qualitys ?? {}
 
   const validPreferredQuality = QUALITY_RANK.includes(preferredQuality)
     ? preferredQuality
@@ -907,6 +914,9 @@ export const getOnlineOtherSourcePicUrl = async({
   // retryedSource.includes(musicInfo.source)
   return reqPromise
     .then((url: string) => {
+      // 低-25：接口返回空 URL 时当失败处理，走 catch 的换源兜底，
+      // 此前空串被当成功返回、还会落盘进 meta.picUrl
+      if (!url) throw new Error('empty pic url')
       return { musicInfo, url, isFromCache: false }
     })
     .catch(async(err: any) => {
@@ -942,6 +952,7 @@ export const handleGetOnlinePicUrl = async({
   }
   return reqPromise
     .then((url: string) => {
+      if (!url) throw new Error('empty pic url') // 低-25：同上，空 URL 走换源兜底
       return { musicInfo, url, isFromCache: false }
     })
     .catch(async(err: any) => {

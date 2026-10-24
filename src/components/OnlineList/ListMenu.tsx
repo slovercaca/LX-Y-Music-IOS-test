@@ -73,7 +73,9 @@ export default forwardRef<ListMenuType, ListMenuProps>((props: ListMenuProps, re
     menu.push({ action: 'download', label: t('download') })
     // if (menuSetting.addTo) menu.push({ action: 'add', label: t('add_to') });
     menu.push({ action: 'add', label: t('add_to') })
-    menu.push({ action: 'move', label: t('move_to') })
+    // 中：无 handler 时不生成菜单项——播放队列面板没传 onMove/onClearCache，
+    // 此前照样显示「移动到/清理缓存」，点了毫无反应（死菜单）
+    if (props.onMove) menu.push({ action: 'move', label: t('move_to') })
 
     const wyMenuItems = []
     if (selectInfo.musicInfo?.source === 'wy') {
@@ -100,12 +102,12 @@ export default forwardRef<ListMenuType, ListMenuProps>((props: ListMenuProps, re
 
     const remainingMenu = []
     if (menuSetting.dislike) { remainingMenu.push({ action: 'dislike', label: t('dislike'), disabled: isDislikeMusic }) }
-    remainingMenu.push({ action: 'clearCache', label: t('clear_music_cache') })
+    if (props.onClearCache) remainingMenu.push({ action: 'clearCache', label: t('clear_music_cache') })
 
     remainingMenu.push({ action: 'remove', label: t('delete') })
 
     return [...menu, ...wyMenuItems, ...remainingMenu]
-  }, [t, isDislikeMusic, selectInfo, menuSetting])
+  }, [t, isDislikeMusic, selectInfo, menuSetting, props.onMove, props.onClearCache])
 
   const handleMenuPress = ({ action }: (typeof menus)[number]) => {
     if ((action === 'move' || action === 'remove') && props.listId?.startsWith('tx__') && isTxCookieExpired()) {

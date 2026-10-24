@@ -37,6 +37,10 @@ export default forwardRef<MusicListType, SonglistListProps>(({ header, onOpenDet
           searchSonglistState.source == source &&
           searchSonglistState.listInfos[searchSonglistState.source]!.list.length
         ) {
+          // 中：同 MusicList，缓存分支同步 searchInfoRef 并作废在途请求
+          searchInfoRef.current.text = text
+          searchInfoRef.current.source = source
+          requestIdRef.current++
           requestAnimationFrame(() => {
             listRef.current?.setList(
               searchSonglistState.listInfos[searchSonglistState.source]!.list,
@@ -81,34 +85,42 @@ export default forwardRef<MusicListType, SonglistListProps>(({ header, onOpenDet
 
   const handleRefresh: SonglistProps['onRefresh'] = () => {
     const page = 1
+    // 高-4：同 MusicList，捕获代际与源，回调先验再上屏、全程用捕获值
+    const requestId = requestIdRef.current
+    const source = searchInfoRef.current.source
     listRef.current?.setStatus('refreshing')
-    search(searchInfoRef.current.text, page, searchInfoRef.current.source)
+    search(searchInfoRef.current.text, page, source)
       .then((list) => {
-        // const result = setListInfo(listDetail, searchSonglistState.listDetailInfo.id, page)
         if (isUnmountedRef.current) return
-        listRef.current?.setList(list, searchInfoRef.current.source == 'all')
+        if (requestId !== requestIdRef.current) return
+        listRef.current?.setList(list, source == 'all')
         listRef.current?.setStatus(
-          searchSonglistState.maxPages[searchSonglistState.source] == page ? 'end' : 'idle',
+          searchSonglistState.maxPages[source] == page ? 'end' : 'idle',
         )
       })
       .catch(() => {
+        if (requestId !== requestIdRef.current) return
         listRef.current?.setStatus('error')
       })
   }
   const handleLoadMore: SonglistProps['onLoadMore'] = () => {
+    // 高-4：同 handleRefresh
+    const requestId = requestIdRef.current
+    const source = searchInfoRef.current.source
     listRef.current?.setStatus('loading')
-    const info = searchSonglistState.listInfos[searchInfoRef.current.source]!
+    const info = searchSonglistState.listInfos[source]!
     const page = info.list.length ? info.page + 1 : 1
-    search(searchInfoRef.current.text, page, searchInfoRef.current.source)
+    search(searchInfoRef.current.text, page, source)
       .then((list) => {
-        // const result = setListInfo(listDetail, searchSonglistState.listDetailInfo.id, page)
         if (isUnmountedRef.current) return
-        listRef.current?.setList(list, searchInfoRef.current.source == 'all')
+        if (requestId !== requestIdRef.current) return
+        listRef.current?.setList(list, source == 'all')
         listRef.current?.setStatus(
-          searchSonglistState.maxPages[searchSonglistState.source] == page ? 'end' : 'idle',
+          searchSonglistState.maxPages[source] == page ? 'end' : 'idle',
         )
       })
       .catch(() => {
+        if (requestId !== requestIdRef.current) return
         listRef.current?.setStatus('error')
       })
   }

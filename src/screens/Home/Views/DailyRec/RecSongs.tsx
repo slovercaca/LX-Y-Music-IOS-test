@@ -258,6 +258,8 @@ export default memo(({ header, isStylized, stylizedSelection }: RecSongsProps) =
         return wyApi.dailyRec.getStylizedList(cookie)
       }).then((result: any) => {
         listRef.current?.setList(result.list, false)
+        // 中：成功后复位 refreshing——此前两条刷新分支都不复位，状态机卡死
+        listRef.current?.setStatus('idle')
       }).catch((err: any) => {
         console.error(err)
         toast(t('load_failed'), 'long')
@@ -272,6 +274,7 @@ export default memo(({ header, isStylized, stylizedSelection }: RecSongsProps) =
     clearDailyRecSongsCache()
     wyApi.dailyRec.getList(cookie).then((result: any) => {
       listRef.current?.setList(result.list, false)
+      listRef.current?.setStatus('idle') // 中：同上，刷新成功复位状态
       setDailyRecSongsCache(result.list)
       if (result.list && result.list.length > 0) {
         void autoSaveDailyPlaylist(result.list)

@@ -93,6 +93,7 @@ export default forwardRef<ListImportExportType, {}>((props, ref) => {
           .then(async() => shareFile(tempFile))
           .then(() => { toast(global.i18n.t('setting_backup_part_export_list_tip_success')) })
           .catch((err: any) => {
+            if (err?.code === 'share_cancelled') return // 低：用户在分享面板取消，不提示失败（原生改为按完成才 resolve）
             if (err?.code === 'file_not_found') {
               toast(global.i18n.t('setting_backup_part_export_list_tip_failed'))
               return

@@ -140,6 +140,11 @@ export default memo(({ page }: { page: WebDAVPage }) => {
                   </View>
                 )}
               </View>
+              {/* 低：定位当前播放——监听链（useWebDAVPage）一直都在，缺的是
+                  这个触发入口，此前功能整体是死的 */}
+              <TouchableOpacity style={styles.headerIconButton} onPress={() => { global.app_event.jumpWebDAVPosition() }}>
+                <Icon name="play-outline" size={16} color={theme['c-font-label']} />
+              </TouchableOpacity>
               <TouchableOpacity style={styles.headerIconButton} onPress={handleToggleSearch}>
                 <Icon name="search-2" size={16} color={searchVisible ? theme['c-primary-font'] : theme['c-font-label']} />
               </TouchableOpacity>
@@ -202,9 +207,10 @@ export default memo(({ page }: { page: WebDAVPage }) => {
         maxToRenderPerBatch={10}
         removeClippedSubviews={true}
         updateCellsBatchingPeriod={50}
+        // 低-5：行高要算上 SongItem 的 marginBottom(12)，此前越往后定位偏得越多
         getItemLayout={(data, index) => ({
-          length: ITEM_HEIGHT,
-          offset: ITEM_HEIGHT * Math.floor(index / numColumns),
+          length: ITEM_HEIGHT + 12,
+          offset: (ITEM_HEIGHT + 12) * Math.floor(index / numColumns),
           index,
         })}
         onScrollToIndexFailed={(info) => {

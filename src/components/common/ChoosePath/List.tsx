@@ -16,7 +16,7 @@ import { type PathItem } from './components/ListItem'
 // let prevPath = externalStorageDirectoryPath
 
 const parentDirInfo = new Map<string, string>()
-const caches = new Map<string, PathItem[]>()
+const caches = new Map<string, { at: number, list: PathItem[] }>()
 
 const handleReadDir = async(
   path: string,
@@ -26,7 +26,12 @@ const handleReadDir = async(
 ) => {
   let filterRxp = filter?.length ? new RegExp(`\\.(${filter.join('|')})$`, 'i') : null
   const cacheKey = `${path}_${dirOnly ? 'true' : 'false'}_${filter ? filter.toString() : 'null'}`
-  if (!isRefresh && caches.has(cacheKey)) return caches.get(cacheKey)!
+  // 低：目录缓存加 30 秒 TTL——此前永不过期，新建/删除的文件在选择器里
+  // 一直看不见/删不掉（只能靠手动刷新）
+  if (!isRefresh) {
+    const cached = caches.get(cacheKey)
+    if (cached && Date.now() - cached.at < 30000) return cached.list
+  }
   return readDir(path).then((paths) => {
     // console.log('read')
     // prevPath = path
@@ -71,7 +76,7 @@ const handleReadDir = async(
       }),
       ...fileList,
     ]
-    caches.set(cacheKey, list)
+    caches.set(cacheKey, { at: Date.now(), list })
     return list
   })
 }
@@ -99,6 +104,7 @@ export default forwardRef<ListType, ListProps>(
     const isUnmountedRef = useRef(true)
     const readOptions = useRef<ReadOptions>(initReadOptions as ReadOptions)
     const [isReading, setIsReading] = useState(false)
+    const readSeqRef = useRef(0)
     const modalRef = useRef<ModalType>(null)
     const theme = useTheme()
     const isHorizontal = useHorizontalMode()
@@ -137,25 +143,27 @@ export default forwardRef<ListType, ListProps>(
       isRefresh?: boolean,
       isOpen?: boolean,
     ): Promise<PathItem[]> => {
-      if (isReading) return []
+      // 低：序号守卫替代 isReading 状态锁——状态锁拦不住并发（setState
+      // 落地前连点可穿透），且被拦的导航直接丢弃；旧目录迟到结果还会
+      // 覆盖新目录。改为后发为准：只有最新一次读的结果能上屏。
+      const seq = ++readSeqRef.current
       setIsReading(true)
       return handleReadDir(newPath, dirOnly, filter, isRefresh)
         .then((list) => {
           if (isUnmountedRef.current) return []
+          if (seq !== readSeqRef.current) return []
           if (!isOpen && newPath != path && newPath.startsWith(path)) { parentDirInfo.set(newPath, path) }
           setList(list)
           setPath(newPath)
           return list
         })
         .catch((err: any) => {
+          if (seq !== readSeqRef.current) return []
           toast(`Read dir error: ${err.message as string}`, 'long')
-          // console.log('prevPath', prevPath)
-          // if (isReadingDir.current) return
-          // setPath(prevPath)
           return []
         })
         .finally(() => {
-          setIsReading(false)
+          if (seq === readSeqRef.current) setIsReading(false)
         })
     }
 

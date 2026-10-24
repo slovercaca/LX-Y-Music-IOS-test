@@ -4620,11 +4620,16 @@ RCT_REMAP_METHOD(seekTo, seekToStream:(nonnull NSNumber *)position resolver:(RCT
     reject(@"streaming_flac_seek", error.localizedDescription, error);
     return;
   }
+#if LX_HAS_LIBFLAC
+  // 中（存疑消除）：decoder 属性定义在 #if LX_HAS_LIBFLAC 内——降级配置
+  // （宏为 0）下此处无条件引用会直接编译失败整包挂掉。无 FLAC 时本就
+  // 没有解码器可检查，跳过此校验（与 startDecoderLoop 的降级处理一致）
   if (self.decoder == NULL && self.sampleRate > 0) {
     NSError *error = LXError(@"streaming_flac_seek", @"Streaming FLAC decoder is no longer active");
     reject(@"streaming_flac_seek", error.localizedDescription, error);
     return;
   }
+#endif
 
   double requestedPosition = MAX([position doubleValue], 0);
   if (self.duration > 0) requestedPosition = LXClampDouble(requestedPosition, 0, self.duration);
@@ -4888,6 +4893,9 @@ static NSString *LXStreamingFlacDecoderErrorStatusName(FLAC__StreamDecoderErrorS
 @property (nonatomic, copy) RCTPromiseResolveBlock shareResolve;
 @property (nonatomic, copy) RCTPromiseRejectBlock shareReject;
 @property (nonatomic, strong) UIActivityViewController *shareController;
+// 中：轮询等待 present 期间的占用标志——此前判重只看 presentingViewController，
+// 轮询期为 nil 判重失效，第二次调用覆盖未结算的 shareResolve/shareReject
+@property (nonatomic, assign) BOOL sharePresenting;
 @end
 
 @implementation FilePickerModule
@@ -4921,7 +4929,13 @@ RCT_REMAP_METHOD(openDocument, openDocument:(NSDictionary *)options resolver:(RC
         && self.pickerController.presentingViewController == nil
         && self.pickerController.view.window == nil
         && ![self.pickerController isBeingPresented];
-      if (isOrphan || (self.pickerPresenting && self.pickerController == nil)) {
+      // 中：present 前轮询期（最长约 2 秒）pickerPresenting=YES 且
+      // pickerController=nil——此前这一状态也命中 reset 条件，第二次调用
+      // 会把第一个 Promise 的 resolve/reject 直接置 nil 丢弃（永不 settle）
+      // 还可能叠弹两个 picker。轮询期一律视为 busy 拒绝第二次调用；
+      // 轮询超时由 presentDocumentPickerWhenReady 自行 reject 并复位，
+      // 不需要靠下一次调用来清 orphan。
+      if (isOrphan) {
         if (self.pickerController != nil) {
           [self.pickerController dismissViewControllerAnimated:NO completion:^{ LXEnsureKeyWindow(); }];
         }
@@ -4978,6 +4992,17 @@ RCT_REMAP_METHOD(openDocument, openDocument:(NSDictionary *)options resolver:(RC
     self.pickerController = picker;
     self.pickerPresenting = NO;
   }];
+  // 低：present 的 completion 若被 UIKit 竞态吞掉，pickerPresenting 会
+  // 永远卡在 YES、后续调用全 busy 且 Promise 永不 settle（selectFolder
+  // 有同款看门狗，这里补齐）
+  RCTPromiseResolveBlock scheduledResolve = self.pickerResolve;
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    // 校验 resolve 身份：2 秒内若已换成下一次 picker 会话，不要误杀它
+    if (self.pickerPresenting && self.pickerController == nil && self.pickerResolve == scheduledResolve) {
+      [picker dismissViewControllerAnimated:NO completion:nil];
+      [self rejectPickerWithCode:@"picker_present" message:@"Document picker did not finish presenting" error:LXError(@"picker_present", @"Document picker did not finish presenting")];
+    }
+  });
 }
 
 - (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller {
@@ -5003,6 +5028,14 @@ RCT_REMAP_METHOD(openDocument, openDocument:(NSDictionary *)options resolver:(RC
   // 无需安全作用域书签（iOS 对沙盒外目录的持久写入才需要，已在 JS 层拒绝此类选择）。
   if (self.pickerIsFolder) {
     NSString *folderPath = [pickedURL.path stringByStandardizingPath];
+    // 低：directoryURL 只设起始目录、不限可选范围，用户能浏览到 iCloud
+    // Drive 等沙盒外位置——此前原生正常 resolve、JS 侧才抛错（选完才被
+    // 拒绝）。原生在 resolve 前先校验必须在 Documents 内。
+    NSString *documentsPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).lastObject stringByStandardizingPath];
+    if (documentsPath.length && ![folderPath isEqualToString:documentsPath] && ![folderPath hasPrefix:[documentsPath stringByAppendingString:@"/"]]) {
+      [self rejectPickerWithCode:@"folder_outside_sandbox" message:@"Selected folder is outside the app sandbox" error:LXError(@"folder_outside_sandbox", @"Selected folder is outside the app sandbox")];
+      return;
+    }
     NSMutableDictionary *result = [NSMutableDictionary dictionary];
     result[@"path"] = folderPath;
     result[@"data"] = folderPath;
@@ -5021,20 +5054,28 @@ RCT_REMAP_METHOD(openDocument, openDocument:(NSDictionary *)options resolver:(RC
   }
 
   NSFileManager *fileManager = [NSFileManager defaultManager];
-  [fileManager removeItemAtPath:targetPath error:nil];
-  if (![fileManager copyItemAtURL:pickedURL toURL:[NSURL fileURLWithPath:targetPath] error:&error]) {
+  // 中：拷贝移后台队列——此前在主线程（delegate 回调）同步 removeItem +
+  // copyItem，导入数百 MB 备份/音频时主线程阻塞数秒、界面假死，极端可
+  // 被系统看门狗终止。拷贝期间 picker 状态保持占用，后续调用仍走 busy。
+  dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+    NSError *copyError = nil;
+    [fileManager removeItemAtPath:targetPath error:nil];
+    if (![fileManager copyItemAtURL:pickedURL toURL:[NSURL fileURLWithPath:targetPath] error:&copyError]) {
+      if (startedAccessing) [pickedURL stopAccessingSecurityScopedResource];
+      dispatch_async(dispatch_get_main_queue(), ^{
+        [self rejectPickerWithCode:@"copy_failed" message:copyError.localizedDescription ?: @"Failed to import selected file" error:copyError];
+      });
+      return;
+    }
     if (startedAccessing) [pickedURL stopAccessingSecurityScopedResource];
-    [self rejectPickerWithCode:@"copy_failed" message:error.localizedDescription ?: @"Failed to import selected file" error:error];
-    return;
-  }
-  if (startedAccessing) [pickedURL stopAccessingSecurityScopedResource];
 
-  NSDictionary *fileInfo = LXFileInfoFromPath(targetPath);
-  NSMutableDictionary *result = fileInfo != nil ? [fileInfo mutableCopy] : [NSMutableDictionary dictionary];
-  if (result == nil) result = [NSMutableDictionary dictionary];
-  result[@"data"] = targetPath;
-  if (self.pickerResolve != nil) self.pickerResolve(result);
-  [self resetPickerState];
+    NSDictionary *fileInfo = LXFileInfoFromPath(targetPath);
+    NSMutableDictionary *result = fileInfo != nil ? [fileInfo mutableCopy] : [NSMutableDictionary dictionary];
+    if (result == nil) result = [NSMutableDictionary dictionary];
+    result[@"data"] = targetPath;
+    if (self.pickerResolve != nil) self.pickerResolve(result);
+    [self resetPickerState];
+  });
 }
 
 // 选择文件夹（系统原生目录选择器，用于"下载路径"等选目录场景）
@@ -5070,6 +5111,10 @@ RCT_REMAP_METHOD(selectFolder, selectFolderWithResolver:(RCTPromiseResolveBlock)
     }];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
       if (self.pickerPresenting && self.pickerController == nil) {
+        // 存疑加固：reject 前先 dismiss——此前只 reject 不关 picker，
+        // picker 随后仍会弹出，用户选完的结果因 resolve 已复位被静默
+        // 丢弃，残留 picker 还干扰下一次调用
+        [picker dismissViewControllerAnimated:NO completion:nil];
         [self rejectPickerWithCode:@"picker_present" message:@"Folder picker did not finish presenting" error:LXError(@"picker_present", @"Folder picker did not finish presenting")];
       }
     });
@@ -5082,6 +5127,7 @@ RCT_REMAP_METHOD(selectFolder, selectFolderWithResolver:(RCTPromiseResolveBlock)
   self.shareController = nil;
   self.shareResolve = nil;
   self.shareReject = nil;
+  self.sharePresenting = NO;
   if (reject != nil) reject(code, message, LXError(code, message));
 }
 
@@ -5109,12 +5155,10 @@ RCT_REMAP_METHOD(selectFolder, selectFolderWithResolver:(RCTPromiseResolveBlock)
     activityViewController.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(controller.view.bounds), CGRectGetMaxY(controller.view.bounds), 0, 0);
     activityViewController.popoverPresentationController.permittedArrowDirections = UIPopoverArrowDirectionDown;
   }
-  RCTPromiseResolveBlock resolve = self.shareResolve;
-  self.shareResolve = nil;
-  self.shareReject = nil;
-  [controller presentViewController:activityViewController animated:YES completion:^{
-    if (resolve != nil) resolve(nil);
-  }];
+  // 低：不在此处 resolve——此前在「面板刚弹出」时就 resolve，JS 误报
+  // 「导出成功」（用户在面板点取消也算成功）。结算统一移到
+  // completionWithItemsHandler 按 completed/activityError 处理。
+  [controller presentViewController:activityViewController animated:YES completion:^{}];
 }
 
 // 系统分享面板（UIActivityViewController），用于"导出/保存"场景
@@ -5126,11 +5170,13 @@ RCT_REMAP_METHOD(shareFile, shareFile:(NSString *)filePath resolver:(RCTPromiseR
       reject(@"file_not_found", @"File not found", LXError(@"file_not_found", @"File not found"));
       return;
     }
-    // 面板已在展示：忽略重复请求，避免连点导出叠加多层面板。
-    if (self.shareController != nil && self.shareController.presentingViewController != nil) {
+    // 面板已在展示或正在轮询等待 present：忽略重复请求，避免连点导出
+    // 叠加多层面板、后一次调用覆盖前一次未结算的 Promise（中）
+    if (self.sharePresenting || (self.shareController != nil && self.shareController.presentingViewController != nil)) {
       resolve(nil);
       return;
     }
+    self.sharePresenting = YES;
 
     NSURL *fileURL = [NSURL fileURLWithPath:targetPath];
     UIActivityViewController *activityViewController = [[UIActivityViewController alloc] initWithActivityItems:@[fileURL] applicationActivities:nil];
@@ -5138,7 +5184,22 @@ RCT_REMAP_METHOD(shareFile, shareFile:(NSString *)filePath resolver:(RCTPromiseR
     // 同样避免 typeof：直接捕获 self，由下面的 self.shareController = nil 在面板关闭时打破引用环。
     activityViewController.completionWithItemsHandler = ^(UIActivityType __nullable activityType, BOOL completed, NSArray * __nullable returnedItems, NSError * __nullable activityError) {
       LXEnsureKeyWindow();
+      // 低：在这里按结果结算 Promise（resolve 从 present 时机移过来）：
+      // 完成才算成功；出错 reject；用户取消以 share_cancelled reject，
+      // JS 侧对这个 code 静默，不再误报「导出成功」
+      RCTPromiseResolveBlock resolve = self.shareResolve;
+      RCTPromiseRejectBlock reject = self.shareReject;
       self.shareController = nil;
+      self.shareResolve = nil;
+      self.shareReject = nil;
+      self.sharePresenting = NO;
+      if (activityError != nil) {
+        if (reject != nil) reject(@"share_failed", activityError.localizedDescription ?: @"Share failed", activityError);
+      } else if (completed) {
+        if (resolve != nil) resolve(nil);
+      } else {
+        if (reject != nil) reject(@"share_cancelled", @"Share cancelled by user", LXError(@"share_cancelled", @"Share cancelled by user"));
+      }
     };
     self.shareController = activityViewController;
     self.shareResolve = resolve;
@@ -6449,6 +6510,8 @@ RCT_REMAP_METHOD(sha1, sha1:(NSString *)input resolver:(RCTPromiseResolveBlock)r
 @interface SceneDelegate : UIResponder <UIWindowSceneDelegate>
 @property (strong, nonatomic) UIWindow *window;
 @property (nonatomic, assign) BOOL didBootstrap;
+// 高：冷启动深链/文件打开的 URL 先暂存，等桥创建前注入 launchOptions
+@property (nonatomic, copy) NSSet<UIOpenURLContext *> *pendingURLContexts API_AVAILABLE(ios(13.0));
 @end
 
 @implementation AppDelegate
@@ -6523,7 +6586,14 @@ RCT_REMAP_METHOD(sha1, sha1:(NSString *)input resolver:(RCTPromiseResolveBlock)r
 
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)connectionOptions API_AVAILABLE(ios(13.0)) {
   (void)session;
-  (void)connectionOptions;
+  // 高：Scene 生命周期下深链（lxmusic://）与「从文件 App 打开 .lxmc/.bin」
+  // 只走 scene 通道——此前 connectionOptions.URLContexts 被直接丢弃、
+  // 也没有 scene:openURLContexts:，App 未运行时点链接/文件冷启动必丢
+  // （AppDelegate 的旧式 openURL 在 scene 模式下不会被调用）。先暂存，
+  // 桥创建前注入 launchOptions，JS 侧 Linking.getInitialURL() 才能拿到。
+  if (connectionOptions.URLContexts.count > 0) {
+    self.pendingURLContexts = connectionOptions.URLContexts;
+  }
   if (![scene isKindOfClass:[UIWindowScene class]]) return;
   UIWindowScene *windowScene = (UIWindowScene *)scene;
 
@@ -6555,6 +6625,15 @@ RCT_REMAP_METHOD(sha1, sha1:(NSString *)input resolver:(RCTPromiseResolveBlock)r
   if (!appDelegate) return;
 
   self.didBootstrap = YES;
+  if (self.pendingURLContexts.count > 0) {
+    UIOpenURLContext *context = self.pendingURLContexts.anyObject;
+    if (context.URL != nil) {
+      NSMutableDictionary *launchOptions = [(appDelegate.launchOptions ?: @{}) mutableCopy];
+      launchOptions[UIApplicationLaunchOptionsURLKey] = context.URL;
+      appDelegate.launchOptions = launchOptions;
+    }
+    self.pendingURLContexts = nil;
+  }
   if (!appDelegate.bridge) {
     NSLog(@"###NATIVE_DEBUG### creating RCTBridge");
     appDelegate.bridge = [[RCTBridge alloc] initWithDelegate:appDelegate launchOptions:appDelegate.launchOptions];
@@ -6563,6 +6642,16 @@ RCT_REMAP_METHOD(sha1, sha1:(NSString *)input resolver:(RCTPromiseResolveBlock)r
   NSLog(@"###NATIVE_DEBUG### bootstrapping ReactNativeNavigation");
   [ReactNativeNavigation bootstrapWithBridge:appDelegate.bridge];
   NSLog(@"###NATIVE_DEBUG### ReactNativeNavigation bootstrap returned");
+}
+
+// 高：热启动/已运行时打开深链或文件——转发 RCTLinkingManager，
+// JS 侧 Linking 'url' 监听接收（与 AppDelegate 旧式 openURL 同一出口）
+- (void)scene:(UIScene *)scene openURLContexts:(NSSet<UIOpenURLContext *> *)URLContexts API_AVAILABLE(ios(13.0)) {
+  for (UIOpenURLContext *context in URLContexts) {
+    [RCTLinkingManager application:UIApplication.sharedApplication
+                             openURL:context.URL
+                             options:@{}];
+  }
 }
 
 @end

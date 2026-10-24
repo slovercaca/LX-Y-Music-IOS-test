@@ -14,7 +14,11 @@ export default ({ url, width, height, maxWidth, maxHeight, style }: ScaledImageP
   const [wh, setWH] = useState({ width: 0, height: 0 })
 
   useEffect(() => {
+    // 低：补失败回退与取消标记——此前 getSize 失败永不显示、url 切换后
+    // 旧请求迟到还会用旧尺寸覆盖新图
+    let cancelled = false
     getSize(url, (realWidth, realHeight) => {
+      if (cancelled) return
       let w = width ?? 0
       let h = height ?? 0
 
@@ -38,7 +42,12 @@ export default ({ url, width, height, maxWidth, maxHeight, style }: ScaledImageP
         }
       }
       setWH({ width: w || realWidth, height: h || realHeight })
+    }, () => {
+      if (cancelled) return
+      // 失败回退：用给定/上限尺寸占位显示，避免永久空白
+      setWH({ width: width || maxWidth || 100, height: height || maxHeight || 100 })
     })
+    return () => { cancelled = true }
   }, [height, maxHeight, maxWidth, url, width])
 
   return wh.width ? (

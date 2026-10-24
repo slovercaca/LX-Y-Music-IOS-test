@@ -59,6 +59,9 @@ const setList = (datas: SearchResult, page: number, _text: string): ListInfoItem
   else listInfo.total = datas.limit * page
   listInfo.page = page
   listInfo.limit = datas.limit
+  // 中：单源模式此前从不写 maxPages（只有聚合 setLists 写）——读者拿
+  // undefined 永远判不了 'end'、滑到底无限发请求；或被聚合残留值误判截断
+  if (datas.limit > 0) state.maxPages[datas.source] = Math.ceil(datas.total / datas.limit)
   state.source = datas.source
   return listInfo.list
 }

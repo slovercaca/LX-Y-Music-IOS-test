@@ -68,10 +68,20 @@ export default forwardRef<WebLoginModalType, {}>((props, ref) => {
     }, 1500)
   }, [stopPolling])
 
+  // 低（存疑加固）：登录成功判定里 1 秒延迟重试的 timeout——关弹窗后
+  // 它仍会触发提取 Cookie 并可能误报「登录成功」。存 ref，关闭/卸载时清。
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clearRetryTimeout = useCallback(() => {
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current)
+      retryTimeoutRef.current = null
+    }
+  }, [])
   const handleClose = useCallback(() => {
     stopPolling()
+    clearRetryTimeout()
     modalRef.current?.setVisible(false)
-  }, [stopPolling])
+  }, [stopPolling, clearRetryTimeout])
 
   useImperativeHandle(ref, () => ({
     show() {
@@ -113,7 +123,8 @@ export default forwardRef<WebLoginModalType, {}>((props, ref) => {
       // 验证码登录后 Cookie 可能尚未同步到原生，首次失败后延迟重试
       await extractAndCheckCookies(url)
       if (!loggedInRef.current) {
-        setTimeout(async() => extractAndCheckCookies(url), 1000)
+        clearRetryTimeout()
+        retryTimeoutRef.current = setTimeout(async() => extractAndCheckCookies(url), 1000)
       }
     }
   }
@@ -150,8 +161,11 @@ export default forwardRef<WebLoginModalType, {}>((props, ref) => {
   }
 
   useEffect(() => {
-    return () => { stopPolling() }
-  }, [stopPolling])
+    return () => {
+      stopPolling()
+      clearRetryTimeout()
+    }
+  }, [stopPolling, clearRetryTimeout])
 
   const injectedJavaScriptBeforeContentLoaded = `
     (function() {

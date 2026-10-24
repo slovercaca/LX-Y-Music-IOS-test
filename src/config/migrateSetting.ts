@@ -22,7 +22,7 @@ export default (setting: any): Partial<LX.AppSetting> => {
     setting['list.isShowSource'] = setting.list?.isShowSource
     setting['list.isSaveScrollLocation'] = setting.list?.isSaveScrollLocation
     setting['list.addMusicLocationType'] = setting.list?.addMusicLocationType
-    setting['common.themeId'] = setting.themeId
+    // 低：原有一行多写死键 common.themeId（无定义无读者，与下方 theme.id 重复），已删
     setting['common.isAutoTheme'] = setting.isAutoTheme
     setting['common.langId'] = setting.langId
     setting['common.apiSource'] = setting.apiSource

@@ -1,4 +1,4 @@
-import { useRef, forwardRef } from 'react'
+import { useRef, forwardRef, useImperativeHandle } from 'react'
 // import { View } from 'react-native'
 
 import Panel, { type PanelType } from './Panel'
@@ -14,9 +14,17 @@ export interface DorpDownPanelType {
 }
 
 export default forwardRef<DorpDownPanelType, DorpDownPanelProps>(
-  ({ children, PanelContent, onHide }) => {
+  ({ children, PanelContent, onHide }, ref) => {
     const buttonRef = useRef<BtnType>(null)
     const panelRef = useRef<PanelType>(null)
+
+    // 低：此前 forwardRef 没接 ref 也没 useImperativeHandle，类型声明的
+    // hide() 永远调不到（ref 恒 null，潜伏）
+    useImperativeHandle(ref, () => ({
+      hide: () => {
+        panelRef.current?.hide()
+      },
+    }))
 
     const showMenu = () => {
       buttonRef.current?.measure((fx, fy, width, height, px, py) => {

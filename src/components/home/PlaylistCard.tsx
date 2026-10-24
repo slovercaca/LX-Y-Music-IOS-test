@@ -60,7 +60,7 @@ const PlaylistCard = memo(({ item, width, onPress }: PlaylistCardProps) => {
         <Image
           style={coverStyle}
           url={item.img}
-          nativeID={`${NAV_SHEAR_NATIVE_IDS.songlistDetail_pic}_from_${item.id}`}
+          nativeID={`${NAV_SHEAR_NATIVE_IDS.songlistDetail_pic}_from_${item.source}_${item.id}`} // 低（存疑加固）：多平台同 id 同屏时转场会匹配错卡，带上 source 区分
         />
         {item.play_count ? (
           <View style={styles.playCount}>

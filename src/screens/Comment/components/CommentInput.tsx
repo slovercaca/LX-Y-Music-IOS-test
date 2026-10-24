@@ -18,7 +18,7 @@ export interface CommentInputType {
 }
 
 export interface CommentInputProps {
-  onSend: (content: string, replyInfo: ReplyInfo | null) => void
+  onSend: (content: string, replyInfo: ReplyInfo | null) => Promise<boolean>
   disabled?: boolean
 }
 
@@ -45,10 +45,13 @@ const CommentInput = forwardRef<CommentInputType, CommentInputProps>(({ onSend, 
   const handleSend = useCallback(() => {
     const content = text.trim()
     if (!content) return
-    onSend(content, replyInfo)
-    setText('')
-    setReplyInfo(null)
-    Keyboard.dismiss()
+    // 低：发送成功才清输入——失败保留内容与回复对象，可直接重试
+    void onSend(content, replyInfo).then((ok) => {
+      if (!ok) return
+      setText('')
+      setReplyInfo(null)
+      Keyboard.dismiss()
+    })
   }, [text, replyInfo, onSend])
 
   const handleCancelReply = useCallback(() => {
