@@ -32,14 +32,17 @@ const errorHandler = (e: Error, isFatal: boolean) => {
       )
     }
   }
-  log.error(e.stack)
+  // 2026-10-24：此前只记 e.stack，异常无 stack 时日志就是裸的
+  // “时间 + ERROR”一行，真错丢失。改记 name + message + stack，
+  // 三者全空时也给占位和类型，绝不打空日志。
+  log.error(`[JSException] name=${e?.name ?? 'unknown'} message=${e?.message ?? '(no message)'} stack=${e?.stack ?? '(no stack)'}`)
 }
 
 if (process.env.NODE_ENV !== 'development') {
   setJSExceptionHandler(errorHandler)
 
   setNativeExceptionHandler((errorString) => {
-    log.error(errorString)
+    log.error(`[NativeException] ${errorString || '(empty native error string)'}`)
     console.log('+++++', errorString, '+++++')
   }, false)
 }

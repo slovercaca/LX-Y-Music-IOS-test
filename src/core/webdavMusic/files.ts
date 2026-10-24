@@ -76,6 +76,29 @@ export const listRemoteSubDirs = async(dirPath: string): Promise<LX.WebDAV.Drive
 }
 
 /**
+ * WebDAV 错误的可读描述——webdav 库的错误对象经常只有 status/code，
+ * stack/message 可能为 undefined，旧代码 `error.stack ?? error.message`
+ * 会打出 "Failed: undefined"，甚至空日志，下次排查无从下手。
+ * 这里一律带上 message、status、code 和可枚举键，永不为空。
+ */
+export const describeWebDAVError = (error: any): string => {
+  if (error == null) return '未知错误（空错误对象）'
+  if (typeof error === 'string') return error || '未知错误（空字符串）'
+  const message = error.stack ?? error.message ?? ''
+  const status = error.status ?? error.response?.status ?? ''
+  const code = error.code ?? ''
+  let keys = ''
+  try {
+    keys = Object.keys(error).join(',')
+  } catch { /* ignore */ }
+  const parts = [`${message || '无 message'}`]
+  if (status !== '') parts.push(`status=${status}`)
+  if (code !== '') parts.push(`code=${code}`)
+  if (keys) parts.push(`keys=${keys}`)
+  return parts.join(' ')
+}
+
+/**
  * 递归确保远端目录存在（逐级创建，跳过已存在的层级）。
  * 与旧 ensureDir 行为一致：分段 createDirectory，409/已存在继续。
  */
@@ -93,7 +116,12 @@ export const ensureRemoteDir = async(dirPath: string): Promise<void> => {
       // 冲突——此前把 409 也当已存在跳过，最终 PUT 才以 409 失败，
       // 报错点与真因脱节。409/412 先 stat 核实，真的在才继续。
       if (status === 405) continue
-      if (await checkWebDAVRemoteExists(current).catch(() => false)) continue
+      const exists = await checkWebDAVRemoteExists(current).catch(() => false)
+      if (exists) continue
+      // 2026-10-24：建目录失败时记清状态码与 stat 结果再抛，
+      // 不再让调用方只看到一个空 ERROR——删了云端文件/目录后
+      // 上传不生效，最可能卡的就是这一步（MKCOL 不支持/只读/权限）。
+      webDAVLog.error('ensureRemoteDir: 建目录失败', { dirPath: current, error: describeWebDAVError(error), exists })
       throw error
     }
   }
@@ -161,8 +189,40 @@ export const downloadFile = async(remotePath: string): Promise<string | null> =>
 export const uploadFile = async(remotePath: string, content: string): Promise<void> => {
   const client = getClient()
   const parent = remotePath.substring(0, remotePath.lastIndexOf('/')) || '/'
-  await ensureRemoteDir(parent)
-  await client.putFileContents(remotePath, content, { overwrite: true })
+  // 2026-10-24：删了云端文件/目录后上传不生效的修复。
+  // 此前建目录失败就直接抛，PUT 连试的机会都没有——而部分服务器
+  // 不支持 MKCOL、或 PUT 本身会隐式建父目录，建目录失败不等于
+  // PUT 一定失败。改成：建目录失败只记 warn，仍尝试 PUT；
+  // PUT 后再 stat 验远端是否真的落盘——PUT “成功”但服务器只读/
+  // 配额满/写到别处时，以前会误报“上传成功”，现在会明确抛错。
+  try {
+    await ensureRemoteDir(parent)
+  } catch (error: any) {
+    webDAVLog.warn('uploadFile: 确保父目录失败，仍尝试直接 PUT', { remotePath, parent, error: describeWebDAVError(error) })
+  }
+  try {
+    await client.putFileContents(remotePath, content, { overwrite: true })
+  } catch (error: any) {
+    webDAVLog.error('uploadFile: PUT 失败', { remotePath, parent, error: describeWebDAVError(error) })
+    throw error
+  }
+  // 验远端：404（stat 返回 null）= 确实没落盘，抛错；
+  // stat 本身抛错（超时/网络）≠ 没落盘，PUT 已成功就不误报失败，只记 warn。
+  let stat: any = null
+  let statError: any = null
+  try {
+    stat = await getStat(remotePath)
+  } catch (error: any) {
+    statError = error
+  }
+  if (statError) {
+    webDAVLog.warn('uploadFile: PUT 成功但远端校验 stat 失败，按成功处理', { remotePath, error: describeWebDAVError(statError) })
+  } else if (!stat) {
+    const err = new Error(`上传后远端文件不存在（服务器未落盘）：${remotePath}，请检查服务器是否只读、配额或路径权限`)
+    webDAVLog.error('uploadFile: PUT 后验远端失败', { remotePath, parent })
+    throw err
+  }
+  webDAVLog.info('uploadFile: 成功', { remotePath, remoteSize: (stat as any)?.size ?? null, contentLength: content.length })
 }
 
 /**
@@ -272,9 +332,11 @@ export const downloadToFileAtomic = async(options: {
     // 高-2 安全：Authorization 只发给已配置的 WebDAV 服务器同源地址。
     // 本函数也被用来下载外部封面图（酷我/酷狗 CDN），无条件带头会把账密发给第三方。
     let headers = getWebDAVAuthHeaders()
+    let sameOrigin = false
+    let authPresentBeforeStrip = !!headers.Authorization
     try {
       const creds = readWebDAVCredentials()
-      const sameOrigin = creds ? new URL(url).origin === new URL(creds.url).origin : false
+      sameOrigin = creds ? new URL(url).origin === new URL(creds.url).origin : false
       if (!sameOrigin) {
         const { Authorization: _auth, ...rest } = headers
         headers = rest
@@ -293,29 +355,57 @@ export const downloadToFileAtomic = async(options: {
         safeHeaders[k] = headers[k]
       }
     }
-    webDAVLog.info('downloadToFileAtomic: 开始下载', { url, headers: safeHeaders })
+    // 2026-10-24 真机日志诊断：下载日志里既看不到 Authorization、也看不到
+    // bytesWritten——无法判断是鉴权被剥离、还是 RNFS 没回字节数。把这两个
+    // 诊断位直接记进开始日志（只记有无/同源，不记凭据本身）。
+    webDAVLog.info('downloadToFileAtomic: 开始下载', { url, headers: safeHeaders, authPresent: !!headers.Authorization, authPresentBeforeStrip, sameOrigin })
     // 诊断：不发送自定义 User-Agent（当前为 Android Chrome UA，在 iOS 上可疑），
     // 让 RNFS 用系统默认。部分 NAS/WAF 会拦截异常 UA。
     const { 'User-Agent': _ua, ...headersNoUA } = headers
     const result = await rnDownloadFile(url, tmpPath, { headers: headersNoUA }).promise
-    // P2（2026-10-06）：0 字节下载不再一律判失败。若远端确为空文件（expectedSize === 0），算成功
-    const isEmptyFileOk = result.bytesWritten === 0 && expectedSize === 0
-    // 高：给了 expectedSize 就必须精确相等——此前只验状态码与非空，
-    // 截断文件（网络中断但连接正常关闭）会被 move 成正式缓存且无法自愈
-    if (expectedSize != null && expectedSize > 0 && result.bytesWritten !== expectedSize) {
-      webDAVLog.error('downloadToFileAtomic: 字节数不符（疑似截断）', {
-        url,
-        bytesWritten: result.bytesWritten,
-        expectedSize,
-      })
-      throw new Error(`下载不完整：期望 ${expectedSize} 字节，实际 ${result.bytesWritten} 字节`)
-    }
-    if (result.statusCode < 200 || result.statusCode >= 300 || (!result.bytesWritten && !isEmptyFileOk)) {
+    // 2026-10-24 修复（两处顺序/口径问题）：
+    // 1) 状态码必须先验——此前先验字节数，401/403/404 的错误页面
+    //    （小文件、无 bytesWritten）会被误报成“截断”，真因被掩盖，
+    //    播放失败也永远看不到 401/404 提示。
+    // 2) 字节数以落盘文件实际大小为准——RNFS 的 bytesWritten 在部分
+    //    iOS/服务器组合下可能为 undefined，导致即使下载完整也恒判
+    //    “不符”，所有 WebDAV 歌曲都播不出。stat 失败时才回退到 bytesWritten。
+    const statSize = await statLocalFile(tmpPath).then(info => Number(info.size)).catch(() => null)
+    const actualSize = statSize ?? result.bytesWritten
+    if (result.statusCode < 200 || result.statusCode >= 300) {
       webDAVLog.error('downloadToFileAtomic: 下载失败', {
         statusCode: result.statusCode,
         url,
         headers: safeHeaders,
         bytesWritten: result.bytesWritten,
+        statSize,
+        authPresent: !!headers.Authorization,
+        sameOrigin,
+      })
+      throw new Error(statusError(result.statusCode))
+    }
+    // P2（2026-10-06）：0 字节下载不再一律判失败。若远端确为空文件（expectedSize === 0），算成功
+    const isEmptyFileOk = actualSize === 0 && expectedSize === 0
+    // 高：给了 expectedSize 就必须精确相等——此前只验状态码与非空，
+    // 截断文件（网络中断但连接正常关闭）会被 move 成正式缓存且无法自愈
+    if (expectedSize != null && expectedSize > 0 && actualSize != null && actualSize !== expectedSize) {
+      webDAVLog.error('downloadToFileAtomic: 字节数不符（疑似截断）', {
+        url,
+        statusCode: result.statusCode,
+        bytesWritten: result.bytesWritten,
+        statSize,
+        actualSize,
+        expectedSize,
+      })
+      throw new Error(`下载不完整：期望 ${expectedSize} 字节，实际 ${actualSize} 字节`)
+    }
+    if (!actualSize && !isEmptyFileOk) {
+      webDAVLog.error('downloadToFileAtomic: 下载失败', {
+        statusCode: result.statusCode,
+        url,
+        headers: safeHeaders,
+        bytesWritten: result.bytesWritten,
+        statSize,
         // 提示：如果 PROPFIND 能列出文件但 GET 404，
         // 可能是服务器对未认证请求返回 404（鉴权头有问题），
         // 或 URL 编码与服务器期望不一致。

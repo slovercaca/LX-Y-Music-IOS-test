@@ -8,7 +8,8 @@ import CheckBoxItem from '../../components/CheckBoxItem'
 import History from './History'
 import { useSettingValue } from '@/store/setting/hook'
 import { updateSetting } from '@/core/common'
-import { createStyle, toast } from '@/utils/tools'
+import { createStyle, toast, confirmDialog } from '@/utils/tools'
+import { restartApp } from '@/utils/nativeModules/appRestart'
 import { dateFormat } from '@/utils/common'
 import { useTheme } from '@/store/theme/hook'
 import Text from '@/components/common/Text'
@@ -70,6 +71,25 @@ export default memo(() => {
       progressTimerRef.current = null
     }
     setSyncProgress({ progress: 0, stage })
+  }, [])
+
+  // 2026-10-24：手动下载覆盖本地后，部分设置/音源要重启才生效。
+  // 只在真正落盘时弹（下载函数返回 true），损坏/缺失跳过时不弹；
+  // 自动同步不走这里，避免后台同步反复弹。确认后走原生 bridge reload，
+  // iOS 不允许自行退出重进，reload 不可用时回退到手动重开提示。
+  const promptRestartAfterSync = useCallback(async() => {
+    const confirm = await confirmDialog({
+      title: '数据同步完成',
+      message: '部分设置需要重启后生效，是否立即重启应用？',
+      confirmButtonText: '立即重启',
+      cancelButtonText: '稍后手动重启',
+    })
+    if (!confirm) return
+    try {
+      restartApp()
+    } catch (error: any) {
+      toast(error?.message ?? '请手动关闭后重新打开应用', 'long')
+    }
   }, [])
 
   useEffect(() => {
@@ -181,16 +201,17 @@ export default memo(() => {
     setIsDownloading(true)
     startProgress('准备下载…')
     try {
-      await manualDownloadSettingsAndApis((progress, stage) => {
+      const applied = await manualDownloadSettingsAndApis((progress, stage) => {
         if (mountedRef.current) setSyncProgress({ progress, stage })
       })
+      if (applied && mountedRef.current) await promptRestartAfterSync()
     } finally {
       if (mountedRef.current) {
         setIsDownloading(false)
         clearProgressLater()
       }
     }
-  }, [isDownloading, startProgress, clearProgressLater])
+  }, [isDownloading, startProgress, clearProgressLater, promptRestartAfterSync])
 
   const handleUploadLists = useCallback(async() => {
     if (isUploadingLists) return
@@ -213,16 +234,17 @@ export default memo(() => {
     setIsDownloadingLists(true)
     startProgress('准备下载歌单…')
     try {
-      await manualDownloadLists((progress, stage) => {
+      const applied = await manualDownloadLists((progress, stage) => {
         if (mountedRef.current) setSyncProgress({ progress, stage })
       })
+      if (applied && mountedRef.current) await promptRestartAfterSync()
     } finally {
       if (mountedRef.current) {
         setIsDownloadingLists(false)
         clearProgressLater()
       }
     }
-  }, [isDownloadingLists, startProgress, clearProgressLater])
+  }, [isDownloadingLists, startProgress, clearProgressLater, promptRestartAfterSync])
 
 
   const handleWebdavSettingChanged = (key: keyof LX.AppSetting) => (text: string, callback: (value: string) => void) => {

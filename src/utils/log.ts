@@ -71,14 +71,33 @@ export const clearLogs = async() => {
   return unlink(logPath).then(async() => writeFile(logPath, ''))
 }
 
+// 2026-10-24：日志正文永不为空。旧实现里 Error 无 stack/message 时
+// `m.stack ?? m.message` 得 undefined、JSON.stringify(undefined) 得
+// undefined，join 后正文是空串，日志页就只剩“时间 + ERROR”一行，
+// 真错彻底丢失——上传设置/音源失败那次就是这么丢的。
+const formatLogArg = (m: any): string => {
+  if (typeof m === 'string') return m
+  if (m instanceof Error) return m.stack ?? m.message ?? `Error(${m.name || 'unknown'}) (no stack/message)`
+  if (m === undefined) return 'undefined'
+  if (m === null) return 'null'
+  try {
+    const s = JSON.stringify(m)
+    return s === undefined ? 'undefined' : s
+  } catch {
+    return String(m)
+  }
+}
+
+const formatLogMsg = (msgs: any[]): string => {
+  const msg = msgs.map(formatLogArg).join(' ')
+  // 无参数、空字符串参数时也给一个占位，绝不出现裸“时间 + 类型”行
+  return msg.trim() ? msg : '(empty log message)'
+}
+
 export const log = {
   info(...msgs: any[]) {
     if (!global.lx.isEnableLog) return
-    const msg = msgs
-      .map((m) =>
-        typeof m == 'string' ? m : m instanceof Error ? (m.stack ?? m.message) : JSON.stringify(m),
-      )
-      .join(' ')
+    const msg = formatLogMsg(msgs)
     if (msg.startsWith('%c')) return
     const time = new Date().toLocaleString()
     if (logTools.tempLog) {
@@ -87,11 +106,7 @@ export const log = {
   },
   warn(...msgs: any[]) {
     if (!global.lx.isEnableLog) return
-    const msg = msgs
-      .map((m) =>
-        typeof m == 'string' ? m : m instanceof Error ? (m.stack ?? m.message) : JSON.stringify(m),
-      )
-      .join(' ')
+    const msg = formatLogMsg(msgs)
     const time = new Date().toLocaleString()
     if (logTools.tempLog) {
       logTools.tempLog.push({ type: 'WARN', time, text: msg })
@@ -99,11 +114,7 @@ export const log = {
   },
   error(...msgs: any[]) {
     if (!global.lx.isEnableLog) return
-    const msg = msgs
-      .map((m) =>
-        typeof m == 'string' ? m : m instanceof Error ? (m.stack ?? m.message) : JSON.stringify(m),
-      )
-      .join(' ')
+    const msg = formatLogMsg(msgs)
     const time = new Date().toLocaleString()
     if (logTools.tempLog) {
       logTools.tempLog.push({ type: 'ERROR', time, text: msg })

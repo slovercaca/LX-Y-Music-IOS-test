@@ -5895,6 +5895,31 @@ static void LXSetTabBarCollapsed(BOOL collapsed);
 // JS 监听器（startObserving）尚未就绪时暂存的遥控命令，见 handleRemoteCommandNotification
 static const double LXRemoteCommandPendingMaxAgeMs = 30000.0;
 
+// 2026-10-24：数据同步后重启生效用。iOS 不允许应用自行退出重进
+// （UtilsModule.exitApp 刻意保持 no-op，见其注释），这里不退出进程，
+// 而是重载 JS Bundle：JS 侧全部状态重新初始化，同步下来的设置/音源
+// 在新一轮启动里生效，效果等同于重启应用（原生模块状态不变）。
+// 注意：bridge reload 是 RN 自带能力，不引入新依赖；若未来 RN 升级
+// 移除该 API，JS 侧会收到异常并回退到“请手动关闭重开”提示。
+@interface AppRestartModule : NSObject<RCTBridgeModule>
+@end
+
+@implementation AppRestartModule
+
+RCT_EXPORT_MODULE();
+
++ (BOOL)requiresMainQueueSetup {
+  return YES;
+}
+
+RCT_EXPORT_METHOD(restart) {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [self.bridge reload];
+  });
+}
+
+@end
+
 @interface UtilsModule : RCTEventEmitter<RCTBridgeModule>
 @property (nonatomic, assign) BOOL hasListeners;
 // JS 监听器还没就绪时暂存的遥控命令（startObserving 时补发）

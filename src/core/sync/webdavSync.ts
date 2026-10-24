@@ -1,4 +1,5 @@
 import * as webdav from '@/utils/webdav'
+import { describeWebDAVError } from '@/utils/webdav'
 import { runWithWebDAVFailover } from './webdavFailover'
 import { overwriteListFull } from '@/core/list'
 import { filterSensitiveSettingsForSync, getAllDataForSync } from './syncHelpers'
@@ -87,12 +88,33 @@ const normalizeRemoteListsData = (remoteData: any): ListsSyncFile => ({
  * 远端文件可能因上传中断而损坏（JSON 非法）；直接 JSON.parse 会抛错导致整个同步流程失败，
  * 且没有任何恢复路径。损坏时返回 null，调用方跳过本次同步（不碰本地数据，不上传覆盖）。
  */
-const safeParseSyncFile = (content: string, label: string): any | null => {
+/** 云端同步文件解析失败的会话级提示（自动同步会反复跑，每会话每类只弹一次，防刷屏） */
+const parseFailedNotified = new Set<string>()
+
+const safeParseSyncFile = (content: string, label: string, notify = true): any | null => {
   try {
     return JSON.parse(content)
   } catch (error: any) {
-    webDAVLog.error(`[Sync] 远端${label}文件已损坏（JSON 解析失败），跳过本次同步`, { error: error?.message })
-    toast(`云端${label}文件已损坏，同步已跳过，请手动检查`, 'long')
+    // 2026-10-24 真机日志：三个云端文件同时解析失败，但日志只给了
+    // 解析器报错字符（" / r / a），看不出云端文件到底是什么内容，
+    // 也没有恢复路径，导致“同步后重启仍无变化”。这里只记分类诊断，
+    // 不记原文——设置文件可能含平台 Cookie，原文进日志不安全。
+    const trimmed = String(content).trim()
+    webDAVLog.error(`[Sync] 远端${label}文件已损坏（JSON 解析失败），跳过本次同步`, {
+      error: error?.message,
+      length: content.length,
+      firstChar: trimmed.charAt(0),
+      startsWithBrace: trimmed.startsWith('{'),
+      startsWithBracket: trimmed.startsWith('['),
+      startsWithLT: trimmed.startsWith('<'),
+      hasVersionKey: content.includes('"version"'),
+    })
+    // 恢复路径：损坏文件只能下载失败，不能下载；本地数据未动，
+    // 同步页点“上传”以本地覆盖云端后，下一次同步即可恢复。
+    if (notify || !parseFailedNotified.has(label)) {
+      parseFailedNotified.add(label)
+      toast(`云端${label}文件已损坏，同步已跳过；本地数据未动，用“上传”以本地覆盖可修复`, 'long')
+    }
     return null
   }
 }
@@ -180,13 +202,11 @@ async function syncSettingsAuto(): Promise<void> {
     return
   }
 
-  let remoteData: any
-  try {
-    remoteData = JSON.parse(remoteContent)
-  } catch {
-    webDAVLog.warn('[Sync] 远端 settings.json 解析失败，跳过设置自动同步')
-    return
-  }
+  // 2026-10-24：此前这里裸 JSON.parse、只打一条无细节 warn，
+  // 自动同步反复跑时既看不出云端文件是什么、也不提示恢复路径。
+  // 改走安全解析（自动同步每会话每类只弹一次，见 safeParseSyncFile）。
+  const remoteData = safeParseSyncFile(remoteContent, '设置', false)
+  if (remoteData === null) return
   const remoteTimestamp = remoteData.lastModified ?? 0
 
   // 2026-10-24 冲突卡死修复：无基线（lastHash 为空 = 从未同步过，如新设备）
@@ -245,13 +265,9 @@ async function syncUserApisAuto(): Promise<void> {
     return
   }
 
-  let remoteData: any
-  try {
-    remoteData = JSON.parse(remoteContent)
-  } catch {
-    webDAVLog.warn('[Sync] 远端 user_apis.json 解析失败，跳过音源自动同步')
-    return
-  }
+  // 2026-10-24：同设置——裸 JSON.parse 改走安全解析，见 syncSettingsAuto。
+  const remoteData = safeParseSyncFile(remoteContent, '自定义音源', false)
+  if (remoteData === null) return
   const remoteTimestamp = remoteData.lastModified ?? 0
 
   // 2026-10-24 冲突卡死修复：同设置——无基线不算冲突，见 syncSettingsAuto。
@@ -421,7 +437,9 @@ async function runGuarded(label: string, task: () => Promise<void>): Promise<boo
     await runWithWebDAVFailover(task)
     return true
   } catch (error: any) {
-    webDAVLog.error(`[${label}] Failed: ${error.stack ?? error.message}`)
+    // 2026-10-24：此前 `error.stack ?? error.message` 在 webdav 错误
+    // 只有 status/code 时会打出 "Failed: undefined"，甚至空日志。
+    webDAVLog.error(`[${label}] Failed: ${describeWebDAVError(error)}`)
     // S10：原始错误已在上一行进日志，用户看友好映射
     toast(`${label}失败：${friendlyWebDAVError(error)}`, 'long')
     return false
@@ -464,11 +482,17 @@ export async function manualUploadSettingsAndApis(onProgress?: SyncProgressCallb
   if (!confirm) return
 
   toast('开始上传...')
+  // 2026-10-24：分步日志——上传设置/音源失败时旧日志只有一行空 ERROR，
+  // 看不出卡在设置还是音源、目标远端路径是哪条。这里每步都记路径，
+  // 只记路径不记内容（设置可能含 Cookie）。
+  webDAVLog.info('[上传] 开始上传设置/音源', { settingsPath: remoteSettingsPath(), apisPath: remoteUserApisPath() })
   await runGuarded('上传', async() => {
     onProgress?.(0.1, '正在上传设置…')
     const settingsTs = await uploadSettings()
+    webDAVLog.info('[上传] 设置上传完成', { settingsPath: remoteSettingsPath() })
     onProgress?.(0.5, '正在上传自定义音源…')
     const apisTs = await uploadUserApis()
+    webDAVLog.info('[上传] 自定义音源上传完成', { apisPath: remoteUserApisPath() })
     // 同步 hash/时间戳，避免自动同步紧接着重复上传
     const includeCookies = settingState.setting['sync.webdav.syncCookies'] === true
     const { settings, userApis } = await getAllDataForSync(includeCookies)
@@ -485,17 +509,20 @@ export async function manualUploadSettingsAndApis(onProgress?: SyncProgressCallb
   })
 }
 
-export async function manualDownloadSettingsAndApis(onProgress?: SyncProgressCallback): Promise<void> {
-  if (!checkSyncReady()) return
+export async function manualDownloadSettingsAndApis(onProgress?: SyncProgressCallback): Promise<boolean> {
+  if (!checkSyncReady()) return false
   const confirm = await confirmDialog({
     title: '确认下载',
     message: '这将使用云端的“设置”和“自定义音源”完全覆盖本地的数据，此操作不可逆，确定要继续吗？',
     confirmButtonText: '下载',
   })
-  if (!confirm) return
+  if (!confirm) return false
 
   toast('开始下载...')
-  await runGuarded('下载', async() => {
+  // 2026-10-24：返回是否真正落了本地数据——云端文件损坏/缺失时
+  // 只跳过，不算成功，调用方（同步页重启弹窗）据此决定是否提示重启。
+  let applied = false
+  const ok = await runGuarded('下载', async() => {
     onProgress?.(0.1, '正在下载设置…')
     const remoteSettingsContent = await webdav.downloadFile(remoteSettingsPath())
     if (remoteSettingsContent) {
@@ -515,6 +542,7 @@ export async function manualDownloadSettingsAndApis(onProgress?: SyncProgressCal
           'sync.webdav.lastSyncTimeSettings': remoteSettingsData.lastModified ?? 0,
           'sync.webdav.lastSyncSettingsHash': hashSettingsForSync(filtered as Record<string, unknown>),
         })
+        applied = true
       }
     } else {
       toast('云端未找到设置文件，跳过设置同步')
@@ -533,6 +561,7 @@ export async function manualDownloadSettingsAndApis(onProgress?: SyncProgressCal
           'sync.webdav.lastSyncTimeUserApis': remoteApisData.lastModified ?? 0,
           'sync.webdav.lastSyncUserApisHash': JSON.stringify(remoteApisData.data),
         })
+        applied = true
       }
     } else {
       toast('云端未找到自定义音源文件，跳过音源同步')
@@ -541,6 +570,7 @@ export async function manualDownloadSettingsAndApis(onProgress?: SyncProgressCal
 
     toast('下载同步完成！')
   })
+  return ok && applied
 }
 
 export async function manualUploadLists(onProgress?: SyncProgressCallback): Promise<void> {
@@ -567,17 +597,19 @@ export async function manualUploadLists(onProgress?: SyncProgressCallback): Prom
   })
 }
 
-export async function manualDownloadLists(onProgress?: SyncProgressCallback): Promise<void> {
-  if (!checkSyncReady()) return
+export async function manualDownloadLists(onProgress?: SyncProgressCallback): Promise<boolean> {
+  if (!checkSyncReady()) return false
   const confirm = await confirmDialog({
     title: '确认下载歌单',
     message: '这将使用云端的“所有歌单”完全覆盖本地的数据，此操作不可逆，确定要继续吗？',
     confirmButtonText: '下载',
   })
-  if (!confirm) return
+  if (!confirm) return false
 
   toast('开始下载歌单...')
-  await runGuarded('下载', async() => {
+  // 2026-10-24：同设置下载——返回是否真正落盘，供同步页重启弹窗判断。
+  let applied = false
+  const ok = await runGuarded('下载', async() => {
     const opsAtStart = getOperationQueue()
     onProgress?.(0.1, '正在下载歌单…')
     const remoteListsContent = await webdav.downloadFile(remoteListsPath())
@@ -592,6 +624,7 @@ export async function manualDownloadLists(onProgress?: SyncProgressCallback): Pr
       }
       onProgress?.(0.6, '正在覆盖本地歌单…')
       await overwriteListFull(normalizedData.data)
+      applied = true
       await applyRemoteExtraData(normalizedData)
       // 高：快照清——下载期间的新编辑操作要保留待下轮同步
       await clearOperationQueueSnapshot(opsAtStart)
@@ -602,6 +635,7 @@ export async function manualDownloadLists(onProgress?: SyncProgressCallback): Pr
       toast('云端未找到歌单文件')
     }
   })
+  return ok && applied
 }
 
 // ---------------------------------------------------------------------------
@@ -857,7 +891,7 @@ export async function triggerWebDAVSync(isManual = false): Promise<void> {
       await runSettingsAndApisSync()
     })
   } catch (error: any) {
-    webDAVLog.error(`[Sync] Sync failed: ${error.stack ?? error.message}`)
+    webDAVLog.error(`[Sync] Sync failed: ${describeWebDAVError(error)}`)
     // P2（2026-10-06）：error.message 可能为 undefined，避免 toast 显示"同步失败: undefined"
     toast(`同步失败：${friendlyWebDAVError(error)}`, 'long')
   } finally {

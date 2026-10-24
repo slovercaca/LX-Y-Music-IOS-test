@@ -10,4 +10,4 @@
  * - uploadBinaryFile —— 本地二进制文件上传（2 分钟超时、分阶段回调）
  */
 export { resetClient, testConnection } from '@/core/webdavMusic/client'
-export { uploadFile, downloadFile, getStat, uploadBinaryFile } from '@/core/webdavMusic/files'
+export { uploadFile, downloadFile, getStat, uploadBinaryFile, describeWebDAVError } from '@/core/webdavMusic/files'
