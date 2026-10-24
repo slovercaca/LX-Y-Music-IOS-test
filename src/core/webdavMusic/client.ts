@@ -82,17 +82,38 @@ export const friendlyWebDAVError = (err: any): string => {
 export const testConnection = async(): Promise<boolean> => {
   const client = getClient()
   // P2（2026-10-06）：timer 用完必须 clear，否则每次测试都残留一个 15s 定时器
-  let timer: ReturnType<typeof setTimeout> | null = null
+  const tryList = async(dir: string): Promise<void> => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    try {
+      await Promise.race([
+        client.getDirectoryContents(dir),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('连接超时（15秒无响应）')), 15000)
+        }),
+      ])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
   try {
-    await Promise.race([
-      client.getDirectoryContents('/'),
-      new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error('连接超时（15秒无响应）')), 15000)
-      }),
-    ])
+    await tryList('/')
     return true
-  } finally {
-    if (timer) clearTimeout(timer)
+  } catch (error: any) {
+    // 全量修复：根目录 403 但同步目录能用时，服务器其实是通的、
+    // 同步也能跑，此前会误判整台服务器不可用并触发故障转移切走。
+    // 根目录 403 时再试一次同步目录，通了就算连接成功；否则抛原始错误。
+    const status = error?.status ?? error?.response?.status
+    const rawPath = String(settingState.setting['sync.webdav.path'] || '/LX_Music/')
+    const syncDir = rawPath.replace(/^\/+|\/+$/g, '')
+    if (status === 403 && syncDir) {
+      try {
+        await tryList(`/${syncDir}`)
+        return true
+      } catch {
+        // 同步目录也不通，抛原始根目录错误，调用方看到的还是第一现场
+      }
+    }
+    throw error
   }
 }
 

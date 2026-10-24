@@ -26,6 +26,7 @@ interface EditorState {
   url: string
   username: string
   password: string
+  path: string
 }
 
 const stripProtocol = (url: string) => url.replace(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, '')
@@ -40,6 +41,7 @@ export default memo(() => {
   const webdavUrl = useSettingValue('sync.webdav.url')
   const webdavUsername = useSettingValue('sync.webdav.username')
   const webdavPassword = useSettingValue('sync.webdav.password')
+  const webdavPath = useSettingValue('sync.webdav.path')
 
   const [profiles, setProfiles] = useState<WebDAVServerProfile[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -70,12 +72,12 @@ export default memo(() => {
   }, [])
 
   const handleNew = useCallback(() => {
-    openEditor({ name: '', url: webdavUrl || '', username: webdavUsername || '', password: webdavPassword || '' })
-  }, [openEditor, webdavUrl, webdavUsername, webdavPassword])
+    openEditor({ name: '', url: webdavUrl || '', username: webdavUsername || '', password: webdavPassword || '', path: webdavPath || '/LX_Music/' })
+  }, [openEditor, webdavUrl, webdavUsername, webdavPassword, webdavPath])
 
   const handleEdit = useCallback((profile: WebDAVServerProfile) => {
-    openEditor({ id: profile.id, name: profile.name, url: profile.url, username: profile.username, password: profile.password })
-  }, [openEditor])
+    openEditor({ id: profile.id, name: profile.name, url: profile.url, username: profile.username, password: profile.password, path: profile.path || webdavPath || '/LX_Music/' })
+  }, [openEditor, webdavPath])
 
   const handleSave = useCallback(async() => {
     if (!editor) return
@@ -116,6 +118,7 @@ export default memo(() => {
         url: normalizedUrl,
         username,
         password: editor.password,
+        path: editor.path.trim() || '/LX_Music/',
       })
       await refresh()
       dialogRef.current?.setVisible(false)
@@ -219,6 +222,11 @@ export default memo(() => {
                 <Text size={11} color={theme['c-font-label']} numberOfLines={1}>
                   {profile.username}@{stripProtocol(profile.url)}
                 </Text>
+                {profile.path ? (
+                  <Text size={11} color={theme['c-font-label']} numberOfLines={1}>
+                    同步目录：{profile.path}
+                  </Text>
+                ) : null}
               </View>
               <View style={styles.itemActions}>
                 {isTesting ? (
@@ -265,6 +273,7 @@ export default memo(() => {
             { key: 'url', label: '服务器地址', placeholder: 'https://example.com/webdav', noCapitalize: true },
             { key: 'username', label: '用户名', placeholder: '请输入用户名', noCapitalize: true },
             { key: 'password', label: '密码', placeholder: '请输入密码', secure: true },
+            { key: 'path', label: '同步目录', placeholder: '/LX_Music/', noCapitalize: true },
           ] as const).map(field => (
             <View
               key={field.key}

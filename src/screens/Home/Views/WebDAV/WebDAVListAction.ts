@@ -7,6 +7,7 @@ import {
   getWebDAVRemoteUrl,
   getWebDAVAuthHeaders,
   downloadToFileAtomic,
+  getStat,
   getWebDAVPictureDir,
   joinWebDAVRemotePath,
   uploadBinaryFile,
@@ -67,6 +68,74 @@ const chunk = <T>(arr: T[], size: number): T[][] => {
   return result
 }
 
+/**
+ * 全量修复：单曲与批量共用的歌词/封面下载。
+ * - 命名统一用 localFileName（父目录前缀），单曲此前用裸文件名，
+ *   子目录歌曲的歌词/封面会落到离线规则找不到的位置、同名还会互相覆盖。
+ * - 远端大小已知时传 expectedSize，截断不再落盘；stat 失败时退回无大小校验。
+ * - 失败不再空 catch 吞掉：记日志、回调给调用方汇总，让用户知道
+ *   歌词/封面没下来，而不是以为全都下好了。
+ */
+const getRemoteExpectedSize = async(remotePath: string): Promise<number | undefined> => {
+  try {
+    const stat: any = await getStat(remotePath)
+    const size = Number(stat?.size)
+    return Number.isFinite(size) && size > 0 ? size : undefined
+  } catch {
+    return undefined
+  }
+}
+
+const downloadLyricAndPic = async(
+  musicInfo: LX.WebDAV.MusicInfo,
+  downloadDir: string,
+  localFileName: string,
+  onPartialFailure: (kind: string, reason: string) => void,
+): Promise<void> => {
+  if (musicInfo.meta.lrcPath) {
+    try {
+      const lrcDir = `${downloadDir}/lrc`
+      await mkdir(lrcDir).catch(() => {})
+      const lrcFileName = localFileName.replace(/\.[^/.]+$/, '.lrc')
+      const lrcFilePath = `${lrcDir}/${lrcFileName}`
+      if (!await existsFile(lrcFilePath).catch(() => false)) {
+        await downloadToFileAtomic({
+          url: getWebDAVRemoteUrl(musicInfo.meta.lrcPath),
+          targetPath: lrcFilePath,
+          expectedSize: await getRemoteExpectedSize(musicInfo.meta.lrcPath),
+          statusError: (statusCode) => `歌词下载失败（${statusCode}）`,
+          moveError: '歌词下载失败（文件落盘失败）',
+        })
+      }
+    } catch (error: any) {
+      webDAVLog.warn('downloadLyricAndPic: 歌词下载失败', { song: musicInfo.name, error: error?.message ?? error })
+      onPartialFailure('歌词', friendlyWebDAVError(error))
+    }
+  }
+  if (musicInfo.meta.picPath) {
+    try {
+      const picDir = `${downloadDir}/picture`
+      await mkdir(picDir).catch(() => {})
+      const picBaseName = musicInfo.meta.picPath.split('/').pop() || ''
+      const picExt = picBaseName.includes('.') ? (picBaseName.split('.').pop()?.toLowerCase() || 'jpg') : 'jpg'
+      const picFileName = `${localFileName.replace(/\.[^/.]+$/, '')}.${picExt}`
+      const picFilePath = `${picDir}/${picFileName}`
+      if (!await existsFile(picFilePath).catch(() => false)) {
+        await downloadToFileAtomic({
+          url: getWebDAVRemoteUrl(musicInfo.meta.picPath),
+          targetPath: picFilePath,
+          expectedSize: await getRemoteExpectedSize(musicInfo.meta.picPath),
+          statusError: (statusCode) => `封面下载失败（${statusCode}）`,
+          moveError: '封面下载失败（文件落盘失败）',
+        })
+      }
+    } catch (error: any) {
+      webDAVLog.warn('downloadLyricAndPic: 封面下载失败', { song: musicInfo.name, error: error?.message ?? error })
+      onPartialFailure('封面', friendlyWebDAVError(error))
+    }
+  }
+}
+
 /** 下载目录：用户在「WebDAV 下载路径」选的目录，未选则用应用私有目录 */
 const getDefaultDownloadDir = (): string => {
   const settings = settingState.setting
@@ -117,8 +186,6 @@ export const handleWebDAVDownload = async(
 
   // 歌曲下载到 music/ 子文件夹，歌词下载到 lrc/ 子文件夹，封面下载到 picture/ 子文件夹（2026-10-13）
   const musicDir = `${downloadDir}/music`
-  const lrcDir = `${downloadDir}/lrc`
-  const picDir = `${downloadDir}/picture`
   // 中：与批量同一命名（父目录前缀）+ 双路存在检查，避免重复下载
   const localFileName = resolveLocalFileName(musicInfo)
   const filePath = `${musicDir}/${localFileName}`
@@ -144,69 +211,36 @@ export const handleWebDAVDownload = async(
     return { filePath: legacyFilePath }
   }
 
+  // 全量修复：音频已存在时也不再直接跳过歌词/封面——此前音频在盘上
+  // 就永远无法单独补下歌词/封面，离线永远缺歌词。音频只在不存在时
+  // 下载，歌词/封面无论音频是否已存在都按缺失补下。
+  const partialFailures: string[] = []
   if (!exists) {
     try {
       // P2（2026-10-06）：删除死变量 headers（downloadToFileAtomic 内部自取）
       const downloadUrl = getWebDAVDownloadUrl(musicInfo)
       await mkdir(musicDir)
-      // 原子下载：校验 statusCode，防毒缓存（错误页面写入目标文件）
+      // 原子下载：校验 statusCode，防毒缓存（错误页面写入目标文件）；
+      // 扫描记录的远端大小已知时传 expectedSize，截断不再落盘。
       await downloadToFileAtomic({
         url: downloadUrl,
         targetPath: filePath,
+        expectedSize: musicInfo.meta.size && musicInfo.meta.size > 0 ? musicInfo.meta.size : undefined,
         statusError: (statusCode) => `下载失败（${statusCode}）`,
         moveError: '下载失败（文件落盘失败）',
       })
-
-      // 同时下载歌词（如果服务器上有同名 .lrc）
-      if (musicInfo.meta.lrcPath) {
-        try {
-          await mkdir(lrcDir)
-          const lrcFileName = fileName.replace(/\.[^/.]+$/, '.lrc')
-          const lrcFilePath = `${lrcDir}/${lrcFileName}`
-          const lrcExists = await existsFile(lrcFilePath).catch(() => false)
-          if (!lrcExists) {
-            const lrcUrl = getWebDAVRemoteUrl(musicInfo.meta.lrcPath)
-            await downloadToFileAtomic({
-              url: lrcUrl,
-              targetPath: lrcFilePath,
-              statusError: (statusCode) => `歌词下载失败（${statusCode}）`,
-              moveError: '歌词下载失败（文件落盘失败）',
-            })
-          }
-        } catch {
-          // 歌词下载失败不影响歌曲
-        }
-      }
-
       await applyMetadataAfterDownload(musicInfo, filePath)
-
-      // 2026-10-13：同时下载封面到 picture/（如果服务器上有匹配的封面），
-      // 文件名与音频同基名，供离线自动加载
-      if (musicInfo.meta.picPath) {
-        try {
-          await mkdir(picDir)
-          const picExt = musicInfo.meta.picPath.split('.').pop()?.toLowerCase() || 'jpg'
-          const picFileName = `${fileName.replace(/\.[^/.]+$/, '')}.${picExt}`
-          const picFilePath = `${picDir}/${picFileName}`
-          const picExists = await existsFile(picFilePath).catch(() => false)
-          if (!picExists) {
-            const picUrl = getWebDAVRemoteUrl(musicInfo.meta.picPath)
-            await downloadToFileAtomic({
-              url: picUrl,
-              targetPath: picFilePath,
-              statusError: (statusCode) => `封面下载失败（${statusCode}）`,
-              moveError: '封面下载失败（文件落盘失败）',
-            })
-          }
-        } catch {
-          // 封面下载失败不影响歌曲
-        }
-      }
     } catch (error: any) {
       webDAVLog.error('handleWebDAVDownload: download failed', { fileName, error: error.message })
       toast(`下载失败：${error.message}`, 'long')
       return undefined
     }
+  }
+  await downloadLyricAndPic(musicInfo, downloadDir, localFileName, (kind, reason) => {
+    partialFailures.push(`${kind}（${reason}）`)
+  })
+  if (partialFailures.length > 0) {
+    toast(`歌曲已下载，但${partialFailures.join('、')}未下载成功，可删除后重新下载`, 'long')
   }
 
   try {
@@ -240,6 +274,8 @@ export interface BatchDownloadResult {
   downloadedPaths: string[]
   /** 失败明细（W4）：歌 + 人话原因，供汇总展示与「重试失败项」 */
   failures: BatchDownloadFailure[]
+  /** 全量修复：音频成功但歌词/封面失败的部分失败明细——此前空 catch 吞掉 */
+  partialFailures: BatchDownloadFailure[]
   cancelled: boolean
   /** 取消时尚未开始下载的歌曲数 */
   remaining: number
@@ -255,10 +291,11 @@ export const handleWebDAVBatchDownload = async(
 ): Promise<BatchDownloadResult> => {
   batchDownloadCancelRequested = false
   const failures: BatchDownloadFailure[] = []
+  const partialFailures: BatchDownloadFailure[] = []
   const hasPermission = await requestStoragePermission()
   if (!hasPermission) {
     toast('请授予存储权限后重试', 'long')
-    return { downloadedPaths: [], failures, cancelled: false, remaining: 0 }
+    return { downloadedPaths: [], failures, partialFailures, cancelled: false, remaining: 0 }
   }
 
   const downloadDir = getDefaultDownloadDir()
@@ -273,7 +310,7 @@ export const handleWebDAVBatchDownload = async(
     for (const musicInfo of songs) {
       if (batchDownloadCancelRequested) {
         webDAVLog.info('handleWebDAVBatchDownload: cancelled by user', { done: currentIndex })
-        return { downloadedPaths, failures, cancelled: true, remaining: songs.length - currentIndex }
+        return { downloadedPaths, failures, partialFailures, cancelled: true, remaining: songs.length - currentIndex }
       }
       currentIndex++
       const fileName = musicInfo.meta.fileName
@@ -302,9 +339,15 @@ export const handleWebDAVBatchDownload = async(
       }
 
       if (fileExists || legacyExists) {
-        webDAVLog.info('handleWebDAVBatchDownload: file already exists, skipping', { filePath: effectiveFilePath })
-        downloadedPaths.push(effectiveFilePath)
+        // 全量修复：音频已存在时不再直接跳过歌词/封面——此前已下过的歌
+        // 永远无法单独补下歌词/封面，离线永远缺歌词。音频跳过，歌词/
+        // 封面仍按缺失补下，再计入成功路径。
+        webDAVLog.info('handleWebDAVBatchDownload: file already exists, skipping audio, 仍补下歌词/封面', { filePath: effectiveFilePath })
         await updateWebDAVMusicMeta(musicInfo.id, { filePath: effectiveFilePath })
+        await downloadLyricAndPic(musicInfo, downloadDir, localFileName, (kind, reason) => {
+          partialFailures.push({ song: musicInfo, reason: `${kind}下载失败：${reason}` })
+        })
+        downloadedPaths.push(effectiveFilePath)
         continue
       }
 
@@ -317,55 +360,16 @@ export const handleWebDAVBatchDownload = async(
         await downloadToFileAtomic({
           url: downloadUrl,
           targetPath: filePath,
+          expectedSize: musicInfo.meta.size && musicInfo.meta.size > 0 ? musicInfo.meta.size : undefined,
           statusError: (statusCode) => `下载失败（${statusCode}）`,
           moveError: '下载失败（文件落盘失败）',
         })
 
         await applyMetadataAfterDownload(musicInfo, filePath)
 
-        // 歌词下载到 lrc/ 子目录（文件名与本地音频对应，同样加父目录前缀防重名）
-        if (musicInfo.meta.lrcPath) {
-          try {
-            const lrcDir = `${downloadDir}/lrc`
-            await mkdir(lrcDir).catch(() => {})
-            const lrcFileName = localFileName.replace(/\.[^/.]+$/, '.lrc')
-            const lrcFilePath = `${lrcDir}/${lrcFileName}`
-            if (!await existsFile(lrcFilePath).catch(() => false)) {
-              const lrcUrl = getWebDAVRemoteUrl(musicInfo.meta.lrcPath)
-              // 原子下载：失败不污染目标路径，下次仍会重试
-              await downloadToFileAtomic({
-                url: lrcUrl,
-                targetPath: lrcFilePath,
-                statusError: (statusCode) => `歌词下载失败（${statusCode}）`,
-                moveError: '歌词下载失败（文件落盘失败）',
-              })
-            }
-          } catch {
-            // 歌词下载失败不影响歌曲
-          }
-        }
-
-        // 2026-10-13：封面下载到 picture/ 子目录（文件名与本地音频对应，同样加父目录前缀防重名）
-        if (musicInfo.meta.picPath) {
-          try {
-            const picDir = `${downloadDir}/picture`
-            await mkdir(picDir).catch(() => {})
-            const picExt = musicInfo.meta.picPath.split('.').pop()?.toLowerCase() || 'jpg'
-            const picFileName = `${localFileName.replace(/\.[^/.]+$/, '')}.${picExt}`
-            const picFilePath = `${picDir}/${picFileName}`
-            if (!await existsFile(picFilePath).catch(() => false)) {
-              const picUrl = getWebDAVRemoteUrl(musicInfo.meta.picPath)
-              await downloadToFileAtomic({
-                url: picUrl,
-                targetPath: picFilePath,
-                statusError: (statusCode) => `封面下载失败（${statusCode}）`,
-                moveError: '封面下载失败（文件落盘失败）',
-              })
-            }
-          } catch {
-            // 封面下载失败不影响歌曲
-          }
-        }
+        await downloadLyricAndPic(musicInfo, downloadDir, localFileName, (kind, reason) => {
+          partialFailures.push({ song: musicInfo, reason: `${kind}下载失败：${reason}` })
+        })
 
         downloadedPaths.push(filePath)
         webDAVLog.info('handleWebDAVBatchDownload: download completed', { currentIndex, fileName, filePath })
@@ -375,8 +379,8 @@ export const handleWebDAVBatchDownload = async(
       }
     }
 
-    webDAVLog.info('handleWebDAVBatchDownload: batch download completed', { downloadedCount: downloadedPaths.length, failedCount: failures.length })
-    return { downloadedPaths, failures, cancelled: false, remaining: 0 }
+    webDAVLog.info('handleWebDAVBatchDownload: batch download completed', { downloadedCount: downloadedPaths.length, failedCount: failures.length, partialFailedCount: partialFailures.length })
+    return { downloadedPaths, failures, partialFailures, cancelled: false, remaining: 0 }
   } catch (error: any) {
     webDAVLog.error('handleWebDAVBatchDownload: batch download failed', { error: error.message })
     throw error
@@ -446,6 +450,9 @@ export const handleWebDAVDownloadAndImport = async(
     const downloadedPaths = [...result.downloadedPaths]
 
     // W4：失败不吞——先汇总，再问是否只重试失败项（最多重试一轮，避免死循环）
+    // 全量修复：歌词/封面部分失败先记下来，音频失败流程走完后再统一报，
+    // 避免部分失败被音频失败对话框盖掉、用户以为离线歌词也齐了。
+    const partialFailuresBeforeRetry = [...result.partialFailures]
     if (result.cancelled) {
       toast(`已取消下载：完成 ${downloadedPaths.length} 首，未下载 ${result.remaining} 首`, 'long')
     } else if (result.failures.length > 0) {
@@ -466,6 +473,10 @@ export const handleWebDAVDownloadAndImport = async(
           toast(`重试后仍有 ${result.failures.length} 首失败：${result.failures.slice(0, 3).map(f => `${f.song.name}（${f.reason}）`).join('；')}`, 'long')
         }
       }
+    }
+    if (!result.cancelled && partialFailuresBeforeRetry.length > 0) {
+      const names = partialFailuresBeforeRetry.slice(0, 3).map(f => `${f.song.name}（${f.reason}）`).join('；')
+      toast(`歌曲已下载，但有 ${partialFailuresBeforeRetry.length} 首歌词/封面未下载成功：${names}。可单独重新下载那首歌补上`, 'long')
     }
 
     if (downloadedPaths.length === 0) {

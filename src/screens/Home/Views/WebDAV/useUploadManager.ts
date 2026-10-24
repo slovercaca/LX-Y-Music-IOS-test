@@ -127,6 +127,10 @@ export function useUploadManager(deps: UploadManagerDeps) {
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** start() 预检阶段的重入锁：防双击导致队列永久卡 uploading（P0-1） */
   const startingRef = useRef(false)
+  // 全量修复：歌词/封面配对是异步补入队列的，此前开始上传不等待
+  // 它，用户刚加完立刻点开始会漏传尚未配对完的歌词/封面。
+  // addRawItems 每次把配对 promise 存到这里，start() 先等它结算。
+  const pairingRef = useRef<Promise<void>>(Promise.resolve())
 
   const [version, setVersion] = useState(0)
   const [queueState, setQueueState] = useState<WebDAVUploadQueueState>('idle')
@@ -363,9 +367,11 @@ export function useUploadManager(deps: UploadManagerDeps) {
         })())
       }
     }
-    // W13：等歌词/封面配对全部落定后再报最终数——旧实现配对是异步补入的，
-    // 用户立刻点「开始上传」会漏传尚未配对完的歌词/封面
-    void Promise.all(pairingPromises).then(() => {
+    // W13 + 全量修复：等歌词/封面配对全部落定后再报最终数——旧实现配对是异步补入的，
+    // 用户立刻点「开始上传」会漏传尚未配对完的歌词/封面。
+    // 配对 promise 同时存进 pairingRef，start() 会先等它结算再开工。
+    pairingRef.current = Promise.all(pairingPromises).then(() => {})
+    void pairingRef.current.then(() => {
       const totalAdded = added + paired
       if (totalAdded > 0) {
         bump(true)
@@ -664,6 +670,9 @@ export function useUploadManager(deps: UploadManagerDeps) {
     if (startingRef.current) return
     startingRef.current = true
     try {
+      // 全量修复：先等歌词/封面配对落定，再算 pending，否则刚配对
+      // 完的歌词/封面不在 pending 里，永远漏传。
+      await pairingRef.current.catch(() => {})
     const pending = Array.from(itemsRef.current.values())
       .filter(it => it.status === 'queued' || it.status === 'paused' || it.status === 'failed')
     if (pending.length === 0) {

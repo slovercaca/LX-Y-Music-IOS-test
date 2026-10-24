@@ -1,11 +1,12 @@
 import { getData, saveData } from '@/plugins/storage'
 import settingState from '@/store/setting/state'
 import { stringMd5 } from 'react-native-quick-md5'
-import { existsFile, mkdir, temporaryDirectoryPath, unlink } from '@/utils/fs'
+import { existsFile, mkdir, temporaryDirectoryPath, unlink, stat as statLocalFile } from '@/utils/fs'
 import { enforceCacheLimit } from '@/utils/nativeModules/cache'
 import { getWebDAVRemoteUrl, getWebDAVAuthHeaders, getWebDAVMusicDir, getWebDAVLrcDir, joinWebDAVRemotePath } from './client'
 import {
   downloadToFileAtomic,
+  getStat,
   isPoisonedCache,
   listRemoteEntries,
   listRemoteSubDirs,
@@ -269,7 +270,11 @@ const scanFolder = async(
       media.picMap.set(base, entry.path)
       if (genericPicNames.has(base)) {
         // 低：按固定优先级取通用封面，不再「后到者赢」
-        const currentBase = media.genericPic ? getBaseName(media.genericPic).toLowerCase() : ''
+        // 全量修复：genericPic 存的是完整远端路径（如 /music/back.jpg），
+        // 此前 getBaseName 整条路径切出来是 /music/back，在优先级表里
+        // 永远是 -1，后来的封面永远替换不掉第一个，back.jpg 常年压过
+        // cover.jpg。必须先取文件名再取基名。
+        const currentBase = media.genericPic ? getBaseName(media.genericPic.split('/').pop() || '').toLowerCase() : ''
         if (!media.genericPic
           || genericPicPriority.indexOf(base) < genericPicPriority.indexOf(currentBase)) {
           media.genericPic = entry.path
@@ -491,13 +496,39 @@ export const fetchWebDAVPic = async(musicInfo: LX.WebDAV.MusicInfo): Promise<str
   try {
     const url = getWebDAVRemoteUrl(picPath)
     const coversDir = `${getCacheDir()}/covers`
-    const ext = picPath.split('.').pop()?.toLowerCase() || 'jpg'
+    // 全量修复：后缀必须按文件名切，不能按整条路径切——无后缀封面
+    // 放在含点的目录里（如 /a.b/cover）时，旧写法会得到 "b/cover" 作
+    // 后缀，本地路径变成带斜杠的嵌套路径，下载静默失败。
+    const picFileName = picPath.split('/').pop() || ''
+    const ext = picFileName.includes('.') ? (picFileName.split('.').pop()?.toLowerCase() || 'jpg') : 'jpg'
     // 同音频缓存：用 md5 避免 encodeURIComponent 与 downloadFile 内部 decodeURIComponent 冲突
     const localPath = `${coversDir}/${stringMd5(picPath)}.${ext}`
+    // 全量修复：远端大小已知时，封面下载也传 expectedSize，截断不再落盘；
+    // 缓存命中时若远端大小与本地大小不一致，说明远端同路径换图了，
+    // 删掉旧缓存重下，不再永远显示旧图。
+    let expectedSize: number | undefined
+    try {
+      const remoteStat: any = await getStat(picPath)
+      const remoteSize = Number(remoteStat?.size)
+      if (Number.isFinite(remoteSize) && remoteSize > 0) expectedSize = remoteSize
+    } catch { /* stat 失败时退回无大小校验 */ }
     if (await existsFile(localPath)) {
-      if (!(await isPoisonedCache(localPath))) return `file://${localPath}`
-      webDAVLog.warn('fetchWebDAVPic: 发现毒化缓存，删除后重新下载', { localPath })
-      await unlink(localPath).catch(() => {})
+      if (!(await isPoisonedCache(localPath, expectedSize))) {
+        if (expectedSize) {
+          const localSize = await statLocalFile(localPath).then(info => Number((info as any)?.size)).catch(() => null)
+          if (localSize !== expectedSize) {
+            webDAVLog.warn('fetchWebDAVPic: 远端封面大小已变，删除旧缓存后重新下载', { localPath, localSize, expectedSize })
+            await unlink(localPath).catch(() => {})
+          } else {
+            return `file://${localPath}`
+          }
+        } else {
+          return `file://${localPath}`
+        }
+      } else {
+        webDAVLog.warn('fetchWebDAVPic: 发现毒化缓存，删除后重新下载', { localPath })
+        await unlink(localPath).catch(() => {})
+      }
     }
     await mkdir(coversDir)
     // 原子下载：statusCode 校验（401/404 的错误页面不能当封面缓存），
@@ -505,6 +536,7 @@ export const fetchWebDAVPic = async(musicInfo: LX.WebDAV.MusicInfo): Promise<str
     await downloadToFileAtomic({
       url,
       targetPath: localPath,
+      expectedSize,
       statusError: (statusCode) => `cover download failed: ${statusCode}`,
       moveError: 'cover download failed: move failed',
     })
@@ -524,10 +556,23 @@ export const fetchWebDAVLrc = async(musicInfo: LX.WebDAV.MusicInfo): Promise<str
     // P2（2026-10-06）：不发送自定义 UA（Android Chrome UA 在 iOS 上可疑），
     // 与 downloadToFileAtomic 的剥离逻辑一致
     const { 'User-Agent': _ua, ...headersNoUA } = getWebDAVAuthHeaders()
-    const response = await fetch(url, { headers: headersNoUA })
+    // 全量修复：歌词直拉此前无超时、无内容校验——200 返回的错误页
+    // （HTML）会被当成歌词缓存。加 30 秒超时；首字符是 '<' 的 HTML
+    // 直接拒收，不缓存残缺歌词。
+    const abortController = new AbortController()
+    const timeoutId = setTimeout(() => abortController.abort(), 30000)
+    let response: Response
+    try {
+      response = await fetch(url, { headers: headersNoUA, signal: abortController.signal } as any)
+    } finally {
+      clearTimeout(timeoutId)
+    }
     if (!response.ok) return null
     const text = await response.text()
-    return text?.trim() ? text : null
+    const trimmed = text?.trim() ?? ''
+    if (!trimmed) return null
+    if (trimmed.startsWith('<')) return null
+    return trimmed
   } catch (err) {
     webDAVLog.warn('fetchWebDAVLrc: failed', { err })
     return null
@@ -631,17 +676,13 @@ export const uploadWebDAVMusicFile = async(
   withLyrics = false,
   onStage?: (stage: string) => void,
 ): Promise<string> => {
-  // 文件名可能带 URL 编码（%20 等）或丢失后缀。
-  // 1. 先 decodeURIComponent 还原；2. 若无后缀，从 localPath 补后缀。
+  // 文件名可能丢失后缀（补后缀见下）。
+  // 全量修复：此前对 fileName 做 decodeURIComponent——本地文件名里
+  // 字面就含 %20 的歌（如 "100%20song.mp3"）会被静默改名成
+  // "100 song.mp3"，上传后远端文件名与本地不一致。本地文件名本就
+  // 不是 URL 编码，绝不能解码；逐段 URL 编码由 joinWebDAVRemotePath/
+  // getWebDAVRemoteUrl 在拼 URL 时负责，文件名原样保留。
   let fileName = item.fileName
-  try {
-    // 只解码一次，避免双重解码破坏正常文件名中的 %
-    if (/%[0-9A-Fa-f]{2}/.test(fileName)) {
-      fileName = decodeURIComponent(fileName)
-    }
-  } catch {
-    // 解码失败则用原名
-  }
   // 确保带后缀：文件名无点号时，从本地路径取后缀补上
   if (!fileName.includes('.')) {
     const localExt = item.localPath.split('.').pop()

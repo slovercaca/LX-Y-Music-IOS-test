@@ -21,6 +21,13 @@ export interface WebDAVServerProfile {
   url: string
   username: string
   password: string
+  /**
+   * 全量修复：该服务器的同步目录（sync.webdav.path）。
+   * 此前配置里没有 path，故障转移切服务器后仍沿用旧 path 写文件，
+   * 两台目录语义不同的服务器会就此分叉。老配置没有 path 时视为
+   * “未指定”，切换时保留当前 path，不静默写错目录。
+   */
+  path?: string
   createdAt: number
   updatedAt: number
 }
@@ -48,6 +55,7 @@ export interface WebDAVServerProfileInput {
   url: string
   username: string
   password: string
+  path?: string
 }
 
 /** 新增或更新一条配置（带 id 即更新）。返回保存后的配置。 */
@@ -60,7 +68,8 @@ export const saveWebDAVServerProfile = async(input: WebDAVServerProfileInput): P
   if (input.id) {
     const idx = profiles.findIndex(p => p.id === input.id)
     if (idx >= 0) {
-      profiles[idx] = { ...profiles[idx], name, url, username, password: input.password, updatedAt: now }
+      // 编辑时没传 path 就保留旧 path，不把它清掉。
+      profiles[idx] = { ...profiles[idx], name, url, username, password: input.password, ...(input.path !== undefined ? { path: input.path.trim() || undefined } : {}), updatedAt: now }
       await persistProfiles(profiles)
       return profiles[idx]
     }
@@ -71,6 +80,9 @@ export const saveWebDAVServerProfile = async(input: WebDAVServerProfileInput): P
     url,
     username,
     password: input.password,
+    // 新建时没传 path，就按创建时的当前同步目录存下来，之后切换到它
+    // 时目录也跟着走，不会沿用上一台服务器的目录。
+    path: input.path?.trim() || String(settingState.setting['sync.webdav.path'] || '/LX_Music/'),
     createdAt: now,
     updatedAt: now,
   }
@@ -112,6 +124,8 @@ export const applyWebDAVServerProfile = async(id: string, options?: { silent?: b
     'sync.webdav.url': profile.url,
     'sync.webdav.username': profile.username,
     'sync.webdav.password': profile.password,
+    // 全量修复：配置有 path 就一起切换；老配置没有 path 时保留当前 path。
+    ...(profile.path ? { 'sync.webdav.path': profile.path } : {}),
   })
   resetClient()
   // 高亮标记持久化是装饰性的：即使失败，切换本身（设置已写入）依然生效，

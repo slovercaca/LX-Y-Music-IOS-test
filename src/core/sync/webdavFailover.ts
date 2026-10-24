@@ -38,7 +38,11 @@ const isFailoverWorthyError = (error: any): boolean => {
   const code = String(error?.code ?? '')
   if (code.startsWith('E_') || code.startsWith('NSURLError')) return true
   const lowerMsg = msg.toLowerCase()
-  const networkKeywords = ['network request failed', 'network connection was lost', 'timeout', 'timed out',
+  // 全量修复：中文超时文案此前不在表里——testConnection 抛的是
+  // “连接超时（15秒无响应）”、getStat 抛的是“检查远端文件超时”，
+  // toLowerCase 不会把“超时”变成英文，故障转移直接认不出、最该
+  // 轮换的黑洞场景反而没轮换。把“超时”本身加进关键字。
+  const networkKeywords = ['network request failed', 'network connection was lost', 'timeout', 'timed out', '超时',
     'econn', 'enotfound', 'eai_again', 'epipe', 'ehostunreach', 'enetunreach', 'socket hang up']
   if (networkKeywords.some(k => lowerMsg.includes(k))) return true
   // fetch 的 TypeError 无 code、无 status，但 message 是网络错误时也算
@@ -61,11 +65,19 @@ const rotateToWorkingProfile = async(fromName: string): Promise<WebDAVServerProf
     'sync.webdav.url': settings['sync.webdav.url'],
     'sync.webdav.username': settings['sync.webdav.username'],
     'sync.webdav.password': settings['sync.webdav.password'],
+    'sync.webdav.path': settings['sync.webdav.path'],
   }
   const candidates = await getFailoverCandidates()
   for (const candidate of candidates) {
     try {
-      await applyWebDAVServerProfile(candidate.id, { silent: true }) // 中：内部轮换不标脏设置，避免再调度一次额外同步
+      // 全量修复：轮换中候选被删时 apply 返回 null，此前代码仍继续
+      // testConnection，测的是上一台服务器，测通就谎报“已切换到已删
+      // 的候选”。apply 为 null 直接试下一个，不谎报、不回写错误状态。
+      const applied = await applyWebDAVServerProfile(candidate.id, { silent: true }) // 中：内部轮换不标脏设置，避免再调度一次额外同步
+      if (!applied) {
+        webDAVLog.warn(`[Failover] 候选「${candidate.name}」已被删除，跳过`)
+        continue
+      }
       await testConnection()
       webDAVLog.info(`[Failover] 「${fromName}」不可用，已切换到「${candidate.name}」`)
       notify(`「${fromName}」连接失败，已自动切换到「${candidate.name}」`)

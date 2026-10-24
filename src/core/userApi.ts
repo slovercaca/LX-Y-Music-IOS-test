@@ -60,6 +60,12 @@ export const overwriteUserApis = async(data: { list: LX.UserApi.UserApiInfo[], s
   if (!data.scripts || typeof data.scripts !== 'object' || Array.isArray(data.scripts)) {
     throw new Error('userApis scripts missing or invalid')
   }
+  // 全量修复：同理，list 缺失/不是数组时绝不能继续——此前会把 list
+  // 存成 undefined、本地名单被清空，随后基线还会被写成这份坏数据，
+  // 清空状态被锁定并在下次上传时反向写回云端。
+  if (!Array.isArray(data.list)) {
+    throw new Error('userApis list missing or invalid')
+  }
   try {
     const allKeys = await getAllKeys()
     const oldScriptKeys = allKeys.filter(key => key.startsWith(storageDataPrefix.userApi) && key !== storageDataPrefix.userApi)

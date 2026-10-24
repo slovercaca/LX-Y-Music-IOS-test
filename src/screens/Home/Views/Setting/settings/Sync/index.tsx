@@ -24,6 +24,8 @@ import {
   manualUploadLists,
   manualDownloadLists,
 } from '@/core/sync/webdavSync'
+import { filterSensitiveSettingsForSync } from '@/core/sync/syncHelpers'
+import settingState from '@/store/setting/state'
 import IsEnable from '@/screens/Home/Views/Setting/settings/Sync/IsEnable.tsx'
 import WebDAVProfiles from '@/components/common/WebDAVProfiles'
 
@@ -172,12 +174,19 @@ export default memo(() => {
   const handleSyncNow = useCallback(async() => {
     if (isSyncing) return
     setIsSyncing(true)
+    // 全量修复：立即同步也会下载设置，此前跑完不弹重启提示，用户
+    // 会以为同步没生效。同步前后按同步口径比对设置，变了就弹重启
+    // 提示，与手动下载保持一致；没变不打扰。
+    const includeCookies = settingState.setting['sync.webdav.syncCookies'] === true
+    const settingsBefore = JSON.stringify(filterSensitiveSettingsForSync(settingState.setting, includeCookies))
     try {
       await triggerWebDAVSync(true)
     } finally {
       if (mountedRef.current) setIsSyncing(false)
     }
-  }, [isSyncing])
+    const settingsAfter = JSON.stringify(filterSensitiveSettingsForSync(settingState.setting, includeCookies))
+    if (settingsBefore !== settingsAfter && mountedRef.current) await promptRestartAfterSync()
+  }, [isSyncing, promptRestartAfterSync])
 
   const handleUpload = useCallback(async() => {
     if (isUploading) return
