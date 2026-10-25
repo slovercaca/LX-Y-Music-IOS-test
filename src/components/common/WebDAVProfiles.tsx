@@ -100,15 +100,17 @@ export default memo(() => {
       setSaveError('请填写服务器地址')
       return
     }
-    let normalizedUrl = url
-    try {
-      const parsed = new URL(url)
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('protocol')
-      normalizedUrl = url.replace(/\/+$/, '')
-    } catch {
+    // 2026-10-25：不用 new URL() 校验——Hermes 的 new URL() 不可靠
+    // （client.ts 已有同样注释：含中文 URL 解析可能失败；真机实测
+    // http://192.168.0.3:19798/dav 这样完全合法的地址也被它判错）。
+    // 只按报错文案本身校验前缀，并去掉粘贴带入的零宽字符等不可见字符
+    // （trim 去不掉 \u200B，new URL 遇到它会抛错，界面上却看不出来）。
+    const cleanUrl = url.replace(/[\u200B-\u200D\uFEFF\u00AD]/g, '')
+    if (!/^https?:\/\//i.test(cleanUrl)) {
       setSaveError('服务器地址格式不对，应以 http:// 或 https:// 开头')
       return
     }
+    const normalizedUrl = cleanUrl.replace(/\/+$/, '')
     if (!username) {
       setSaveError('请填写用户名')
       return

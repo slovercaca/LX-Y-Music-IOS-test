@@ -11,7 +11,7 @@ import {
   joinWebDAVRemotePath,
   getClient,
 } from './client'
-import { buildTempRemotePath, getStat, moveRemoteFile } from './files'
+import { getStat } from './files'
 import { webDAVLog } from './logger'
 
 // 原生上传模块（iOS）：URLSession 流式上传，真实进度、可中断、低内存。
@@ -165,40 +165,35 @@ const verifyRemoteSize = async(remotePath: string, expectedSize: number): Promis
 }
 
 /**
- * 2026-10-25：DELETE-before-PUT 已死——真机实锤这台服务器对已存在文件
- * 的 DELETE 一律回 412（见 files.ts 的 buildTempRemotePath 注释）。
- * 队列上传改走“临时文件 + MOVE 原子替换”，DELETE 只用于尽力清理
- * 临时文件，任何失败都只记 warn、永不中止上传。
+ * 2026-10-25（改回 DELETE）：CloudDrive 的 WebDAV 支持 DELETE，MOVE 在它上面
+ * 不可靠（改名失败会留下 user_apis.json.tmp 这类残留，见 files.ts 的
+ * deleteRemoteFileOrAbort 注释）。恢复 DELETE-before-PUT：先删旧文件再 PUT；
+ * 404 忽略；409 转建目录流程；其他失败直接中止本次上传，保住旧文件。
+ * （旧服务器 DELETE 回 412 的教训仍在：若将来换回那台服务器，DELETE 失败
+ * 会如实报错而不是静默覆盖。）
  */
+const deleteRemoteFileOrAbort = async(remotePath: string): Promise<void> => {
+  try {
+    await getClient().deleteFile(remotePath)
+  } catch (error: any) {
+    const status = error?.status ?? error?.response?.status
+    if (status === 404) return
+    if (status === 409) {
+      const lastSlash = remotePath.lastIndexOf('/')
+      const dirPath = lastSlash > 0 ? remotePath.substring(0, lastSlash) : '/'
+      throw new RemoteDirNotFoundError(dirPath)
+    }
+    throw new Error(`删除远端旧文件失败（HTTP ${status ?? '未知'}），已中止上传以保护旧文件：${remotePath}`)
+  }
+}
+
+/** 尽力删除远端文件（上传中途取消后清残片用）：任何失败都只记 warn，不抛错 */
 const deleteRemoteFileBestEffort = async(remotePath: string): Promise<void> => {
   try {
     await getClient().deleteFile(remotePath)
   } catch (error: any) {
-    webDAVLog.warn('[upload] 清理远端临时文件失败（已忽略）', { remotePath, error: error?.message ?? error })
+    webDAVLog.warn('[upload] 清理远端残留文件失败（已忽略）', { remotePath, error: error?.message ?? error })
   }
-}
-
-/**
- * 临时文件收尾：验临时文件大小 → MOVE 覆盖目标 → 验目标大小。
- * 返回 'ok' | 'moveFailed'（MOVE 不可用，调用方回退直写目标）| 'badSize'
- * （临时文件/目标文件大小不符）。stat 失败或不返回大小时，底层的
- * verifyRemoteSize 按成功处理（MOVE 替换本身已解决截断问题，校验
- * 不可用不再误报失败）。
- */
-const finalizeTempUpload = async(tempPath: string, finalPath: string, expectedSize: number): Promise<'ok' | 'moveFailed' | 'badSize'> => {
-  if (!(await verifyRemoteSize(tempPath, expectedSize))) {
-    await deleteRemoteFileBestEffort(tempPath)
-    return 'badSize'
-  }
-  try {
-    await moveRemoteFile(tempPath, finalPath)
-  } catch (error: any) {
-    webDAVLog.warn('[upload] MOVE 覆盖失败，回退到直接 PUT 目标文件', { tempPath, finalPath, error: error?.message ?? error })
-    await deleteRemoteFileBestEffort(tempPath)
-    return 'moveFailed'
-  }
-  if (!(await verifyRemoteSize(finalPath, expectedSize))) return 'badSize'
-  return 'ok'
 }
 
 /**
@@ -442,12 +437,9 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
     throw new Error(`上传地址非法：${url}`)
   }
 
-  // 2026-10-25：不再 DELETE 旧文件（这台服务器 DELETE 回 412），改走
-  // 临时路径 + MOVE（见 finalizeTempUpload）。原生与降级通道各用独立
-  // 临时名，互不干扰；任一通道写了一半的临时文件都只清自己那份。
-  const nativeTempPath = buildTempRemotePath(remotePath)
-  const nativeTempUrl = getWebDAVRemoteUrl(nativeTempPath)
-  const libTempPath = buildTempRemotePath(remotePath)
+  // 2026-10-25（改回 DELETE）：先删旧文件再 PUT。原生与降级通道进入前
+  // 各删一次（见 deleteRemoteFileOrAbort）。
+  await deleteRemoteFileOrAbort(remotePath)
 
   // Test-v2：优先用原生模块（流式、真实进度、可中断、低内存）。
   // 不可用时降级到 webdav 库。
@@ -461,23 +453,9 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
         if (v !== undefined && v !== null && v !== '') headers[key] = String(v)
       }
 
-      // 原生上传收尾：临时文件 MOVE 覆盖目标；MOVE 失败时整文件直写目标。
-      // 分块与单 PUT 两个分支共用——临时文件已写满才到这一步。
+      // 原生上传收尾：验目标大小。分块与单 PUT 两个分支共用——
+      // 目标文件已写满才到这一步。
       const finishNativeUpload = async(): Promise<void> => {
-        const fin = await finalizeTempUpload(nativeTempPath, remotePath, actualSize)
-        if (fin === 'ok') return
-        if (fin === 'badSize') throw new Error('上传后校验失败：服务器文件大小与本地不一致')
-        webDAVLog.warn('[upload] MOVE 失败，改用原生整文件直写目标', { remotePath })
-        report(0, actualSize)
-        const statusCode = await putViaNative(url, localPath, headers, report, onAbortHandle)
-        if (statusCode === 409) {
-          const lastSlash = remotePath.lastIndexOf('/')
-          const dirPath = lastSlash > 0 ? remotePath.substring(0, lastSlash) : '/'
-          throw new RemoteDirNotFoundError(dirPath)
-        }
-        if (statusCode < 200 || statusCode >= 300) {
-          throw new Error(`上传失败（HTTP ${statusCode}）`)
-        }
         const ok = await verifyRemoteSize(remotePath, actualSize)
         if (!ok) throw new Error('上传后校验失败：服务器文件大小与本地不一致')
       }
@@ -523,7 +501,7 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
         for (let offset = startOffset; offset < actualSize; offset += chunkSize) {
           const endOffset = Math.min(offset + chunkSize, actualSize)
           const statusCode = await putViaNative(
-            nativeTempUrl,
+            url,
             localPath,
             headers,
             (loaded, total) => {
@@ -567,7 +545,7 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
       const range = startOffset > 0
         ? { startOffset, endOffset: actualSize, totalSize: actualSize }
         : undefined
-      const statusCode = await putViaNative(nativeTempUrl, localPath, headers, report, onAbortHandle, range)
+      const statusCode = await putViaNative(url, localPath, headers, report, onAbortHandle, range)
       if (statusCode >= 200 && statusCode < 300) {
         report(actualSize, actualSize)
       } else if (statusCode === 409) {
@@ -581,8 +559,7 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
       return
     } catch (e: any) {
       // 用户取消直接抛出；其他错误降级到 webdav 库重试
-      // 原生通道的临时文件尽力清掉，免得残留在服务器上
-      await deleteRemoteFileBestEffort(nativeTempPath)
+      // （降级通道入口会再删一次旧文件，残片不会留到最后）
       if (e instanceof UploadAbortedError || e instanceof RemoteDirNotFoundError) throw e
       webDAVLog.warn('[upload] 原生上传失败，降级到 webdav 库', {
         error: e?.message ?? e,
@@ -623,11 +600,11 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
 
   if (abortRequested) throw new UploadAbortedError()
 
-  // 2026-10-25：降级通道用自己的临时文件（原生通道的临时文件已在
-  // 上方 catch 里尽力清掉）；直接整文件 PUT 在不截断服务器上会留
-  // 尾巴，写临时文件再 MOVE 才是对的。
+  // 2026-10-25（改回 DELETE）：降级通道进入前再删一次旧文件
+  // （原生通道可能已写了一半的目标文件）；直接整文件 PUT 到目标。
   // 用 webdav 库上传（JS 层，无原生桥接崩溃风险）
   const client = getClient()
+  await deleteRemoteFileOrAbort(remotePath)
 
   // 心跳保活：webdav 库无进度回调，上传期间每 10s 重复上报最后真实进度（0），
   // 只为刷新 useUploadManager 看门狗的活跃时间，不伪造百分比（W6）。
@@ -642,11 +619,11 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
     // 全量修复：降级 PUT 加 600 秒硬超时竞速。webdav 库无中断 API，
     // 心跳每 10 秒刷新看门狗会把挂起的 PUT 永久掩盖；600 秒后一定结算
     // 为失败，队列才能排空、用户才能重试（底层请求若仍在跑，下一次
-    // 重传（新临时文件）会以新文件覆盖它，大小校验是最后一道关）。
+    // 重传会先 DELETE 再写，大小校验是最后一道关）。
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null
     try {
       await Promise.race([
-        client.putFileContents(libTempPath, buffer as any, {
+        client.putFileContents(remotePath, buffer as any, {
           overwrite: true,
           contentLength: buffer.length,
         }) as Promise<unknown>,
@@ -672,45 +649,22 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
   clearInterval(heartbeat)
 
   if (abortRequested) {
-    await deleteRemoteFileBestEffort(libTempPath)
+    await deleteRemoteFileBestEffort(remotePath)
     throw new UploadAbortedError()
   }
 
-  // 成功后收尾：临时文件 MOVE 覆盖目标；MOVE 失败时整文件直写目标。
+  // 成功后收尾：验目标大小。
   // P1-10（2026-10-06）：校验用 stat 得到的 actualSize 而非 buffer.length。
   // 文件在 stat 与 read 之间被修改时两者不一致，buffer.length 会导致误判。
-  const fin = await finalizeTempUpload(libTempPath, remotePath, actualSize)
-  if (fin === 'badSize') {
-    throw new Error('上传后校验失败：服务器文件大小与本地不一致')
-  }
-  if (fin === 'moveFailed') {
-    webDAVLog.warn('[upload] MOVE 失败，改用 webdav 库整文件直写目标', { remotePath })
-    let directTimer: ReturnType<typeof setTimeout> | null = null
-    try {
-      await Promise.race([
-        client.putFileContents(remotePath, buffer as any, {
-          overwrite: true,
-          contentLength: buffer.length,
-        }) as Promise<unknown>,
-        new Promise<never>((_, reject) => {
-          directTimer = setTimeout(() => reject(new Error(`上传超时（600秒无响应）：${remotePath}`)), 600000)
-        }),
-      ])
-    } finally {
-      if (directTimer) clearTimeout(directTimer)
-    }
-    const ok = await verifyRemoteSize(remotePath, actualSize)
-    if (!ok) {
-      throw new Error('上传后校验失败：服务器文件大小与本地不一致')
-    }
-  }
+  const ok = await verifyRemoteSize(remotePath, actualSize)
+  if (!ok) throw new Error('上传后校验失败：服务器文件大小与本地不一致')
   report(actualSize, actualSize)
 }
 
 /**
  * 全量修复：队列上传对外入口（同路径串行 + 校验失败自愈重传）。
  * - 同远端路径的并发上传串行化，防分块混写（见 withUploadPathLock）。
- * - 大小校验失败时整文件重传一次（新临时文件 + MOVE 覆盖），再失败才
+ * - 大小校验失败时整文件重传一次（每轮开头先 DELETE 旧文件再重传），再失败才
  *   明确报错；此前是直接失败、坏文件留在服务器上、重试也修不好。
  * - 取消（UploadAbortedError）与目录缺失（RemoteDirNotFoundError）不重传。
  */
@@ -721,8 +675,8 @@ export const putFileWithProgress = async(options: PutFileOptions): Promise<void>
     } catch (error: any) {
       if (error instanceof UploadAbortedError || error instanceof RemoteDirNotFoundError) throw error
       if (!String(error?.message ?? '').includes('上传后校验失败')) throw error
-      // 2026-10-25：重传直接跑完整流程即可——每轮都用新的临时文件，
-      // MOVE 覆盖掉上一轮的坏文件，不再需要先 DELETE。
+      // 2026-10-25：重传直接跑完整流程即可——每轮开头都会先 DELETE
+      // 旧文件再重传，上一轮的坏文件不会留到最后。
       webDAVLog.warn('[upload] 大小校验失败，重传一次', { remotePath: options.remotePath })
       await putFileWithProgressInternal(options)
     }

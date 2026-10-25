@@ -202,44 +202,38 @@ export const downloadFile = async(remotePath: string): Promise<string | null> =>
 }
 
 /**
- * 2026-10-25：DELETE-before-PUT 已死——真机实锤这台服务器对已存在文件
- * 的 DELETE 一律回 412 Precondition Failed（webdav 库的 DELETE 本身
- * 不带任何 If 条件头，412 是服务器自己的前置条件：锁/ETag 策略）。
- * DELETE 失败就中止上传，等于所有已存在文件永远传不上去，比截断更糟。
- * 改走“临时文件 + MOVE 原子替换”：
- *   1) PUT 新内容到同目录唯一临时文件（同目录 MOVE 最稳，跨目录 MOVE
- *      在部分服务器/反代下会失败）；
- *   2) stat 验临时文件大小；
- *   3) MOVE 临时文件覆盖目标（webdav 库默认发 Overwrite: T），
- *      服务端 rename 语义替换，不留旧尾巴；
- *   4) stat 验目标大小。
- * MOVE 也失败时（个别服务器 MOVE 覆盖同样走内部 DELETE、同样 412），
- * 回退到直接 PUT 目标 + 大小校验：至少能写上去，大小不符再如实报错。
- * DELETE 从此只用于清理临时文件，任何失败都只记 warn、永不中止上传。
+ * 2026-10-25（改回 DELETE）：10-25 上午把上传改成“临时文件 + MOVE 原子替换”
+ * 是为了绕开旧服务器对 DELETE 回 412 的问题；但真机在 CloudDrive 上实测
+ * MOVE 不可靠——改名失败会把真正的内容留在 user_apis.json.tmp 这类
+ * 残留文件里，目标文件反而被随后一次空同步写成 76 字节。CloudDrive 的
+ * WebDAV 支持 DELETE，所以改回 DELETE-before-PUT：先删旧文件再 PUT。
+ * DELETE 404 忽略；409 转建目录流程；其他失败直接中止本次上传，保住旧文件。
+ * （旧服务器 DELETE 回 412 的教训仍在：若将来换回那台服务器，DELETE 失败
+ * 会如实报错而不是静默覆盖。）
  */
-export const buildTempRemotePath = (remotePath: string): string => {
-  const slash = remotePath.lastIndexOf('/')
-  const dir = slash > 0 ? remotePath.substring(0, slash) : ''
-  const rand = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
-  return `${dir}/.lx-tmp-${rand}`
+const deleteRemoteFileOrAbort = async(remotePath: string): Promise<void> => {
+  try {
+    await getClient().deleteFile(remotePath)
+  } catch (error: any) {
+    const status = error?.status ?? error?.response?.status
+    if (status === 404) return
+    if (status === 409) {
+      // 父目录不存在（uploadFile 事先 ensureRemoteDir 失败时才会走到这里）：
+      // files.ts 不引 upload.ts 的 RemoteDirNotFoundError（会造成循环依赖），
+      // 用 plain Error 带上明确原因，调用方照常展示。
+      throw new Error(`删除远端旧文件失败（HTTP 409，父目录可能不存在）：${remotePath}`)
+    }
+    throw new Error(`删除远端旧文件失败（HTTP ${status ?? '未知'}），已中止上传以保护旧文件：${remotePath}`)
+  }
 }
 
-/** 尽力删除远端文件（只清临时文件用）：任何失败都只记 warn，不抛错 */
+/** 尽力删除远端文件（清大小校验失败的坏文件用）：任何失败都只记 warn，不抛错 */
 const deleteRemoteFileBestEffort = async(remotePath: string): Promise<void> => {
   try {
     await getClient().deleteFile(remotePath)
   } catch (error: any) {
-    webDAVLog.warn('清理远端临时文件失败（已忽略）', { remotePath, error: describeWebDAVError(error) })
+    webDAVLog.warn('清理远端坏文件失败（已忽略）', { remotePath, error: describeWebDAVError(error) })
   }
-}
-
-/** MOVE 远端文件（默认覆盖目标），60 秒超时 */
-export const moveRemoteFile = async(fromPath: string, toPath: string): Promise<void> => {
-  await withTimeout(
-    getClient().moveFile(fromPath, toPath) as Promise<unknown>,
-    60000,
-    `移动远端文件超时（60 秒无响应）：${fromPath} -> ${toPath}`,
-  )
 }
 
 interface RemoteSizeCheckResult {
@@ -296,61 +290,27 @@ export const uploadFile = async(remotePath: string, content: string): Promise<vo
     webDAVLog.warn('uploadFile: 确保父目录失败，仍尝试直接 PUT', { remotePath, parent, error: describeWebDAVError(error) })
   }
   const expectedBytes = Buffer.byteLength(content, 'utf8')
-  // 2026-10-25：临时文件 + MOVE 原子替换（见 buildTempRemotePath 注释），
-  // 不再依赖 DELETE。最多两轮：首轮失败时清掉临时文件重来一次。
+  // 2026-10-25（改回 DELETE）：先删旧文件再 PUT。DELETE 404 忽略，
+  // 409 与其他失败直接中止，保住旧文件（见 deleteRemoteFileOrAbort）。
+  // 最多两轮：首轮大小不符时删坏文件重传一次。
+  await deleteRemoteFileOrAbort(remotePath)
   let lastError: Error | null = null
   for (let attempt = 0; attempt < 2; attempt++) {
-    const tempPath = buildTempRemotePath(remotePath)
-    // 1) PUT 到临时文件。PUT 失败直接抛——临时文件写不上去说明通道本身有问题。
     try {
       const abortController = new AbortController()
       await withTimeout(
-        client.putFileContents(tempPath, content, { overwrite: true, signal: abortController.signal } as any) as Promise<unknown>,
+        client.putFileContents(remotePath, content, { overwrite: true, signal: abortController.signal } as any) as Promise<unknown>,
         120000,
         `上传超时（120秒无响应）：${remotePath}`,
       )
     } catch (error: any) {
-      webDAVLog.error('uploadFile: PUT 临时文件失败', { remotePath, tempPath, error: describeWebDAVError(error) })
+      webDAVLog.error('uploadFile: PUT 失败', { remotePath, error: describeWebDAVError(error) })
       throw error
     }
-    // 2) 验临时文件大小。不符说明 PUT 本身就没写对，清掉重来。
-    const tempCheck = await verifyRemoteSize(tempPath, expectedBytes)
-    if (tempCheck.status === 'mismatch') {
-      lastError = new Error(`上传后临时文件大小不符：${remotePath}，期望 ${expectedBytes} 字节、远端 ${tempCheck.size} 字节`)
-      webDAVLog.error('uploadFile: 临时文件字节数校验失败', { remotePath, tempPath, expectedBytes, remoteSize: tempCheck.size, attempt })
-      await deleteRemoteFileBestEffort(tempPath)
-      if (attempt === 0) continue
-      break
-    }
-    if (tempCheck.status === 'missing') {
-      lastError = new Error(`上传后临时文件不存在（服务器未落盘）：${remotePath}，请检查服务器是否只读、配额或路径权限`)
-      webDAVLog.error('uploadFile: PUT 后临时文件不存在', { remotePath, tempPath })
-      break
-    }
-    // 3) MOVE 临时文件覆盖目标。失败则回退直接 PUT 目标文件。
-    let moved = false
-    try {
-      await moveRemoteFile(tempPath, remotePath)
-      moved = true
-    } catch (moveError: any) {
-      webDAVLog.warn('uploadFile: MOVE 覆盖失败，回退到直接 PUT 目标文件', { remotePath, tempPath, error: describeWebDAVError(moveError) })
-      await deleteRemoteFileBestEffort(tempPath)
-      try {
-        const abortController = new AbortController()
-        await withTimeout(
-          client.putFileContents(remotePath, content, { overwrite: true, signal: abortController.signal } as any) as Promise<unknown>,
-          120000,
-          `上传超时（120秒无响应）：${remotePath}`,
-        )
-      } catch (error: any) {
-        webDAVLog.error('uploadFile: 回退 PUT 失败', { remotePath, error: describeWebDAVError(error) })
-        throw error
-      }
-    }
-    // 4) 验目标大小。
+    // 验目标大小。
     const finalCheck = await verifyRemoteSize(remotePath, expectedBytes)
     if (finalCheck.status === 'ok' || finalCheck.status === 'unknown') {
-      if (finalCheck.status === 'unknown') webDAVLog.warn('uploadFile: 目标大小校验不可用，按成功处理', { remotePath, expectedBytes, moved })
+      if (finalCheck.status === 'unknown') webDAVLog.warn('uploadFile: 目标大小校验不可用，按成功处理', { remotePath, expectedBytes })
       lastError = null
       break
     }
@@ -360,8 +320,11 @@ export const uploadFile = async(remotePath: string, content: string): Promise<vo
       break
     }
     lastError = new Error(`上传后远端大小不符（疑似服务器未截断旧文件）：${remotePath}，期望 ${expectedBytes} 字节、远端 ${finalCheck.size} 字节`)
-    webDAVLog.error('uploadFile: PUT 后字节数校验失败', { remotePath, parent, remoteSize: finalCheck.size, expectedBytes, contentLength: content.length, attempt, moved })
-    if (attempt === 0) continue
+    webDAVLog.error('uploadFile: PUT 后字节数校验失败', { remotePath, parent, remoteSize: finalCheck.size, expectedBytes, contentLength: content.length, attempt })
+    if (attempt === 0) {
+      await deleteRemoteFileBestEffort(remotePath)
+      continue
+    }
     break
   }
   if (lastError) throw lastError
@@ -406,15 +369,15 @@ export const uploadBinaryFile = async(
   report('正在上传到服务器…')
   const client = getClient()
   const buffer = Buffer.from(base64, 'base64')
-  // 2026-10-25：临时文件 + MOVE 原子替换（见 buildTempRemotePath 注释），
-  // 不再依赖 DELETE。最多两轮：首轮失败时清掉临时文件重来一次。
+  // 2026-10-25（改回 DELETE）：先删旧文件再 PUT（见 deleteRemoteFileOrAbort）。
+  // 最多两轮：首轮大小不符时删坏文件重传一次。
+  await deleteRemoteFileOrAbort(remotePath)
   let lastError: Error | null = null
   for (let attempt = 0; attempt < 2; attempt++) {
-    const tempPath = buildTempRemotePath(remotePath)
     const abortController = new AbortController()
     try {
       await withTimeout(
-        client.putFileContents(tempPath, buffer, {
+        client.putFileContents(remotePath, buffer, {
           overwrite: true,
           ...(contentType ? { headers: { 'Content-Type': contentType } } : {}),
           signal: abortController.signal,
@@ -428,46 +391,10 @@ export const uploadBinaryFile = async(
       }
       throw e
     }
-    report('正在校验临时文件…')
-    const tempCheck = await verifyRemoteSize(tempPath, info.size)
-    if (tempCheck.status === 'mismatch') {
-      lastError = new Error(`上传后临时文件大小不符：${remotePath}，期望 ${info.size} 字节、远端 ${tempCheck.size} 字节`)
-      webDAVLog.error('uploadBinaryFile: 临时文件字节数校验失败', { remotePath, tempPath, expectedBytes: info.size, remoteSize: tempCheck.size, attempt })
-      await deleteRemoteFileBestEffort(tempPath)
-      if (attempt === 0) continue
-      break
-    }
-    if (tempCheck.status === 'missing') {
-      lastError = new Error(`上传后临时文件不存在（服务器未落盘）：${remotePath}，请检查服务器是否只读、配额或路径权限`)
-      break
-    }
-    let moved = false
-    try {
-      await moveRemoteFile(tempPath, remotePath)
-      moved = true
-    } catch (moveError: any) {
-      webDAVLog.warn('uploadBinaryFile: MOVE 覆盖失败，回退到直接 PUT 目标文件', { remotePath, tempPath, error: describeWebDAVError(moveError) })
-      await deleteRemoteFileBestEffort(tempPath)
-      const abort2 = new AbortController()
-      try {
-        await withTimeout(
-          client.putFileContents(remotePath, buffer, {
-            overwrite: true,
-            ...(contentType ? { headers: { 'Content-Type': contentType } } : {}),
-            signal: abort2.signal,
-          } as any) as Promise<unknown>,
-          120000,
-          `上传超时（120秒无响应）：${remotePath}`,
-        )
-      } catch (e: any) {
-        if (abort2.signal.aborted) throw new Error(`上传超时（120秒无响应）：${remotePath}`)
-        throw e
-      }
-    }
     report('正在校验远端文件…')
     const finalCheck = await verifyRemoteSize(remotePath, info.size)
     if (finalCheck.status === 'ok' || finalCheck.status === 'unknown') {
-      if (finalCheck.status === 'unknown') webDAVLog.warn('uploadBinaryFile: 目标大小校验不可用，按成功处理', { remotePath, expectedBytes: info.size, moved })
+      if (finalCheck.status === 'unknown') webDAVLog.warn('uploadBinaryFile: 目标大小校验不可用，按成功处理', { remotePath, expectedBytes: info.size })
       lastError = null
       break
     }
@@ -476,8 +403,11 @@ export const uploadBinaryFile = async(
       break
     }
     lastError = new Error(`上传后远端大小不符（疑似服务器未截断旧文件）：${remotePath}，期望 ${info.size} 字节、远端 ${finalCheck.size} 字节`)
-    webDAVLog.error('uploadBinaryFile: PUT 后字节数校验失败', { remotePath, remoteSize: finalCheck.size, expectedBytes: info.size, attempt, moved })
-    if (attempt === 0) continue
+    webDAVLog.error('uploadBinaryFile: PUT 后字节数校验失败', { remotePath, remoteSize: finalCheck.size, expectedBytes: info.size, attempt })
+    if (attempt === 0) {
+      await deleteRemoteFileBestEffort(remotePath)
+      continue
+    }
     break
   }
   if (lastError) throw lastError

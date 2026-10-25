@@ -5902,11 +5902,18 @@ static const double LXRemoteCommandPendingMaxAgeMs = 30000.0;
 // 注意：bridge reload 是 RN 自带能力，不引入新依赖；若未来 RN 升级
 // 移除该 API，JS 侧会收到异常并回退到“请手动关闭重开”提示。
 @interface AppRestartModule : NSObject<RCTBridgeModule>
+// 2026-10-24 原生崩溃修复：RCTBridgeModule 协议只声明 bridge 属性，
+// 纯 NSObject 子类不会自动合成（UtilsModule 是 RCTEventEmitter 才有），
+// 旧代码直接用 self.bridge 必然 unrecognized selector。必须显式声明
+// 并 @synthesize，RN 注入 bridge 时才能真正落到实例变量上。
+@property (nonatomic, weak) RCTBridge *bridge;
 @end
 
 @implementation AppRestartModule
 
 RCT_EXPORT_MODULE();
+
+@synthesize bridge = _bridge;
 
 + (BOOL)requiresMainQueueSetup {
   return YES;
@@ -5914,7 +5921,19 @@ RCT_EXPORT_MODULE();
 
 RCT_EXPORT_METHOD(restart) {
   dispatch_async(dispatch_get_main_queue(), ^{
-    [self.bridge reload];
+    // 兜底：若 RN 未注入 bridge（模块创建时序问题），取 AppDelegate 上
+    // 已创建的 bridge（SceneDelegate bootstrap 时创建，见 sceneDidBecomeActive）。
+    // AppDelegate 是 RCTAppDelegate 子类，bridge 属性真实存在。
+    RCTBridge *bridge = self.bridge;
+    if (!bridge) {
+      AppDelegate *appDelegate = (AppDelegate *)UIApplication.sharedApplication.delegate;
+      bridge = appDelegate.bridge;
+    }
+    if (bridge) {
+      [bridge reload];
+    } else {
+      NSLog(@"###NATIVE_DEBUG### AppRestartModule: bridge 不可用，无法重载");
+    }
   });
 }
 
