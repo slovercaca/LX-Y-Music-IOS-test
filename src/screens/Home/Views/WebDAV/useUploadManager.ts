@@ -481,8 +481,13 @@ export function useUploadManager(deps: UploadManagerDeps) {
         onProgress: (loaded, total) => {
           if (gen !== generationRef.current) return
           const now = Date.now()
+          // 2026-10-25：心跳保活只刷新看门狗时间——loaded 没变说明是心跳
+          // 重报（原生/降级通道的定期心跳），不是真实进度，不动阶段与速度，
+          // 否则卡顿指示会被心跳洗掉、速度也被拉向 0。
+          const progressed = loaded !== item.uploadedBytes
           item.uploadedBytes = loaded
           item.lastProgressAt = now
+          if (!progressed) return
           // 阶段判断
           if (loaded >= total && total > 0) {
             item.phase = 'waiting'  // 已发送 100%，等待服务器响应

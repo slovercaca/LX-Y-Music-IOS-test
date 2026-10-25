@@ -1,5 +1,5 @@
 // import { createStyle } from '@/utils/tools'
-import { useImperativeHandle, forwardRef, useState, useMemo, useEffect } from 'react'
+import { useImperativeHandle, forwardRef, useState, useEffect } from 'react'
 import { Modal, TouchableWithoutFeedback, View, type ModalProps as _ModalProps } from 'react-native'
 import { useStatusbarHeight } from '@/store/common/hook'
 // import { useWindowSize } from '@/utils/hooks'
@@ -103,8 +103,9 @@ export default forwardRef<ModalType, ModalProps>(
       },
     }))
 
-    const memoChildren = useMemo(() => children, [children])
-
+    // 2026-10-25：不要 memo 缓存 children——Dialog 的内容（含输入值与
+    // 保存回调）随 state 变，memo 一旦命中旧引用，对话框里就是旧值/旧
+    // 回调，表现为“填了也保存不上”。直接渲染 children。
     // 已卸载（含淡出结束）时不渲染任何原生宿主——这是本修复的核心，
     // 杜绝"看不见但还挂着"的 Modal 截胡整页触摸。
     if (!mounted) return null
@@ -145,7 +146,7 @@ export default forwardRef<ModalType, ModalProps>(
             }}
             pointerEvents="box-none"
           >
-             {memoChildren}
+             {children}
            </View>
         </View>
       </Modal>

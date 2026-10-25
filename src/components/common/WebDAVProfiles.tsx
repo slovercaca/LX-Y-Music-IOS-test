@@ -19,6 +19,7 @@ import {
   isDuplicateProfileName,
   type WebDAVServerProfile,
 } from '@/core/webdavMusic/profiles'
+import { webDAVLog } from '@/core/webdavMusic/logger'
 
 interface EditorState {
   id?: string
@@ -52,6 +53,8 @@ export default memo(() => {
   const testingIdRef = useRef<string | null>(null)
   const [editor, setEditor] = useState<EditorState | null>(null)
   const dialogRef = useRef<DialogType>(null)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const refresh = useCallback(async() => {
     const [list, id] = await Promise.all([getWebDAVServerProfiles(), getActiveWebDAVProfileId()])
@@ -66,6 +69,7 @@ export default memo(() => {
   const activeProfile = findActiveWebDAVProfile(profiles, activeId)
 
   const openEditor = useCallback((state: EditorState) => {
+    setSaveError(null)
     setEditor(state)
     // 等 state 落定再打开，避免 Dialog 首帧拿到旧值
     requestAnimationFrame(() => dialogRef.current?.setVisible(true))
@@ -81,37 +85,42 @@ export default memo(() => {
 
   const handleSave = useCallback(async() => {
     if (!editor) return
+    if (saving) return
+    // 2026-10-25：校验失败改走对话框内联红字——toast 在 iOS 上是 RNN 浮层，
+    // 对话框 Modal 打开时 toast 可能被盖在 Modal 下面看不见，用户看到的
+    // 就是“保存按钮按了没用”。内联报错一定看得见。
     const name = editor.name.trim()
     const url = editor.url.trim()
     const username = editor.username.trim()
     if (!name) {
-      toast('请给配置起个名字，比如「家里 NAS」')
+      setSaveError('请给配置起个名字，比如「家里 NAS」')
       return
     }
     if (!url) {
-      toast('请填写服务器地址')
+      setSaveError('请填写服务器地址')
       return
     }
-    // W9：地址格式校验——拼错协议/漏协议的地址先拦下来，别存进去到处报错
     let normalizedUrl = url
     try {
       const parsed = new URL(url)
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('protocol')
       normalizedUrl = url.replace(/\/+$/, '')
     } catch {
-      toast('服务器地址格式不对，应以 http:// 或 https:// 开头', 'long')
+      setSaveError('服务器地址格式不对，应以 http:// 或 https:// 开头')
       return
     }
     if (!username) {
-      toast('请填写用户名')
+      setSaveError('请填写用户名')
       return
     }
     if (isDuplicateProfileName(profiles, name, editor.id)) {
-      toast(`已存在名为「${name}」的配置`)
+      setSaveError(`已存在名为「${name}」的配置`)
       return
     }
     const wasActive = !!editor.id && activeProfile?.id === editor.id
+    setSaving(true)
     try {
+      webDAVLog.info('[WebDAVProfiles] 保存配置', { name, url: normalizedUrl, id: editor.id ?? null })
       const saved = await saveWebDAVServerProfile({
         id: editor.id,
         name,
@@ -131,10 +140,17 @@ export default memo(() => {
       } else {
         toast(`已保存「${saved.name}」`)
       }
+      webDAVLog.info('[WebDAVProfiles] 保存配置成功', { name: saved.name, id: saved.id })
     } catch (error: any) {
-      toast(`保存失败：${error?.message ?? error}`, 'long')
+      // 保存失败时对话框仍开着：内联红字一定看得见，toast 作为补充提示。
+      const msg = `保存失败：${error?.message ?? error}`
+      setSaveError(msg)
+      webDAVLog.error('[WebDAVProfiles] 保存配置失败', { error: error?.message ?? error })
+      toast(msg, 'long')
+    } finally {
+      setSaving(false)
     }
-  }, [editor, profiles, activeProfile, refresh])
+  }, [editor, profiles, activeProfile, refresh, saving])
 
   const handleSwitch = useCallback(async(profile: WebDAVServerProfile) => {
     if (testingIdRef.current) return
@@ -178,6 +194,7 @@ export default memo(() => {
   }, [refresh])
 
   const setEditorField = useCallback((key: keyof EditorState) => (text: string) => {
+    setSaveError(null)
     setEditor(prev => (prev ? { ...prev, [key]: text } : prev))
   }, [])
 
@@ -295,6 +312,9 @@ export default memo(() => {
               />
             </View>
           ))}
+          {saveError ? (
+            <Text size={13} color="#ff3b30" style={styles.saveError}>{saveError}</Text>
+          ) : null}
           <View style={styles.dialogBtnRow}>
             <Button
               style={{ ...styles.dialogBtn, backgroundColor: theme['c-button-background'] }}
@@ -304,9 +324,10 @@ export default memo(() => {
             </Button>
             <Button
               style={{ ...styles.dialogBtn, backgroundColor: theme['c-primary-font'] }}
+              disabled={saving}
               onPress={() => { void handleSave() }}
             >
-              <Text color={theme['c-content-background']}>保存</Text>
+              <Text color={theme['c-content-background']}>{saving ? '保存中…' : '保存'}</Text>
             </Button>
           </View>
         </View>
@@ -396,5 +417,9 @@ const styles = createStyle({
     paddingHorizontal: 22,
     paddingVertical: 9,
     borderRadius: 6,
+  },
+  saveError: {
+    marginBottom: 8,
+    lineHeight: 18,
   },
 })
