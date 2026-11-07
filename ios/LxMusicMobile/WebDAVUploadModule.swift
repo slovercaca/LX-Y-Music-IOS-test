@@ -42,8 +42,8 @@ class WebDAVUploadModule: RCTEventEmitter {
     let config = URLSessionConfiguration.default
     // 连接复用与性能调优
     config.httpMaximumConnectionsPerHost = 6          // 与 JS 并发上限对齐
-    config.timeoutIntervalForRequest = 60             // 单次请求 60s 无数据则超时
-    config.timeoutIntervalForResource = 600           // 整个任务 10 分钟
+    config.timeoutIntervalForRequest = 1800           // 2026-11-07：PUT 的响应要等整个 body 传完才有，原 60s 等于给上传设了与大小无关的硬顶——慢速上行下 10MB+ 必超时。放宽到 30 分钟，与 JS 侧按大小放宽的上限对齐；真停滞由 JS 看门狗/中止句柄把关
+    config.timeoutIntervalForResource = 1800          // 整个任务上限 30 分钟（同上）
     // waitsForConnectivity = false：断网时立即失败（走 JS 自动重试），
     // 而不是静默等待。静默等待期间无进度上报，会被 15s 看门狗误杀，
     // 不如快速失败让重试逻辑接管。

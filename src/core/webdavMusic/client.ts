@@ -160,6 +160,36 @@ export const getWebDAVAuthHeaders = (): Record<string, string> => {
 }
 
 /**
+ * 提取 URL 的 origin（scheme://host[:port]），纯字符串切分。
+ * 不用 new URL()：Hermes 的 URL 实现不可靠——本项目已两次被它坑
+ * （client.ts 的 getWebDAVRemoteUrl 注释、配置页地址校验误报）。
+ * 2026-11-07 真机实锤第三次：downloadToFileAtomic 用 new URL().origin
+ * 判同源，对自家服务器地址也判成不同源，把 Authorization 误剥离，
+ * 所有 WebDAV 下载都以未认证请求发出、被服务器断开（-1005）。
+ */
+const extractOrigin = (u: string): string | null => {
+  const protoIdx = u.indexOf('://')
+  if (protoIdx < 0) return null
+  const scheme = u.substring(0, protoIdx).toLowerCase()
+  const rest = u.substring(protoIdx + 3)
+  const end = rest.search(/[/?#]/)
+  const authority = end < 0 ? rest : rest.substring(0, end)
+  // 去掉可能存在的 userinfo（http://user:pass@host 形式）
+  const hostPort = authority.substring(authority.lastIndexOf('@') + 1).toLowerCase()
+  if (!hostPort) return null
+  return `${scheme}://${hostPort}`
+}
+
+/** 给定 URL 是否指向当前配置的 WebDAV 服务器本身（同源判定，鉴权剥离用） */
+export const isWebDAVServerOrigin = (url: string): boolean => {
+  const creds = readWebDAVCredentials()
+  if (!creds) return false
+  const target = extractOrigin(url)
+  const server = extractOrigin(creds.url)
+  return target !== null && server !== null && target === server
+}
+
+/**
  * 远端路径 → 可直接 GET 的直链 URL。
  * 逐段编码：encodeURIComponent 会把路径分隔符 / 编成 %2F，
  * 整体编码后 URL 变成 "音乐%2F歌曲.mp3"，大多数 WebDAV 服务器

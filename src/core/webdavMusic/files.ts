@@ -10,7 +10,7 @@ import {
   stat as statLocalFile,
   unlink,
 } from '@/utils/fs'
-import { getClient, getWebDAVAuthHeaders, readWebDAVCredentials } from './client'
+import { getClient, getWebDAVAuthHeaders, isWebDAVServerOrigin } from './client'
 import { webDAVLog } from './logger'
 
 /**
@@ -259,6 +259,16 @@ const verifyRemoteSize = async(remotePath: string, expectedBytes: number): Promi
   return remoteSize === expectedBytes ? { status: 'ok', size: remoteSize } : { status: 'mismatch', size: remoteSize }
 }
 
+/**
+ * PUT 超时按文件大小放宽（2026-11-07）：固定 120 秒对慢速上行不友好——
+ * 10MB 文件在 <85KB/s 的上行（出门在外的酒店 WiFi、漫游流量很常见）下
+ * 必然超时，文件越大越必死。按 50KB/s 的保底速度估算所需时间：
+ * 下限 120 秒（小文件行为不变），上限 30 分钟。
+ */
+export const putTimeoutForSize = (bytes: number): number => {
+  const bySize = Math.ceil(bytes / 51200) * 1000
+  return Math.min(1800000, Math.max(120000, bySize))
+}
 /** 带超时的 Promise 竞速：超时不取消底层请求，但能让调用方不再永久挂起 */
 const withTimeout = async<T>(promise: Promise<T>, ms: number, message: string): Promise<T> => {
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -294,14 +304,15 @@ export const uploadFile = async(remotePath: string, content: string): Promise<vo
   // 409 与其他失败直接中止，保住旧文件（见 deleteRemoteFileOrAbort）。
   // 最多两轮：首轮大小不符时删坏文件重传一次。
   await deleteRemoteFileOrAbort(remotePath)
+  const putTimeout = putTimeoutForSize(expectedBytes)
   let lastError: Error | null = null
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const abortController = new AbortController()
       await withTimeout(
         client.putFileContents(remotePath, content, { overwrite: true, signal: abortController.signal } as any) as Promise<unknown>,
-        120000,
-        `上传超时（120秒无响应）：${remotePath}`,
+        putTimeout,
+        `上传超时（${Math.round(putTimeout / 1000)}秒无响应）：${remotePath}`,
       )
     } catch (error: any) {
       webDAVLog.error('uploadFile: PUT 失败', { remotePath, error: describeWebDAVError(error) })
@@ -336,7 +347,7 @@ export const uploadFile = async(remotePath: string, content: string): Promise<vo
  * - 先校验本地文件：stat 失败 / 是目录 / 大小为 0 直接抛错，
  *   不再把读失败吞成 size: 0 的无效上传
  * - 先确保远端父目录存在
- * - base64 → Buffer → putFileContents，超时 2 分钟
+ * - base64 → Buffer → putFileContents，超时按文件大小放宽（putTimeoutForSize）
  * - onStage 分阶段回调（定位上传卡死用）
  */
 export const uploadBinaryFile = async(
@@ -372,6 +383,7 @@ export const uploadBinaryFile = async(
   // 2026-10-25（改回 DELETE）：先删旧文件再 PUT（见 deleteRemoteFileOrAbort）。
   // 最多两轮：首轮大小不符时删坏文件重传一次。
   await deleteRemoteFileOrAbort(remotePath)
+  const putTimeout = putTimeoutForSize(info.size)
   let lastError: Error | null = null
   for (let attempt = 0; attempt < 2; attempt++) {
     const abortController = new AbortController()
@@ -382,12 +394,12 @@ export const uploadBinaryFile = async(
           ...(contentType ? { headers: { 'Content-Type': contentType } } : {}),
           signal: abortController.signal,
         } as any) as Promise<unknown>,
-        120000,
-        `上传超时（120秒无响应）：${remotePath}`,
+        putTimeout,
+        `上传超时（${Math.round(putTimeout / 1000)}秒无响应）：${remotePath}`,
       )
     } catch (e: any) {
       if (abortController.signal.aborted) {
-        throw new Error(`上传超时（120秒无响应）：${remotePath}`)
+        throw new Error(`上传超时（${Math.round(putTimeout / 1000)}秒无响应）：${remotePath}`)
       }
       throw e
     }
@@ -465,16 +477,15 @@ export const downloadToFileAtomic = async(options: {
     // 高-2 安全：Authorization 只发给已配置的 WebDAV 服务器同源地址。
     // 本函数也被用来下载外部封面图（酷我/酷狗 CDN），无条件带头会把账密发给第三方。
     let headers = getWebDAVAuthHeaders()
-    let sameOrigin = false
     let authPresentBeforeStrip = !!headers.Authorization
-    try {
-      const creds = readWebDAVCredentials()
-      sameOrigin = creds ? new URL(url).origin === new URL(creds.url).origin : false
-      if (!sameOrigin) {
-        const { Authorization: _auth, ...rest } = headers
-        headers = rest
-      }
-    } catch {
+    // 2026-11-07：同源判定改走 client.ts 的纯字符串比对。此前用
+    // new URL().origin——Hermes 的 URL 实现对自家服务器地址也判成
+    // 不同源（真机日志 sameOrigin 恒为 false），Authorization 被误
+    // 剥离，所有下载都以未认证请求发出、被服务器直接断开（-1005）。
+    // 判定失败/未配置时 isWebDAVServerOrigin 返回 false，仍按不同源
+    // 剥离——安全默认不变：凭据绝不发给第三方地址（如外部封面 CDN）。
+    const sameOrigin = isWebDAVServerOrigin(url)
+    if (!sameOrigin) {
       const { Authorization: _auth, ...rest } = headers
       headers = rest
     }

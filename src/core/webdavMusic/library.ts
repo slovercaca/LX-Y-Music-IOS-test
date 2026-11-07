@@ -74,13 +74,85 @@ const getCacheDir = () => `${temporaryDirectoryPath}/WebDAV`
 // 配置持久化
 // ---------------------------------------------------------------------------
 
+const pathSegments = (p: string): string[] => String(p || '').split('/').filter(Boolean)
+
+/** 短路径是否是长路径的「整段后缀」（如 /music/x.aac 之于 /LX_Music/music/x.aac） */
+const isSegmentSuffix = (shorter: string, longer: string): boolean => {
+  const s = pathSegments(shorter)
+  const l = pathSegments(longer)
+  if (s.length === 0 || s.length >= l.length) return false
+  return s.every((seg, i) => seg === l[l.length - s.length + i])
+}
+
+/**
+ * 清理歌曲库里的重复条目（2026-11-07 真机实锤）：
+ * 换过服务器/DAV 根目录后，同一首歌会以两种 remotePath 共存
+ * （如 /music/演员.aac 与 /LX_Music/music/演员.aac —— 文件名与大小
+ * 完全相同、一条路径是另一条的整段后缀），id 不同、按 id 去重抓不到，
+ * 歌单里就出现两首一模一样的歌。判定为同一文件时只留一条：
+ * 已下载 > 路径在当前同步目录下 > 有自定义封面/歌词 > 有在线封面，
+ * 同分时留更深的那条（与当前服务器结构更一致）。
+ * 文件名+大小相同但路径互不为后缀的（不同文件夹里的同名文件）不动。
+ */
+const dedupeWebDAVSongs = (songs: LX.WebDAV.MusicInfo[]): LX.WebDAV.MusicInfo[] => {
+  const syncSegs = pathSegments(String(settingState.setting['sync.webdav.path'] || ''))
+  const syncDirPrefix = syncSegs.length ? `/${syncSegs.join('/')}` : ''
+  const scoreOf = (song: LX.WebDAV.MusicInfo): number => {
+    let score = 0
+    if (song.meta?.filePath) score += 8
+    const rp = song.meta?.remotePath || ''
+    if (syncDirPrefix && (rp === syncDirPrefix || rp.startsWith(`${syncDirPrefix}/`))) score += 4
+    if ((song.meta as any)?.customPicPath || (song.meta as any)?.customLrcPath) score += 2
+    if (song.meta?.picUrl) score += 1
+    return score
+  }
+  // 1) 同 id 只留分数最高的一条
+  const byId = new Map<string, LX.WebDAV.MusicInfo>()
+  for (const song of songs) {
+    const prev = byId.get(song.id)
+    if (!prev || scoreOf(song) > scoreOf(prev)) byId.set(song.id, song)
+  }
+  const unique = [...byId.values()]
+  // 2) 同名同大小、路径互为整段后缀的，只留胜出的一条
+  const groups = new Map<string, LX.WebDAV.MusicInfo[]>()
+  for (const song of unique) {
+    const size = Number(song.meta?.size) || 0
+    if (size <= 0) continue
+    const key = `${(song.meta?.fileName || song.name || '').toLowerCase()}|${size}`
+    const arr = groups.get(key) ?? []
+    arr.push(song)
+    groups.set(key, arr)
+  }
+  const dropped = new Set<LX.WebDAV.MusicInfo>()
+  for (const arr of groups.values()) {
+    if (arr.length < 2) continue
+    const sorted = [...arr].sort((a, b) =>
+      scoreOf(b) - scoreOf(a)
+      || (b.meta?.remotePath?.length ?? 0) - (a.meta?.remotePath?.length ?? 0))
+    const winner = sorted[0]
+    const winnerPath = winner.meta?.remotePath || ''
+    for (const loser of sorted.slice(1)) {
+      const loserPath = loser.meta?.remotePath || ''
+      if (winnerPath && loserPath && (isSegmentSuffix(loserPath, winnerPath) || isSegmentSuffix(winnerPath, loserPath))) {
+        dropped.add(loser)
+      }
+    }
+  }
+  if (dropped.size) {
+    webDAVLog.warn('清理同一文件的重复歌曲条目（旧根路径残留）', {
+      dropped: [...dropped].map(s => s.meta?.remotePath),
+    })
+  }
+  return unique.filter(s => !dropped.has(s))
+}
+
 export const getWebDAVConfig = async(): Promise<LX.WebDAV.Config> => {
   const config = (await getData<LX.WebDAV.Config>(CONFIG_KEY)) ?? {
     selectedFolder: null,
     songs: [],
     filterPath: null,
   }
-  config.songs = (config.songs ?? []).map(normalizeWebDAVMusicInfo)
+  config.songs = dedupeWebDAVSongs((config.songs ?? []).map(normalizeWebDAVMusicInfo))
   return config
 }
 
@@ -374,7 +446,12 @@ export const scanWebDAVSongs = async(
   for (const existing of config.songs ?? []) {
     if (!scannedIds.has(existing.id)) {
       // 中-2：本地状态都在 meta 下（顶层恒 undefined 会让防丢保护永不生效）
-      const hasLocalState = !!(existing.meta?.filePath || (existing.meta as any)?.customPicPath || (existing.meta as any)?.customLrcPath || existing.meta?.picPath || existing.meta?.lrcPath)
+      // 2026-11-07：picPath/lrcPath 不再算「本地状态」——它们是扫描派生
+      // 字段（每次扫描按同名规则重新匹配），几乎每首扫过的歌都有；把它们
+      // 算进去等于所有旧条目永生：换过扫描根/服务器根后，同一首歌以
+      // /music/... 与 /LX_Music/music/... 两种路径在歌单里双份共存。
+      // 真正的本地状态只有：已下载（filePath）、自定义封面/歌词。
+      const hasLocalState = !!(existing.meta?.filePath || (existing.meta as any)?.customPicPath || (existing.meta as any)?.customLrcPath)
       if (hasLocalState) {
         mergedSongs.push(existing)
       }

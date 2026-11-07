@@ -11,7 +11,7 @@ import {
   joinWebDAVRemotePath,
   getClient,
 } from './client'
-import { getStat } from './files'
+import { getStat, putTimeoutForSize } from './files'
 import { webDAVLog } from './logger'
 
 // 原生上传模块（iOS）：URLSession 流式上传，真实进度、可中断、低内存。
@@ -616,10 +616,13 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
   }, 10000)
 
   try {
-    // 全量修复：降级 PUT 加 600 秒硬超时竞速。webdav 库无中断 API，
-    // 心跳每 10 秒刷新看门狗会把挂起的 PUT 永久掩盖；600 秒后一定结算
+    // 全量修复：降级 PUT 加硬超时竞速。webdav 库无中断 API，
+    // 心跳每 10 秒刷新看门狗会把挂起的 PUT 永久掩盖；超时后一定结算
     // 为失败，队列才能排空、用户才能重试（底层请求若仍在跑，下一次
     // 重传会先 DELETE 再写，大小校验是最后一道关）。
+    // 2026-11-07：超时下限仍是 600 秒，但按文件大小放宽（putTimeoutForSize，
+    // 上限 30 分钟）——固定 600 秒对慢速上行的大文件同样是必死线。
+    const fallbackTimeout = Math.max(600000, putTimeoutForSize(actualSize))
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null
     try {
       await Promise.race([
@@ -628,7 +631,7 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
           contentLength: buffer.length,
         }) as Promise<unknown>,
         new Promise<never>((_, reject) => {
-          fallbackTimer = setTimeout(() => reject(new Error(`上传超时（600秒无响应）：${remotePath}`)), 600000)
+          fallbackTimer = setTimeout(() => reject(new Error(`上传超时（${Math.round(fallbackTimeout / 1000)}秒无响应）：${remotePath}`)), fallbackTimeout)
         }),
       ])
     } finally {
