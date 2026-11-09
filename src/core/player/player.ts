@@ -88,19 +88,18 @@ const currentStreamInfo = {
 /**
  * 检查音乐信息是否已更改
  */
-const diffCurrentMusicInfo = (curMusicInfo: LX.Music.MusicInfo | LX.Download.ListItem): boolean => {
-  // return curMusicInfo !== playerState.playMusicInfo.musicInfo || playerState.isPlay
-  return createGettingUrlId(curMusicInfo) != global.lx.gettingUrlId || curMusicInfo.id != playerState.playMusicInfo.musicInfo?.id || playerState.isPlay
+const isStaleMusicInfo = (curMusicInfo: LX.Music.MusicInfo | LX.Download.ListItem): boolean => {
+  return createGettingUrlId(curMusicInfo) != global.lx.gettingUrlId || curMusicInfo.id != playerState.playMusicInfo.musicInfo?.id
 }
 
 let cancelDelayRetry: (() => void) | null = null
-const delayRetry = async(musicInfo: LX.Music.MusicInfo | LX.Download.ListItem, isRefresh = false): Promise<PlayUrlInfo | null> => {
+const delayRetry = async(musicInfo: LX.Music.MusicInfo | LX.Download.ListItem, isRefresh = false, quality?: LX.Quality): Promise<PlayUrlInfo | null> => {
   // if (cancelDelayRetry) cancelDelayRetry()
   return new Promise<PlayUrlInfo | null>((resolve, reject) => {
     const time = getRandom(2, 6)
     setStatusText(global.i18n.t('player__getting_url_delay_retry', { time }))
     const tiemout = setTimeout(() => {
-      getMusicPlayUrl(musicInfo, isRefresh, true).then((result) => {
+      getMusicPlayUrl(musicInfo, isRefresh, true, quality).then((result) => {
         // 低-13：只清属于本轮的句柄——新一轮重试已接管时，旧回调无条件置 null
         // 会把新句柄吞掉，暂停时再也取消不了新重试
         if (cancelDelayRetry === myCancel) cancelDelayRetry = null
@@ -137,21 +136,21 @@ const getMusicPlayUrl = async(musicInfo: LX.Music.MusicInfo | LX.Download.ListIt
       isRefresh,
       quality,
       onToggleSource(_mInfo) {
-        if (diffCurrentMusicInfo(musicInfo)) return
+        if (isStaleMusicInfo(musicInfo)) return
         setStatusText(global.i18n.t('toggle_source_try'))
       },
     })
   }).then(url => {
-    if (global.lx.isPlayedStop || diffCurrentMusicInfo(musicInfo)) return null
+    if (global.lx.isPlayedStop || isStaleMusicInfo(musicInfo)) return null
 
     return url
   }).catch(async err => {
     // console.log('err', err.message)
     if (global.lx.isPlayedStop ||
-      diffCurrentMusicInfo(musicInfo) ||
+      isStaleMusicInfo(musicInfo) ||
       err.message == requestMsg.cancelRequest) return null
 
-    if (err.message == requestMsg.tooManyRequests) return delayRetry(musicInfo, isRefresh)
+    if (err.message == requestMsg.tooManyRequests && !isRetryed) return delayRetry(musicInfo, isRefresh, quality)
 
     if (!isRetryed) return getMusicPlayUrl(musicInfo, isRefresh, true, quality)
 
@@ -173,7 +172,7 @@ const getMusicPlayUrl = async(musicInfo: LX.Music.MusicInfo | LX.Download.ListIt
 let pendingRestoreSeek: { key: string, time: number } | null = null
 export const setMusicUrl = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem, isRefresh?: boolean, quality?: LX.Quality) => {
   // addLoadTimeout()
-  if (!diffCurrentMusicInfo(musicInfo)) return
+  if (!isRefresh && !isStaleMusicInfo(musicInfo) && !playerState.isPlay) return
   // E1 修复：进入新的取链流程时，先清除上一次失败遗留的 5s 兜底切歌定时器。
   // 否则：A 失败→用户手动重试 A→旧定时器 5s 后把正在播的 A 切到 B。
   clearDelayNextTimeout()
@@ -190,7 +189,7 @@ export const setMusicUrl = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem
     const currentTime = await currentTimePromise
     // P1（2026-10-06）：await 期间用户可能已暂停/停止/切歌，加过期守卫，
     // 否则取链返回后仍 setResource 起播
-    if (global.lx.isPlayedStop || diffCurrentMusicInfo(musicInfo)) return
+    if (global.lx.isPlayedStop || isStaleMusicInfo(musicInfo)) return
     // 一次性消费：无论这次加载的是不是被恢复的那首歌，都清掉这个全局值
     pendingRestoreSeek = null
     currentStreamInfo.musicId = musicInfo.id
@@ -234,7 +233,7 @@ const handleRestorePlay = async(restorePlayInfo: LX.Player.SavedPlayInfo) => {
     ) return
     setMusicInfo({ pic: url })
     global.app_event.picUpdated()
-  })
+  }).catch(() => {})
 
   void getLyricInfo({ musicInfo }).then((lyricInfo) => {
     if (musicInfo.id != playMusicInfo.musicInfo?.id) return
@@ -266,7 +265,7 @@ const debouncePlay = debounceBackgroundTimer((musicInfo: LX.Player.PlayMusic) =>
       playerState.loadErrorPicUrl == url) return
     setMusicInfo({ pic: url })
     global.app_event.picUpdated()
-  })
+  }).catch(() => {})
 
   void getLyricInfo({ musicInfo }).then((lyricInfo) => {
     if (musicInfo.id != playerState.playMusicInfo.musicInfo?.id) return
@@ -409,7 +408,8 @@ export const getNextPlayMusicInfo = async(): Promise<LX.Player.PlayMusicInfo | n
     }
     // 从已播放列表移除播放列表已删除的歌曲
     let index
-    for (index = currentId ? playedList.findIndex(m => m.musicInfo.id === currentId) + 1 : playedList.length; index < playedList.length; index++) { // 低-14：tempPlay 索引越界时 currentId 为空，跳过 playedList 定位防基准错位
+    const foundIndex = currentId ? playedList.findIndex(m => m.musicInfo.id === currentId) : -1
+    for (index = foundIndex > -1 ? foundIndex + 1 : playedList.length; index < playedList.length; index++) { // 低-14：tempPlay 索引越界时 currentId 为空，跳过 playedList 定位防基准错位
       const playMusicInfo = playedList[index]
       const currentId = playMusicInfo.musicInfo.id
       if (playMusicInfo.listId == currentListId && !currentList.some(m => m.id === currentId)) {
@@ -506,7 +506,8 @@ export const playNext = async(isAutoToggle = false): Promise<void> => {
     }
     // 从已播放列表移除播放列表已删除的歌曲
     let index
-    for (index = currentId ? playedList.findIndex(m => m.musicInfo.id === currentId) + 1 : playedList.length; index < playedList.length; index++) { // 低-14：tempPlay 索引越界时 currentId 为空，跳过 playedList 定位防基准错位
+    const foundIndex = currentId ? playedList.findIndex(m => m.musicInfo.id === currentId) : -1
+    for (index = foundIndex > -1 ? foundIndex + 1 : playedList.length; index < playedList.length; index++) { // 低-14：tempPlay 索引越界时 currentId 为空，跳过 playedList 定位防基准错位
       const playMusicInfo = playedList[index]
       const currentId = playMusicInfo.musicInfo.id
       if (playMusicInfo.listId == currentListId && !currentList.some(m => m.id === currentId)) {

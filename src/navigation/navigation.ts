@@ -26,6 +26,7 @@ import { getCachedBgPicColor } from '@/utils/nativeModules/utils'
 
 // 集中管理各界面 push 的进行中状态，防止快速重复点击/滑动导致界面卡死。
 const pendingPushes = new Set<string>()
+const pushTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const isTopScreen = (id: COMPONENT_IDS) => {
   const ids = commonState.componentIds
   return ids.length > 0 && ids[ids.length - 1]?.name === id
@@ -54,13 +55,22 @@ const startPush = (id: COMPONENT_IDS, options: StartPushOptions = {}) => {
       if (stale) commonActions.removeComponentId(stale.id)
     }
   }
+  const oldTimer = pushTimers.get(id)
+  if (oldTimer != null) clearTimeout(oldTimer)
   pendingPushes.add(id)
   // 安全兜底：即使 push 的 Promise 始终不结算（如 RNN 返回 undefined 或原生转场挂起），
   // 也确保锁最终释放，避免界面永久卡死只能重启。
-  setTimeout(() => { endPush(id) }, 800)
+  pushTimers.set(id, setTimeout(() => { endPush(id) }, 800))
   return true
 }
-const endPush = (id: COMPONENT_IDS) => { pendingPushes.delete(id) }
+const endPush = (id: COMPONENT_IDS) => {
+  pendingPushes.delete(id)
+  const timer = pushTimers.get(id)
+  if (timer != null) {
+    clearTimeout(timer)
+    pushTimers.delete(id)
+  }
+}
 // pop 完成（返回按钮/系统返回）时统一处理：清账本条目 + 立即释放该类型页面的
 // push 锁。pop 已完成即不存在进行中的同名 push；若不释放，用户“返回后立刻
 // 再点同一入口”会在 800ms 兜底锁窗口内被静默吞掉（表现为点了没反应）。

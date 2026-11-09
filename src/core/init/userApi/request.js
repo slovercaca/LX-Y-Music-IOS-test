@@ -36,16 +36,18 @@ const handleRequestData = async({
       options.body = formBody.join('&')
       delete options.form
     } else if (options.formData) {
-      headers['Content-Type'] = 'multipart/form-data'
-      const formBody = []
-      // 中：此前遍历不存在的 options.form，Object.entries(undefined) 必抛
-      // TypeError——自定义源传 formData 的请求（取链/歌词/封面）全崩
-      for (let [key, value] of Object.entries(options.formData)) {
-        let encodedKey = encodeURIComponent(key)
-        let encodedValue = encodeURIComponent(value)
-        formBody.push(`${encodedKey}=${encodedValue}`)
+      if (typeof global.FormData === 'function' && options.formData instanceof global.FormData) {
+        options.body = options.formData
+      } else if (typeof global.FormData === 'function') {
+        const formData = new global.FormData()
+        for (let [key, value] of Object.entries(options.formData)) {
+          formData.append(key, value)
+        }
+        options.body = formData
+      } else {
+        // 沙箱 JSContext 未注入 FormData 时回退旧行为，避免构造即抛错
+        options.body = options.formData
       }
-      options.body = options.formData
       delete options.formData
     } else {
       headers['Content-Type'] = 'application/json'
@@ -77,7 +79,7 @@ const blobToBuffer = (blob) => {
   })
 }
 
-export const fetchData = (url, { timeout = 13_000, ...options }) => {
+export const fetchData = (url, { timeout = 13_000, ...options } = {}) => {
   // console.log('---start---', url)
 
   const controller = new global.AbortController()

@@ -89,6 +89,8 @@ static BOOL LXWriteFLACMetadata(NSString *filePath, NSDictionary *metadata, NSSt
   NSString *existingArtist = nil;
   NSString *existingAlbum = nil;
   NSString *existingLyric = nil;
+  NSData *newImgData = picPath.length ? [NSData dataWithContentsOfFile:picPath] : nil;
+  BOOL shouldReplacePicture = (newImgData.length > 0);
   NSMutableArray<NSNumber *> *blocksToRemove = [NSMutableArray array];
   int idx = 0;
   do {
@@ -112,7 +114,7 @@ static BOOL LXWriteFLACMetadata(NSString *filePath, NSDictionary *metadata, NSSt
           }
         }
         [blocksToRemove addObject:@(idx)];
-      } else if (block->type == FLAC__METADATA_TYPE_PICTURE) {
+      } else if (block->type == FLAC__METADATA_TYPE_PICTURE && shouldReplacePicture) {
         [blocksToRemove addObject:@(idx)];
       }
     }
@@ -149,17 +151,14 @@ static BOOL LXWriteFLACMetadata(NSString *filePath, NSDictionary *metadata, NSSt
   addVC(@"LYRICS", lyric);
 
   FLAC__StreamMetadata *picBlock = nil;
-  if (picPath.length) {
-    NSData *imgData = [NSData dataWithContentsOfFile:picPath];
-    if (imgData.length) {
-      picBlock = FLAC__metadata_object_new(FLAC__METADATA_TYPE_PICTURE);
-      picBlock->data.picture.type = FLAC__STREAM_METADATA_PICTURE_TYPE_FRONT_COVER;
-      NSString *ext = picPath.pathExtension.lowercaseString;
-      NSString *mime = [ext isEqualToString:@"png"] ? @"image/png" : ([ext isEqualToString:@"gif"] ? @"image/gif" : @"image/jpeg");
-      FLAC__metadata_object_picture_set_mime_type(picBlock, (char *)[mime UTF8String], /*copy*/ true);
-      FLAC__metadata_object_picture_set_description(picBlock, (FLAC__byte *)"", /*copy*/ true);
-      FLAC__metadata_object_picture_set_data(picBlock, (FLAC__byte *)imgData.bytes, (FLAC__uint32)imgData.length, /*copy*/ true);
-    }
+  if (shouldReplacePicture) {
+    picBlock = FLAC__metadata_object_new(FLAC__METADATA_TYPE_PICTURE);
+    picBlock->data.picture.type = FLAC__STREAM_METADATA_PICTURE_TYPE_FRONT_COVER;
+    NSString *ext = picPath.pathExtension.lowercaseString;
+    NSString *mime = [ext isEqualToString:@"png"] ? @"image/png" : ([ext isEqualToString:@"gif"] ? @"image/gif" : @"image/jpeg");
+    FLAC__metadata_object_picture_set_mime_type(picBlock, (char *)[mime UTF8String], /*copy*/ true);
+    FLAC__metadata_object_picture_set_description(picBlock, (FLAC__byte *)"", /*copy*/ true);
+    FLAC__metadata_object_picture_set_data(picBlock, (FLAC__byte *)newImgData.bytes, (FLAC__uint32)newImgData.length, /*copy*/ true);
   }
 
   FLAC__metadata_iterator_init(it, chain);
@@ -289,6 +288,7 @@ static NSDictionary<NSString *, NSData *> *LXReadID3Frames(NSString *filePath, N
   while (offset + 10 <= end) {
     [fh seekToFileOffset:offset];
     NSData *frameHeader = [fh readDataOfLength:10];
+    if (frameHeader.length < 10) break;
     const uint8_t *fb = (const uint8_t *)frameHeader.bytes;
     if (fb[0] == 0 && fb[1] == 0 && fb[2] == 0 && fb[3] == 0) break;
     NSString *fid = [[NSString alloc] initWithBytes:fb length:4 encoding:NSASCIIStringEncoding];
@@ -343,7 +343,9 @@ static BOOL LXWriteMP3Metadata(NSString *filePath, NSDictionary *metadata, NSStr
   NSMutableData *tagBody = [NSMutableData data];
   for (NSString *fid in frames) {
     NSData *body = frames[fid];
-    NSMutableData *frame = [NSMutableData dataWithBytes:[fid UTF8String] length:4];
+    NSData *fidData = [fid dataUsingEncoding:NSASCIIStringEncoding];
+    if (fidData.length != 4) continue;
+    NSMutableData *frame = [NSMutableData dataWithData:fidData];
     uint8_t sizeBytes[4];
     LXID3TagSizeToBytes(body.length, sizeBytes);
     [frame appendBytes:sizeBytes length:4];

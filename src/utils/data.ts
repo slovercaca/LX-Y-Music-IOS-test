@@ -614,7 +614,7 @@ export const addSyncHostHistory = async(host: string) => {
 }
 export const removeSyncHostHistory = async(index: number) => {
   // 低：未初始化时模块变量可能为空数组/未加载，先确保已加载再 splice
-  if (!syncHostHistory.length) await getSyncHostHistory()
+  if (!syncHostHistory?.length) await getSyncHostHistory()
   syncHostHistory.splice(index, 1)
   await saveData(syncHostHistoryPrefix, syncHostHistory)
 }

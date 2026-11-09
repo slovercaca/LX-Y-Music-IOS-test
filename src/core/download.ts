@@ -80,7 +80,7 @@ const processQueue = async() => {
       // 中：失败清半截文件——同扩展名时下载直接写最终路径，中途失败的
       // 截断音频会留在 music/ 被本地库当正常歌曲列出、播到一半断裂
       void unlink(task.filePath).catch(() => {})
-      void unlink(downloadTempVariantPath(task)).catch(() => {})
+      cleanupDownloadTempFiles(task)
       if (batchTaskIds.has(task.id)) {
         if (batchState) batchState.fail++
       } else toast(`${task.fileName} ${friendlyDownloadError(error)}`, 'short')
@@ -107,6 +107,31 @@ const downloadTempVariantPath = (task: DownloadTask): string => {
   const extMatch = /\.([^.]+)$/.exec(task.filePath)
   if (!extMatch || task.filePath.includes('.download.')) return ''
   return task.filePath.replace(/\.([^.]+)$/, '.download.$1')
+}
+
+// 任务记录里落盘的实际临时下载路径（2026-11-09）：与 actualQuality 同为后加的
+// 可选字段——startDownload 定下临时路径后写回任务，使失败/删除/重启后清理用的
+// 都是同一份路径事实。此前临时路径只存在于 startDownload 的局部变量，清理时按
+// filePath 推导变体，推导用的是建任务时的扩展名，与实际写入的 URL 扩展名不一致
+// 时必然删错、真临时文件永留存。旧任务无此字段，读取返回空串、清理回退推导。
+type DownloadTaskWithTempPath = DownloadTask & { downloadTempPath?: string }
+const recordedTempPath = (task: DownloadTask): string => (task as DownloadTaskWithTempPath).downloadTempPath ?? ''
+const setRecordedTempPath = (task: DownloadTask, tempPath?: string) => {
+  downloadActions.updateTask(task.id, { downloadTempPath: tempPath } as unknown as Partial<DownloadTask>)
+}
+
+// 需清理的临时文件路径清单：记录的实际路径优先，再补推导变体（相同则去重）
+const downloadTempPaths = (task: DownloadTask): string[] => {
+  const paths: string[] = []
+  const recorded = recordedTempPath(task)
+  if (recorded) paths.push(recorded)
+  const variant = downloadTempVariantPath(task)
+  if (variant && variant !== recorded) paths.push(variant)
+  return paths
+}
+
+const cleanupDownloadTempFiles = (task: DownloadTask) => {
+  for (const tempPath of downloadTempPaths(task)) void unlink(tempPath).catch(() => {})
 }
 
 const startDownload = async(task: DownloadTask) => {
@@ -194,11 +219,31 @@ const startDownload = async(task: DownloadTask) => {
   let downloadFilePath = task.filePath
   if (isBilibiliSource && urlExtension) {
     downloadFilePath = `${getMusicDir()}/${task.fileName}.download.${urlExtension}`
+    // 2026-11-09：B 站分支此前只改临时路径、最终路径仍用建任务时写死的扩展名
+    //（建任务时强制 mp3），与下方扩展名不一致分支口径分叉；统一为真实扩展名
+    if (urlExtension !== taskExt) finalFilePath = `${getMusicDir()}/${task.fileName}.${urlExtension}`
     console.log(`[Download] Bilibili 源使用临时路径下载: ${downloadFilePath}`)
   } else if (urlExtension && urlExtension !== taskExt) {
     downloadFilePath = `${getMusicDir()}/${task.fileName}.download.${urlExtension}`
     finalFilePath = `${getMusicDir()}/${task.fileName}.${urlExtension}`
     console.log(`[Download] URL 扩展名(${urlExtension})与任务扩展名(${taskExt})不一致，使用真实扩展名下载: ${downloadFilePath} -> ${finalFilePath}`)
+  }
+
+  // 2026-11-09：真实扩展名算出的最终路径可能正好是另一条任务的 filePath
+  //（如同歌的另一音质任务）——完成改名会先删目标文件，等于连带删掉对方已
+  // 下好的文件、两条记录还指向同一路径。这种情况回退用本任务的规划路径。
+  if (finalFilePath !== task.filePath && downloadState.tasks.some(t => t.id !== task.id && t.filePath === finalFilePath)) {
+    console.log(`[Download] 最终路径 ${finalFilePath} 已被其他任务占用，回退为任务规划路径 ${task.filePath}`)
+    finalFilePath = task.filePath
+  }
+
+  // 2026-11-09：把实际临时路径落入任务记录，供失败/删除/重启后按同一份事实
+  // 清理（见 recordedTempPath）；本次直写最终路径而记录里还留着上次尝试的
+  // 临时路径时一并清掉，免得日后清理误删旧名
+  if (downloadFilePath !== task.filePath) {
+    setRecordedTempPath(task, downloadFilePath)
+  } else if (recordedTempPath(task)) {
+    setRecordedTempPath(task)
   }
 
   // 取链期间用户可能已点暂停：此时还没建下载任务，直接收尾（状态已由 pauseTask 置 paused）
@@ -325,6 +370,8 @@ const startDownload = async(task: DownloadTask) => {
       console.error(`[Download Manager] Failed to request media scan for ${downloadedFilePath}:`, scanError)
     }
     downloadActions.updateTask(task.id, { status: 'completed', progress: { ...task.progress, percent: 1 }, filePath: downloadedFilePath })
+    // 2026-11-09：临时文件已改名为最终路径，清掉任务里的临时路径记录
+    if (recordedTempPath(task)) setRecordedTempPath(task)
 
     // 下载完成后缓存歌词（内存缓存 + 同名 .lrc），保证离线也能显示歌词
     void cacheLyricForOffline(task, downloadedFilePath)
@@ -621,8 +668,8 @@ export const resumeTask = async(taskId: string) => {
   try {
     await unlink(task.filePath)
     // 中：.download 变体一并清——只删 filePath 时半截临时文件永留存
-    const variant = downloadTempVariantPath(task)
-    if (variant) await unlink(variant).catch(() => {})
+    // 2026-11-09：以任务记录的实际临时路径为准、推导变体兜底（见 downloadTempPaths）
+    for (const tempPath of downloadTempPaths(task)) await unlink(tempPath).catch(() => {})
   } catch (error) {
     // Ignore cleanup failures so we can still restart the download.
   }
@@ -722,15 +769,13 @@ export const removeTask = (id: string) => {
     }
     if (taskToRemove.filePath) {
       void unlink(taskToRemove.filePath).catch(() => {})
-      const variant = downloadTempVariantPath(taskToRemove)
-      if (variant) void unlink(variant).catch(() => {})
+      cleanupDownloadTempFiles(taskToRemove)
       console.log(`[Download Manager] Canceled and deleted partial file: ${taskToRemove.filePath}`)
     }
     currentDownloadTask = null
   } else if (taskToRemove && taskToRemove.status !== 'completed' && taskToRemove.filePath) {
     void unlink(taskToRemove.filePath).catch(() => {})
-    const variant = downloadTempVariantPath(taskToRemove)
-    if (variant) void unlink(variant).catch(() => {})
+    cleanupDownloadTempFiles(taskToRemove)
   }
   const taskIndex = taskQueue.findIndex(t => t.id === id)
   if (taskIndex > -1) taskQueue.splice(taskIndex, 1)

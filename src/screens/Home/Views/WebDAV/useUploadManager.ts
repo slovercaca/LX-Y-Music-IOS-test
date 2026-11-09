@@ -17,7 +17,7 @@ import {
   type WebDAVUploadHistoryItem,
   type WebDAVUploadQueueState,
 } from '@/core/webdavMusic/upload'
-import { checkWebDAVRemoteState, ensureRemoteDir } from '@/core/webdavMusic/files'
+import { checkWebDAVRemoteState, ensureRemoteDir, putTimeoutForSize } from '@/core/webdavMusic/files'
 import { contentTypeForExt } from '@/core/webdavMusic/library'
 import { webDAVLog } from '@/core/webdavMusic/logger'
 
@@ -426,6 +426,14 @@ export function useUploadManager(deps: UploadManagerDeps) {
     const stallTimeoutSec = Number(settingState.setting['webdav.uploadStallTimeoutSec'] ?? 15)
     const UPLOAD_STALL_MS = stallTimeoutSec > 0 ? stallTimeoutSec * 1000 : Number.MAX_SAFE_INTEGER
     const STALL_WARN_MS = 10000  // 10 秒无进度即显示"网络卡顿"
+    // 2026-11-09：降级通道（webdav 库）全程无真实字节进度，字节停滞判定
+    // 对它不适用，改以任务总时长硬顶兜底：与 upload.ts 降级 PUT 的硬超时
+    // 同口径（下限 10 分钟、按大小放宽、上限 30 分钟）再加 60 秒宽限——
+    // 正常时由 upload.ts 的超时竞速先行结算，这里防的是 Promise 永不
+    // 结算时看门狗彻底失明；硬顶之内不判停滞、不中断（不会误杀慢速大文件）。
+    const FALLBACK_HARD_CAP_MS = Math.max(600000, putTimeoutForSize(item.size)) + 60000
+    // 本轮是否已切到降级通道（由进度回调的 noRealProgress 标记置位）
+    let noRealProgress = false
     const stallTimer = setInterval(() => {
       if (!stillMine()) {
         clearInterval(stallTimer)
@@ -436,6 +444,24 @@ export function useUploadManager(deps: UploadManagerDeps) {
       // 此时无进度是正常的，服务器响应有原生层 60s 超时兜底。
       // 若也按 15s 中断，小文件（瞬间发完）只要服务器响应慢一点就被误杀。
       const isWaitingResponse = item.phase === 'waiting'
+      // 2026-11-09：降级通道无真实字节进度——不套用下面的字节停滞判定
+      // （否则满 10 秒误标"卡顿"、满阈值误中断，慢速大文件必死），只看
+      // 总时长硬顶：超顶才按看门狗中断处理（标记 stallAborted，catch 里
+      // 按失败可重试结算，而非 cancelled）；硬顶之内直接返回。
+      if (item.status === 'uploading' && !isWaitingResponse && noRealProgress) {
+        if (Date.now() - startAt > FALLBACK_HARD_CAP_MS) {
+          webDAVLog.warn('[upload] 降级通道超过总时长硬顶，看门狗中断', { fileName: item.fileName })
+          const handle = abortHandlesRef.current.get(item.id)
+          if (handle) {
+            clearInterval(stallTimer)
+            stallAbortedRef.current.add(item.id)
+            try {
+              handle.abort()
+            } catch { /* 忽略 */ }
+          }
+        }
+        return
+      }
       // 10 秒无进度：标记为卡顿（UI 显示"网络卡顿…"而非误导性的"即将完成"）
       if (item.status === 'uploading' && !isWaitingResponse && noProgressMs > STALL_WARN_MS && item.phase !== 'stalled') {
         item.phase = 'stalled'
@@ -478,15 +504,20 @@ export function useUploadManager(deps: UploadManagerDeps) {
           // 只保留本轮的句柄：stale worker 的句柄不覆盖
           if (stillMine()) abortHandlesRef.current.set(item.id, handle)
         },
-        onProgress: (loaded, total) => {
+        onProgress: (loaded, total, info) => {
           if (gen !== generationRef.current) return
           const now = Date.now()
-          // 2026-10-25：心跳保活只刷新看门狗时间——loaded 没变说明是心跳
-          // 重报（原生/降级通道的定期心跳），不是真实进度，不动阶段与速度，
-          // 否则卡顿指示会被心跳洗掉、速度也被拉向 0。
-          const progressed = loaded !== item.uploadedBytes
+          // 降级通道标记：该通道全程无真实字节进度，看门狗走总时长硬顶分支
+          if (info?.noRealProgress) noRealProgress = true
+          // 2026-11-09：停滞判定基准 lastProgressAt 只在真实字节前进时
+          // 刷新。此前心跳重报（loaded 没变）也刷新基准，停滞看门狗永远
+          // 测不到无进度、真卡死不会被中断。心跳（带 heartbeat 标记或
+          // loaded 未变）仍照常同步 uploadedBytes 并在此返回——不动阶段
+          // 与速度的口径不变（2026-10-25：卡顿指示不能被心跳洗掉、速度
+          // 不能被拉向 0），只是不再冒充字节进度刷新基准。
+          const progressed = loaded !== item.uploadedBytes && !info?.heartbeat
           item.uploadedBytes = loaded
-          item.lastProgressAt = now
+          if (progressed) item.lastProgressAt = now
           if (!progressed) return
           // 阶段判断
           if (loaded >= total && total > 0) {

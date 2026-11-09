@@ -19,7 +19,7 @@ export const handleFileLXMCAction = async(file: FileType) => {
     }))
   ) { return }
 
-  handleImportList(file.path)
+  await handleImportList(file.path)
 }
 
 export const handleFileMusicAction = async(file: FileType) => {
@@ -40,5 +40,5 @@ export const handleFileJSAction = async(file: FileType) => {
     }))
   ) { return }
 
-  handleImportLocalFile(file.path)
+  await handleImportLocalFile(file.path)
 }

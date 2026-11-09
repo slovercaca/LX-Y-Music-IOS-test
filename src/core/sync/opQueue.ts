@@ -54,6 +54,10 @@ export async function whenOperationQueueReady(): Promise<void> {
  * @param operation the operation object
  */
 export async function logOperation(operation: ListOperation): Promise<void> {
+  // 首次加载尚在途时先等它落地：否则会向空内存队列 push 并落盘，
+  // 把存储里尚未读出的旧未同步操作覆写掉。loadOperationQueue 是
+  // 共享 loadPromise、已加载时立即返回，重复 await 无副作用。
+  await loadOperationQueue()
   // 加载失败时先重试加载一次，避免用残缺内存队列落盘覆盖存储
   if (loadFailed) await loadOperationQueue()
   if (loadFailed) {

@@ -519,7 +519,14 @@ final class LXEqualizerAudioMixController {
             kMTAudioProcessingTapCreationFlag_PostEffects,
             &tap
         )
-        guard status == noErr else { return nil }
+        guard status == noErr else {
+            // 创建失败时 tap 不存在、finalize 永不会被调用，必须手动释放
+            // clientInfo 里 passRetained 的那一份引用，否则每次失败漏一个控制器。
+            if let clientInfo = callbacks.clientInfo {
+                Unmanaged<LXEqualizerAudioMixController>.fromOpaque(clientInfo).release()
+            }
+            return nil
+        }
         return tap
     }
 

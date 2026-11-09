@@ -247,7 +247,7 @@ const initDownloadPath = async(_setting: LX.AppSetting) => {
   //    里的文件一并归位。搬移后同步改写下载任务 filePath，保证继续可播。
   //    幂等：已在子目录内的不动；目标同名已存在时跳过（不覆盖）。
   try {
-    const root = (_setting['download.path'] ?? '').trim() || defaultPath
+    const root = (settingState.setting['download.path'] ?? '').trim() || defaultPath
     const musicDir = `${root}/music`
     const lrcDir = `${root}/lrc`
     const pictureDir = `${root}/picture`

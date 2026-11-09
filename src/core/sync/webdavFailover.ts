@@ -7,6 +7,7 @@ import {
   applyWebDAVServerProfile,
   findActiveWebDAVProfile,
   getActiveWebDAVProfileId,
+  setActiveWebDAVProfileId,
   getFailoverCandidates,
   getWebDAVServerProfiles,
   type WebDAVServerProfile,
@@ -60,6 +61,7 @@ const notify = (message: string) => {
  * （不能把用户扔到一台刚证明连不上的服务器上），调用方抛原始错误。
  */
 const rotateToWorkingProfile = async(fromName: string): Promise<WebDAVServerProfile | null> => {
+  const prevActiveId = await getActiveWebDAVProfileId()
   const settings = settingState.setting
   const snapshot = {
     'sync.webdav.url': settings['sync.webdav.url'],
@@ -87,9 +89,10 @@ const rotateToWorkingProfile = async(fromName: string): Promise<WebDAVServerProf
       webDAVLog.warn(`[Failover] 候选「${candidate.name}」同样不可用：${e?.message ?? e}`)
     }
   }
-  // 中：回滚同理走 store 直写，不标脏
+  // 中：回滚同理走 store 直写，不标脏，并恢复原 activeId
   settingActions.updateSetting(snapshot)
   resetClient()
+  await setActiveWebDAVProfileId(prevActiveId)
   return null
 }
 

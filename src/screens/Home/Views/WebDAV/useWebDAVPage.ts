@@ -374,12 +374,12 @@ export function useWebDAVPage() {
     }, () => scanCancelRef.current)
       .then(({ config, skippedDirs, cancelled }) => {
         const scannedSongs = config.songs ?? []
-        setSongs(scannedSongs)
         setScanText('')
         if (cancelled) {
           toast(`已取消扫描：已找到 ${scannedSongs.length} 首（本次结果未保存）`, 'long')
           return
         }
+        setSongs(scannedSongs)
         setScannedAt(config.scannedAt)
         setActiveTab('list')
         // W23：扫描完立即把已知的网盘封面补进列表，不必等下次进页面
@@ -437,8 +437,8 @@ export function useWebDAVPage() {
     scanCancelRef.current = true
     requestCancelWebDAVBatchDownload()
     requestCancelWebDAVBatchFetchCovers()
-    setBatchLoadingText('')
-    setScanText('正在取消...')
+    setBatchLoadingText(prev => (prev ? '正在取消...' : ''))
+    setScanText(prev => (prev ? '正在取消...' : ''))
   }, [])
 
   // ================= 播放 / 菜单 =================
@@ -773,8 +773,6 @@ export function useWebDAVPage() {
       }, () => scanCancelRef.current)
         .then(({ config, cancelled }) => {
           const scannedSongs = config.songs ?? []
-          setSongs(scannedSongs)
-          if (!cancelled) setScannedAt(config.scannedAt)
           setScanText('')
 
           // 中-4：扫描阶段被取消就到此为止——此前照常进入下载，且下载入口会把
@@ -783,6 +781,8 @@ export function useWebDAVPage() {
             toast('已取消扫描，未开始下载')
             return
           }
+          setSongs(scannedSongs)
+          setScannedAt(config.scannedAt)
 
           if (scannedSongs.length === 0) {
             toast('没有扫描到可下载的歌曲')

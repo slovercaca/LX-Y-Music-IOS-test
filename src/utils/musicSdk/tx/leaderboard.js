@@ -194,16 +194,16 @@ export default {
         singer: formatSingerName(item.singer, 'name'),
         artists: item.singer?.map(s => ({ id: s.id || s.mid, mid: s.mid, name: s.name })) || [],
         name: item.title,
-        albumName: item.album.name,
-        albumId: item.album.mid,
+        albumName: item.album?.name ?? '',
+        albumId: item.album?.mid ?? '',
         source: 'tx',
         interval: formatPlayTime(item.interval),
         songId: item.id,
-        albumMid: item.album.mid,
+        albumMid: item.album?.mid ?? '',
         strMediaMid: item.file.media_mid,
         songmid: item.mid,
         img:
-          item.album.name === '' || item.album.name === '空'
+          !item.album?.name || item.album.name === '空'
             ? item.singer?.length
               ? `https://y.gtimg.cn/music/photo_new/T001R500x500M000${item.singer[0].mid}.jpg`
               : ''

@@ -86,8 +86,8 @@ const fetchLyric = (songmid) => {
     const data = body?.req_0?.data
     if (!data || !data.lyric) return Promise.reject(new Error('Get lyric failed'))
 
-    const rawLyric = decodeName(b64DecodeUnicode(data.lyric))
-    const rawTlyric = decodeName(b64DecodeUnicode(data.trans))
+    const rawLyric = data.lyric ? decodeName(b64DecodeUnicode(data.lyric)) : ''
+    const rawTlyric = data.trans ? decodeName(b64DecodeUnicode(data.trans)) : ''
 
     // 过滤主歌词：移除空行和 // 行
     const filteredLyric = rawLyric?.split('\n')

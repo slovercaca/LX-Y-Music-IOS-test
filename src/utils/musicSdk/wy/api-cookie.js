@@ -71,7 +71,7 @@ export const getMusicUrl = (songInfo, type, retryNum = 0, noCopyrightFallbackUse
       ids: `[${songId}]`,
       level: targetPrefer.level,
       encodeType: targetPrefer.encodeType,
-      csrf_token: (cookie.match(/_csrf=([^(;|$)]+)/) || [])[1] || '',
+      csrf_token: ((cookie || '').match(/_csrf=([^;\s]+)/) || [])[1] || '',
     }),
   })
 
@@ -80,8 +80,8 @@ export const getMusicUrl = (songInfo, type, retryNum = 0, noCopyrightFallbackUse
       throw new Error('Cookie request failed')
     }
 
-    const data = body.data[0]
-    if (!data.url) {
+    const data = body?.data?.[0]
+    if (!data?.url) {
       const fallbackSongId = getNoCopyrightRcmdSongId(songInfo)
       console.log(`wy api-cookie no url for songId: ${songId}, noCopyrightRcmd songId: ${fallbackSongId || 'none'}`)
       if (

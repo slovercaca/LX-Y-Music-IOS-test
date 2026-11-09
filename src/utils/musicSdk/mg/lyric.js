@@ -28,7 +28,7 @@ const mrcTools = {
         .padStart(2, '0')
       time %= 60
       let s = parseInt(time).toString().padStart(2, '0')
-      time = `${m}:${s}.${ms}`
+      time = `${m}:${s}.${String(ms).padStart(3, '0')}`
 
       let words = line.replace(this.rxps.lineTime, '')
 

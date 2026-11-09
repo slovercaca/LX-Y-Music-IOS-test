@@ -54,8 +54,8 @@
 - (void)testUtilsModuleIsRegistered {
   Class cls = NSClassFromString(@"UtilsModule");
   XCTAssertNotNil(cls, @"UtilsModule 类不存在（AppDelegate 内联模块未注册）");
-  XCTAssertTrue([cls instancesRespondToSelector:NSSelectorFromString(@"getWindowSize")],
-                @"UtilsModule 缺少 getWindowSize");
+  XCTAssertTrue([cls instancesRespondToSelector:NSSelectorFromString(@"getSafeAreaInsetsWithResolver:rejecter:")],
+                @"UtilsModule 缺少 getSafeAreaInsets");
 }
 
 @end

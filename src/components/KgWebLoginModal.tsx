@@ -12,8 +12,9 @@ import { sendCaptcha, loginByPhone, buildCookieString, getVerifyInfo, verifyUser
 export interface KgWebLoginModalType { show: () => void }
 
 function generateVerifyHtml(txappid: string, ssaCode: string): string {
+  const safeJson = (val: string) => JSON.stringify(String(val ?? '')).replace(/<\//g, '<\\/')
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><style>*{margin:0;padding:0}body{background:transparent}</style></head><body><script>
-var appid='${txappid}';var code='${ssaCode}';
+var appid=${safeJson(txappid)};var code=${safeJson(ssaCode)};
 var s=document.createElement('script');s.src='https://turing.captcha.qcloud.com/TCaptcha.js';
 s.onload=function(){var c=new TencentCaptcha(appid,function(r){
 if(r.ret===0){window.ReactNativeWebView.postMessage(JSON.stringify({type:'ok',ticket:r.ticket,randstr:r.randstr,appid:appid,code:code}));}
@@ -40,13 +41,19 @@ const KgWebLoginModal = forwardRef<KgWebLoginModalType, object>((_, ref) => {
   const [selectedId, setSelectedId] = useState('')
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const cdRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const retrySendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sendRef = useRef<() => void>(() => {})
 
-  useEffect(() => () => { if (timerRef.current) clearInterval(timerRef.current); if (cdRef.current) clearInterval(cdRef.current) }, [])
+  useEffect(() => () => {
+    if (timerRef.current) clearInterval(timerRef.current)
+    if (cdRef.current) clearInterval(cdRef.current)
+    if (retrySendTimerRef.current) clearTimeout(retrySendTimerRef.current)
+  }, [])
 
   const handleClose = useCallback(() => {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
     if (cdRef.current) { clearInterval(cdRef.current); cdRef.current = null }
+    if (retrySendTimerRef.current) { clearTimeout(retrySendTimerRef.current); retrySendTimerRef.current = null }
     setShowVerify(false); setShowMultiAccount(false); setPendingData(null); setSelectedId('')
     modalRef.current?.setVisible(false)
   }, [])
@@ -66,7 +73,7 @@ const KgWebLoginModal = forwardRef<KgWebLoginModalType, object>((_, ref) => {
         const r = await verifyUserInfo(d.code, 23, vcode, '', '')
         console.log('[KgLogin] verifyUserInfo result:', JSON.stringify(r))
         setShowVerify(false)
-        if (r.success) { toast('验证通过'); setTimeout(() => { sendRef.current?.() }, 500) } else toast('验证失败')
+        if (r.success) { toast('验证通过'); if (retrySendTimerRef.current) clearTimeout(retrySendTimerRef.current); retrySendTimerRef.current = setTimeout(() => { retrySendTimerRef.current = null; sendRef.current?.() }, 500) } else toast('验证失败')
       } else if (d.type === 'error') {
         console.log('[KgLogin] 脚本加载失败:', d.msg)
         toast('验证脚本加载失败，请检查网络')
@@ -125,7 +132,7 @@ const KgWebLoginModal = forwardRef<KgWebLoginModalType, object>((_, ref) => {
 
   return (
     <Modal ref={modalRef} statusBarPadding={false} bgHide={false} bgColor="rgba(0,0,0,0.5)">
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: theme['c-content-background'] }]}>
         <View style={[styles.header, { height: 56 + statusBarHeight, paddingTop: statusBarHeight, backgroundColor: theme['c-content-background'] }]}>
           <TouchableOpacity onPress={handleClose} style={styles.backBtn}><Icon name="chevron-left" size={26} color={theme['c-font']} /></TouchableOpacity>
           <Text size={18}>登录</Text>
@@ -152,7 +159,7 @@ const KgWebLoginModal = forwardRef<KgWebLoginModalType, object>((_, ref) => {
 
         {showVerify && verifyHtml ? (
           <View style={styles.verifyOverlay}>
-            <View style={styles.verifyBox}>
+            <View style={[styles.verifyBox, { backgroundColor: theme['c-content-background'] }]}>
               <WebView source={{ html: verifyHtml }} onMessage={handleVerifyMsg} style={{ flex: 1 }} javaScriptEnabled domStorageEnabled useWebKit cacheEnabled={false} incognito nestedScrollEnabled overScrollMode="never" bounces={false} setSupportMultipleWindows={false} allowsFullscreenVideo mediaPlaybackRequiresUserAction={false} />
             </View>
           </View>
@@ -160,7 +167,7 @@ const KgWebLoginModal = forwardRef<KgWebLoginModalType, object>((_, ref) => {
 
         <RNModal visible={showMultiAccount} transparent animationType="fade" onRequestClose={() => { setShowMultiAccount(false) }}>
           <View style={styles.modalOverlay}>
-            <View style={[styles.modalBox, { backgroundColor: '#fff' }]}>
+            <View style={[styles.modalBox, { backgroundColor: theme['c-content-background'] }]}>
               <Text size={16} style={{ textAlign: 'center', marginBottom: 16, color: theme['c-font'] }}>该手机号绑定了多个账号</Text>
               <View style={[styles.idInput, { borderBottomColor: (theme as any)['c-border'] }]}>
                 <TextInput style={[styles.idInputText, { color: theme['c-font'] }]} placeholder="请输入您要登录的酷狗ID" placeholderTextColor={theme['c-font-label']} value={selectedId} onChangeText={setSelectedId} keyboardType="number-pad" autoFocus />

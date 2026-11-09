@@ -106,20 +106,25 @@ export const initUnifiedPlayerController = () => {
     // ② 同 URL 刷新 ×2 → ③ 失败终态（错误状态 + 延迟自动跳下一首）
     if (playerState.playMusicInfo.musicInfo) {
       const currentMusicInfo = playerState.playMusicInfo.musicInfo
-      // ① 高音质 URL 可能返回无法解码的加密内容，逐级降低音质重试（在线、非本地）
-      if ('source' in currentMusicInfo && currentMusicInfo.source != 'local') {
+      // ① 高音质 URL 可能返回无法解码的加密内容，逐级降低音质重试（在线、非本地/非汽水/非离线）
+      if (
+        'source' in currentMusicInfo &&
+        currentMusicInfo.source != 'local' &&
+        currentMusicInfo.source != 'qs' &&
+        settingState.setting['player.offlineMode'] !== true
+      ) {
         const onlineInfo = currentMusicInfo
         const urlSourceInfo = (onlineInfo.meta.toggleMusicInfo ?? onlineInfo)
         const lastQuality = getLastTryQuality(urlSourceInfo.id) ?? getLastTryQuality(currentMusicInfo.id)
-        const nextQuality = getNextTryQuality(settingState.setting['player.playQuality'], urlSourceInfo, lastQuality)
-        if (nextQuality) {
-          if (lastQuality) {
+        if (lastQuality) {
+          const nextQuality = getNextTryQuality(settingState.setting['player.playQuality'], urlSourceInfo, lastQuality)
+          if (nextQuality && nextQuality !== lastQuality) {
             void removeMusicUrl(urlSourceInfo, lastQuality).catch(() => {})
             if (urlSourceInfo !== currentMusicInfo) void removeMusicUrl(currentMusicInfo as LX.Music.MusicInfo, lastQuality).catch(() => {})
+            setMusicUrl(currentMusicInfo, true, nextQuality)
+            setStatusText(global.i18n.t('player__refresh_url'))
+            return
           }
-          setMusicUrl(currentMusicInfo, true, nextQuality)
-          setStatusText(global.i18n.t('player__refresh_url'))
-          return
         }
       }
       // ② 若音频 URL 无效则尝试刷新 2 次 URL

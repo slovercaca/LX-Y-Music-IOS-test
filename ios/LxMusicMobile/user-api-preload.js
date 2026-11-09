@@ -337,7 +337,7 @@ globalThis.lx_setup = (key, id, name, description, version, author, homepage, ra
   const handleShowUpdateAlert = (data, resolve, reject) => {
     if (!data || typeof data != 'object') return reject(new Error('parameter format error.'))
     if (!data.log || typeof data.log != 'string') return reject(new Error('log is required.'))
-    if (data.updateUrl && !/^https?:\/\/[^\s$.?#].[^\s]*$/.test(data.updateUrl) && data.updateUrl.length > 1024) delete data.updateUrl
+    if (data.updateUrl && (!/^https?:\/\/[^\s$.?#].[^\s]*$/.test(data.updateUrl) || data.updateUrl.length > 1024)) delete data.updateUrl
     if (data.log.length > 1024) data.log = data.log.substring(0, 1024) + '...'
     nativeCall(NATIVE_EVENTS_NAMES.showUpdateAlert, { log: data.log, updateUrl: data.updateUrl, name })
     resolve()
@@ -392,7 +392,7 @@ globalThis.lx_setup = (key, id, name, description, version, author, homepage, ra
             case 'base64':
               return new Uint8Array(JSON.parse(nativeFuncs.utils_b642buf(input)))
             case 'hex':
-              return new Uint8Array(input.match(/.{1,2}/g).map(byte => parseInt(byte, 16)))
+              return new Uint8Array((input.match(/.{1,2}/g) || []).map(byte => parseInt(byte, 16)))
             default:
               return new Uint8Array(stringToBytes(input))
           }
@@ -528,7 +528,7 @@ globalThis.lx_setup = (key, id, name, description, version, author, homepage, ra
   globalThis.clearTimeout = _clearTimeout
 
   const freezeObject = (obj) => {
-    if (typeof obj != 'object') return
+    if (obj == null || typeof obj != 'object') return
     Object.freeze(obj)
     for (const subObj of Object.values(obj)) freezeObject(subObj)
   }

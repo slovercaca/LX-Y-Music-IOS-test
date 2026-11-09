@@ -178,7 +178,8 @@ export default async(_setting: LX.AppSetting) => {
                         const url = res.data.url
                         if (url) {
                           const urlLower = url.toLowerCase()
-                          const urlExtension = urlLower.split('.').pop() || ''
+                          const urlPath = urlLower.split(/[?#]/)[0]
+                          const urlExtension = urlPath.includes('.') ? urlPath.split('.').pop() || '' : ''
 
                           try {
                             const headResponse = await fetch(url, { method: 'HEAD' })

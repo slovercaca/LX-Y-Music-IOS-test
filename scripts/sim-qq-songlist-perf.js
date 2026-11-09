@@ -101,8 +101,12 @@ const invariants = (files) => {
   if (!/Number\.isInteger\(index\) && index >= 0 && index < list\.length \? index : 0/.test(action)) reasons.push('点歌下标越界没有兜底（会静默不播）')
 
   // ④ 显示下标 ≠ 全量下标：点歌要用被点中的那首歌回推，store 与界面同源
+  // 锚点更新（2026-11-09）：回推逻辑已演进为两段式——先按对象引用找（过滤列表与
+  // 全量列表共享引用；同歌两副本时旧写法恒命中第一个副本，播后队列位置与所见不符），
+  // 找不到再按 id 回退，最后仍无结果时由 handlePlay 调用处回退显示下标。
+  // 不变量（必须按被点中的歌回推、不得直接用显示下标）不变，锚点同步为新形态。
   const musicList = files.detailMusicList
-  if (!/const targetIndex = item \? list\.findIndex\(m => m\.id === item\.id\) : index/.test(musicList)) {
+  if (!/const targetIndex = item\s*\?\s*\(\(\) => \{\s*const byRef = list\.findIndex\(m => m === item\)\s*return byRef >= 0 \? byRef : list\.findIndex\(m => m\.id === item\.id\)\s*\}\)\(\)\s*: index/.test(musicList)) {
     reasons.push('MusicList 点歌没有按被点中的歌回推下标（搜索/补全期间会播错歌或不播）')
   }
   if (!/: OnlineListProps\['onPlayList'\] = \(index, item\)/.test(musicList)) reasons.push('MusicList 没有拿到被点中的 item（显示下标无法回推真实位置）')
@@ -209,9 +213,11 @@ checkCase('C5 playTempList 先播放后写内存', {
     'void playList(LIST_IDS.TEMP, index)\n  setMusicList(LIST_IDS.TEMP, list)'),
 }, '先播放后写内存')
 
+// 锚点更新（2026-11-09）：与上方不变量 ④ 同步——targetIndex 已改为两段式回推的
+// IIFE 形态，篡改锚点换成当前源码的完整表达式块，替换目标（直接用显示下标）不变。
 checkCase('C6 点歌不再回推真实下标（直接用显示下标）', {
   detailMusicList: tamper(REAL.detailMusicList,
-    'const targetIndex = item ? list.findIndex(m => m.id === item.id) : index',
+    'const targetIndex = item\n      ? (() => {\n          const byRef = list.findIndex(m => m === item)\n          return byRef >= 0 ? byRef : list.findIndex(m => m.id === item.id)\n        })()\n      : index',
     'const targetIndex = index'),
 }, '没有按被点中的歌回推下标')
 

@@ -229,7 +229,8 @@ export const connect = (urlInfo: LX.Sync.UrlInfo, keyInfo: LX.Sync.KeyInfo, opti
   client.onClose = function(handler: (typeof closeEvents)[number]) {
     closeEvents.push(handler)
     return () => {
-      closeEvents.splice(closeEvents.indexOf(handler), 1)
+      const idx = closeEvents.indexOf(handler)
+      if (idx >= 0) closeEvents.splice(idx, 1)
     }
   }
 

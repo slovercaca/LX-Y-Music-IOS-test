@@ -40,7 +40,7 @@ const rsaEncrypt = (buffer, key) => {
 export const weapi = (object) => {
   const text = JSON.stringify(object)
   console.log(object)
-  const secretKey = String(Math.random()).substring(2, 18)
+  const secretKey = Math.random().toFixed(16).substring(2, 18)
   return {
     params: aesEncrypt(
       btoa(

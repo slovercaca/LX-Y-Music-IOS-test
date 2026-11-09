@@ -55,10 +55,8 @@ const GlassSurface = memo(({ glassStyle, paused = false, style, children, ...pro
 
   return (
     <View style={safeStyle} {...props}>
-      <LiquidGlass
+      <LiquidGlass dark={theme.isDark} liquid={liquidGlassOn}
         glassOpacity={glassOpacity}
-        dark={theme.isDark}
-        liquid={liquidGlassOn}
         paused={paused}
         style={glassStyle}
       />

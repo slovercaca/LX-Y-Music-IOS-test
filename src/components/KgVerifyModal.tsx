@@ -30,6 +30,7 @@ const Header = ({ onClose }: { onClose: () => void }) => {
 }
 
 function generateHtml(txappid: string, ssaCode: string): string {
+  const safeJson = (val: string) => JSON.stringify(String(val ?? '')).replace(/<\//g, '<\\/')
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -49,8 +50,8 @@ body{background:#f5f5f5;display:flex;justify-content:center;align-items:center;m
 <div class="status" id="status"></div>
 </div>
 <script>
-var appid='${txappid}';
-var code='${ssaCode}';
+var appid=${safeJson(txappid)};
+var code=${safeJson(ssaCode)};
 
 (function() {
   var lastTouchEnd = 0;

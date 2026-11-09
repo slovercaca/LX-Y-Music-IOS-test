@@ -842,9 +842,6 @@ export async function triggerWebDAVSync(isManual = false): Promise<boolean> {
   isSyncing = true
   if (isManual) toast('开始同步歌单...')
 
-  // 存疑处理：先等操作队列加载完成再读队列，避免未就绪误判 hasLocalChanges
-  await whenOperationQueueReady()
-
   // 全量修复：设置/音源自动同步的错误不再内层吞掉。
   // 此前两个 try/catch 只记 warn，外层故障转移看不到错误、不会换
   // 服务器，用户也收不到任何失败提示；歌单分支的错误却会触发转移，
@@ -869,6 +866,8 @@ export async function triggerWebDAVSync(isManual = false): Promise<boolean> {
   }
 
   try {
+    // 存疑处理：先等操作队列加载完成再读队列，避免未就绪误判 hasLocalChanges
+    await whenOperationQueueReady()
     await runWithWebDAVFailover(async() => {
       // P1-7（2026-10-06）：歌单同步受 sync.webdav.syncLists 开关控制。
       // 自动触发时若开关关闭，跳过歌单流程（只跑设置/插件自动同步）；

@@ -8,10 +8,11 @@ export const getRandom = (min: number, max: number): number =>
 
 export const sizeFormate = (size: number): string => {
   // https://gist.github.com/thomseddon/3511330
-  if (!size) return '0 B'
+  if (!Number.isFinite(size) || size <= 0) return '0 B'
+  if (size < 1) return `${size.toFixed(2)} B`
   let units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let number = Math.floor(Math.log(size) / Math.log(1024))
-  return `${(size / Math.pow(1024, Math.floor(number))).toFixed(2)} ${units[number]}`
+  let number = Math.min(units.length - 1, Math.max(0, Math.floor(Math.log(size) / Math.log(1024))))
+  return `${(size / Math.pow(1024, number)).toFixed(2)} ${units[number]}`
 }
 
 /**

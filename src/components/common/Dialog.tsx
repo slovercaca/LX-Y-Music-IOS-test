@@ -125,7 +125,7 @@ export default forwardRef<DialogType, DialogProps>(
               <Text
                 style={styles.title}
                 size={designTypography.body}
-                color={theme['c-primary-light-1000']}
+                color={theme['c-font']}
                 numberOfLines={1}
               >
                 {title}

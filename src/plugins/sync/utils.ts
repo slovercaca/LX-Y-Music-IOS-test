@@ -7,12 +7,10 @@ import {
   AES_MODE,
   RSA_PADDING,
 } from '@/utils/nativeModules/crypto'
-import { btoa } from 'react-native-quick-base64'
-
 export const aesEncrypt = (text: string, b64Key: string) => {
   // const cipher = createCipheriv('aes-128-ecb', Buffer.from(key, 'base64'), '')
   // return Buffer.concat([cipher.update(Buffer.from(text)), cipher.final()]).toString('base64')
-  return aesEncryptSync(btoa(text), b64Key, '', AES_MODE.ECB_128_NoPadding)
+  return aesEncryptSync(Buffer.from(text, 'utf8').toString('base64'), b64Key, '', AES_MODE.ECB_128_NoPadding)
 }
 
 export const aesDecrypt = (text: string, b64Key: string) => {

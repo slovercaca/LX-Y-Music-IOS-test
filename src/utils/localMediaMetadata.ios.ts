@@ -98,13 +98,17 @@ export const readMetadata = async(filePath: string): Promise<MusicMetadataFull |
   return createFallbackMetadata(filePath)
 }
 
-export const writeMetadata = async(filePath: string, metadata: MusicMetadataFull): Promise<void> => {
+export const writeMetadata = async(
+  filePath: string,
+  metadata: Pick<MusicMetadataFull, 'albumName' | 'singer' | 'name'>,
+  isOverwrite = false,
+): Promise<void> => {
   if (nativeLocalMediaMetadata?.writeMetadata) {
     return nativeLocalMediaMetadata.writeMetadata(filePath, {
       name: metadata.name,
       singer: metadata.singer,
       albumName: metadata.albumName,
-    }, false)
+    }, isOverwrite)
   }
   // iOS 无 react-native-local-media-metadata 原生模块，写入是不支持的能力。
   // 直接静默成功（不再 throw），避免所有调用方（下载、元数据编辑等）捕获后误报"写入失败"。

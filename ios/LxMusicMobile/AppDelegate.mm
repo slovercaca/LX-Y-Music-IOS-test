@@ -3372,7 +3372,7 @@ RCT_REMAP_METHOD(updateEqualizerConfig, updateEqualizerConfig:(NSDictionary *)co
 
 @end
 
-@interface StreamingFlacPlayerModule : RCTEventEmitter<RCTBridgeModule, NSURLSessionDataDelegate>
+@interface StreamingFlacPlayerModule : RCTEventEmitter<RCTBridgeModule, RCTInvalidating, NSURLSessionDataDelegate>
 @property (nonatomic, strong) NSURLSession *session;
 @property (nonatomic, strong) NSURLSessionDataTask *task;
 @property (nonatomic, strong) NSMutableData *streamData;
@@ -3503,6 +3503,12 @@ RCT_EXPORT_MODULE();
                                                object:nil];
   }
   return self;
+}
+
+- (void)invalidate {
+  [super invalidate];
+  [[NSNotificationCenter defaultCenter] removeObserver:self];
+  [self stopStreamingInternal:YES];
 }
 
 - (void)dealloc {
@@ -5073,8 +5079,10 @@ RCT_REMAP_METHOD(openDocument, openDocument:(NSDictionary *)options resolver:(RC
     NSMutableDictionary *result = fileInfo != nil ? [fileInfo mutableCopy] : [NSMutableDictionary dictionary];
     if (result == nil) result = [NSMutableDictionary dictionary];
     result[@"data"] = targetPath;
-    if (self.pickerResolve != nil) self.pickerResolve(result);
-    [self resetPickerState];
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (self.pickerResolve != nil) self.pickerResolve(result);
+      [self resetPickerState];
+    });
   });
 }
 
@@ -5383,7 +5391,9 @@ RCT_EXPORT_MODULE();
   };
 
   context[@"__lx_native_call__set_timeout"] = ^id(NSNumber *identifier, NSNumber *timeout) {
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(MAX(timeout.doubleValue, 0) * NSEC_PER_MSEC)), weakSelf.scriptQueue, ^{
+    dispatch_queue_t queue = weakSelf.scriptQueue;
+    if (queue == nil) return nil;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(MAX(timeout.doubleValue, 0) * NSEC_PER_MSEC)), queue, ^{
       [weakSelf callJSAction:@"__set_timeout__" data:identifier ?: @0];
     });
     return nil;

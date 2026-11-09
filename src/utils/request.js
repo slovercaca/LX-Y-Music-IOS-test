@@ -143,14 +143,15 @@ const handleRequestData = async(
       options.body = formBody.join('&')
       delete options.form
     } else if (options.formData) {
-      headers['Content-Type'] = 'multipart/form-data'
-      const formBody = []
-      for (let [key, value] of Object.entries(options.formData)) {
-        let encodedKey = encodeURIComponent(key)
-        let encodedValue = encodeURIComponent(value)
-        formBody.push(`${encodedKey}=${encodedValue}`)
+      if (typeof global.FormData === 'function' && options.formData instanceof global.FormData) {
+        options.body = options.formData
+      } else {
+        const formData = new global.FormData()
+        for (let [key, value] of Object.entries(options.formData)) {
+          formData.append(key, value)
+        }
+        options.body = formData
       }
-      options.body = options.formData
       delete options.formData
     } else {
       headers['Content-Type'] = 'application/json'
@@ -260,10 +261,9 @@ const fetchData = (url, { timeout = 15000, ...options }) => {
           // console.log(err, err.code, err.message)
           return Promise.reject(err)
         })
-        .finally(() => {
-          if (id == null) return
-          BackgroundTimer.clearTimeout(id)
-        })
+    }).finally(() => {
+      if (id == null) return
+      BackgroundTimer.clearTimeout(id)
     }),
     abort() {
       controller.abort()

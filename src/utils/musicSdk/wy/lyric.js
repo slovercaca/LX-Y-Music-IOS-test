@@ -282,8 +282,11 @@ const getLyricWithRetry = (songmid, _retryNum = 0) => {
     yrv: 0,
   })
 
+  let canceled = false
+  let retryTimer = null
   const promise = new Promise((resolve, reject) => {
     const attempt = (num) => {
+      if (canceled) return
       requestObj.promise.then(({ body, statusCode }) => {
         if (statusCode !== 200 || body.code !== 200) {
           throw new Error('获取歌词响应码无效')
@@ -309,7 +312,9 @@ const getLyricWithRetry = (songmid, _retryNum = 0) => {
           reject(new Error('Get lyric failed'))
         } else {
           console.log(`获取歌词失败，将在200ms后进行第 ${num + 2} 次重试...`)
-          setTimeout(() => {
+          retryTimer = setTimeout(() => {
+            retryTimer = null
+            if (canceled) return
             const nextRequest = eapiRequest('/api/song/lyric/v1', { id: songmid, cp: false, tv: 0, lv: 0, rv: 0, kv: 0, yv: 0, ytv: 0, yrv: 0 })
             requestObj.promise = nextRequest.promise
             requestObj.cancelHttp = nextRequest.cancelHttp
@@ -324,7 +329,14 @@ const getLyricWithRetry = (songmid, _retryNum = 0) => {
 
   return {
     promise,
-    cancelHttp: requestObj.cancelHttp,
+    cancelHttp: () => {
+      canceled = true
+      if (retryTimer) {
+        clearTimeout(retryTimer)
+        retryTimer = null
+      }
+      requestObj.cancelHttp?.()
+    },
   }
 }
 

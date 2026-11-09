@@ -251,7 +251,12 @@ export const loadTrackPlayerResource = async(musicInfo: LX.Player.PlayMusic, url
 
   if (queue.length > tracks.length) {
     const removeCount = queue.length - tracks.length
-    void TrackPlayer.remove(Array(removeCount).fill(null).map((_, i) => i)).then(() => list.splice(0, list.length - removeCount))
+    const removedIds = new Set(queue.slice(0, removeCount).map(t => t.id))
+    void TrackPlayer.remove(Array(removeCount).fill(null).map((_, i) => i)).then(() => {
+      for (let i = list.length - 1; i >= 0; i--) {
+        if (removedIds.has(list[i].id)) list.splice(i, 1)
+      }
+    }).catch(() => {})
   }
   return track
 }

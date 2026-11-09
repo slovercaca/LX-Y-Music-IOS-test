@@ -649,9 +649,8 @@ export const getOnlineOtherSourceMusicUrl = async({
     .sort((a, b) => QUALITY_RANK.indexOf(a) - QUALITY_RANK.indexOf(b))
 
   const startIndex = sortedQualities.indexOf(itemQuality)
-  const fallbackQualities = startIndex >= 0
-    ? sortedQualities.slice(startIndex)
-    : sortedQualities
+  const rawFallback = startIndex >= 0 ? sortedQualities.slice(startIndex) : sortedQualities
+  const fallbackQualities = rawFallback.length ? rawFallback : [itemQuality]
 
   userApiLog.info('[换源播放]   未命中缓存，发起网络请求获取播放地址')
 
@@ -828,9 +827,8 @@ export const handleGetOnlineMusicUrl = async({
     .sort((a, b) => QUALITY_RANK.indexOf(a) - QUALITY_RANK.indexOf(b))
 
   const startIndex = sortedQualities.indexOf(targetQuality)
-  const fallbackQualities = startIndex >= 0
-    ? sortedQualities.slice(startIndex)
-    : sortedQualities
+  const rawFallback = startIndex >= 0 ? sortedQualities.slice(startIndex) : sortedQualities
+  const fallbackQualities = rawFallback.length ? rawFallback : [targetQuality]
 
   return tryGetMusicUrlWithFallback(fallbackQualities)
     .then(({ url, type }) => {

@@ -19,6 +19,13 @@
  * `src/components/common/Popup.tsx` 源码断言；反例是「把篡改后的源码喂回
  * 同一套不变量」，必须真的被拦下 —— 只跑模型等于在测自己的副本。
  *
+ * 锚点更新（2026-11-09）：2026-10-04「全局玻璃」演进后，缺口有了两条覆盖路径——
+ * 内容玻璃开时由 ContentGlass 的 glassStyle.bottom 负值让玻璃整块画到屏幕底
+ * （见 Popup.tsx 内注释），纯色补白只在玻璃关时渲染，门控因此多了一道
+ * `!glassContentOn &&` 前缀、且不再以 `{position ===` 开头。本脚本继续钉住
+ * 纯色补白这一条路径：提取锚点与门控断言已同步为新形态，补白本体的不变量
+ * （高度/偏移同为 safeAreaBottom、同色、不拦触摸、宽度继承、三条原门控条件）不变。
+ *
  * 运行：node scripts/sim-popup-bottom-gap.js
  * 退出码：不变量 1~5 全过、且 4 例反例全被拦下时为 0，否则 1。
  */
@@ -53,7 +60,11 @@ function bottomPaddingExpr(src) {
 function fillerBlock(src) {
   const anchor = src.indexOf('bottom: -safeAreaBottom')
   if (anchor < 0) return null
-  const gateStart = src.lastIndexOf('{position ===', anchor)
+  // 2026-11-09 锚点更新：门控现以 `{!glassContentOn && position ===` 开头，
+  // 先定位门控表达式本体，再回退到它所属的 `{`。
+  const gateExpr = src.lastIndexOf("position === 'bottom'", anchor)
+  if (gateExpr < 0) return null
+  const gateStart = src.lastIndexOf('{', gateExpr)
   const end = src.indexOf(') : null}', anchor)
   if (gateStart < 0 || end < 0) return null
   return src.slice(gateStart, end)
@@ -111,11 +122,12 @@ function invariants(src) {
     )
   }
 
-  // 4. 门控三条件
+  // 4. 门控四条件（2026-11-09 锚点更新：玻璃关是 2026-10-04 演进后新增的前置条件，
+  //    玻璃开时缺口由 glassStyle.bottom 延伸覆盖，补白不得再画；其余三条与原契约一致）
   {
-    const gate = /position === 'bottom'\s*&&\s*!keyboardShown\s*&&\s*safeAreaBottom > 0/
+    const gate = /!glassContentOn\s*&&\s*position === 'bottom'\s*&&\s*!keyboardShown\s*&&\s*safeAreaBottom > 0/
     add(
-      'invariant 4: 门控 = 仅 position==="bottom" && 键盘收起 && safeAreaBottom>0',
+      'invariant 4: 门控 = 玻璃关 && position==="bottom" && 键盘收起 && safeAreaBottom>0',
       filler != null && gate.test(filler),
       filler == null ? '未找到补白块' : filler.split('\n')[0].trim(),
     )
@@ -162,7 +174,7 @@ const results = invariants(REAL).map(r => ({ ...r, group: '正例' }))
 const TAMPER_CASES = [
   {
     label: '① 删掉补白（门控恒 false）',
-    from: '{position === \'bottom\' && !keyboardShown && safeAreaBottom > 0 ? (',
+    from: '{!glassContentOn && position === \'bottom\' && !keyboardShown && safeAreaBottom > 0 ? (',
     to: '{false && safeAreaBottom > 0 ? (',
   },
   {
@@ -172,8 +184,8 @@ const TAMPER_CASES = [
   },
   {
     label: '③ 去掉键盘门控（键盘弹起时被实心补白填满）',
-    from: '{position === \'bottom\' && !keyboardShown && safeAreaBottom > 0 ? (',
-    to: '{position === \'bottom\' && safeAreaBottom > 0 ? (',
+    from: '{!glassContentOn && position === \'bottom\' && !keyboardShown && safeAreaBottom > 0 ? (',
+    to: '{!glassContentOn && position === \'bottom\' && safeAreaBottom > 0 ? (',
   },
   {
     label: '④ 宽度写死（iPad 横屏补白横向溢出）',

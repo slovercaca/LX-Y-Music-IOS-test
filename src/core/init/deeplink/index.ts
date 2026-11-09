@@ -25,15 +25,16 @@ const handleLinkAction = async(link: string) => {
     paths: [],
   }
   if (hash) {
-    const kwIdx = hash.indexOf('keyword=')
-    if (kwIdx !== -1) {
-      const kwEnd = hash.indexOf('&platform=', kwIdx)
-      const kwEnd2 = hash.indexOf('&type=', kwIdx)
+    const kwMatch = /(?:^|&)keyword=/.exec(hash)
+    if (kwMatch) {
+      const kwStart = kwMatch.index + kwMatch[0].length
+      const kwEnd = hash.indexOf('&platform=', kwStart)
+      const kwEnd2 = hash.indexOf('&type=', kwStart)
       const kwEnds = [kwEnd, kwEnd2].filter(e => e !== -1).sort((a, b) => a - b)
       if (kwEnds.length > 0) {
-        params.keyword = decodeURIComponent(hash.substring(kwIdx + 8, kwEnds[0]))
+        params.keyword = decodeURIComponent(hash.substring(kwStart, kwEnds[0]))
       } else {
-        params.keyword = decodeURIComponent(hash.substring(kwIdx + 8))
+        params.keyword = decodeURIComponent(hash.substring(kwStart))
       }
     }
     const paramRegex = /([^&=]+)=([^&]*)/g
@@ -97,6 +98,11 @@ const handleFileAction = async(link: string) => {
     case 'flac':
     case 'wav':
     case 'mp3':
+    case 'm4a':
+    case 'aac':
+    case 'opus':
+    case 'wma':
+    case 'ape':
       await handleFileMusicAction(file)
       break
     default:

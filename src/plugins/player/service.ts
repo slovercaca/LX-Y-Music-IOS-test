@@ -3,6 +3,7 @@ import TrackPlayer, { Event as TPEvent } from 'react-native-track-player'
 import { Platform } from 'react-native'
 import { hasRecentManualPlayIntent, pause, play } from '@/core/player/player'
 import { initUnifiedPlayerController } from './controller'
+import { setVolume } from './utils'
 import { exitApp } from '@/core/common'
 import playerState from '@/store/player/state'
 import settingState from '@/store/setting/state'
@@ -48,7 +49,7 @@ const restoreConfiguredVolume = () => {
   clearDuckRecoveryTimeouts()
 
   const applyVolume = () => {
-    void TrackPlayer.setVolume(settingState.setting['player.volume']).catch(() => {})
+    void setVolume(settingState.setting['player.volume']).catch(() => {})
   }
 
   applyVolume()

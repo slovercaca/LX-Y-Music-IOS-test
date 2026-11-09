@@ -47,11 +47,9 @@ export const updateSetting = (setting: Partial<LX.AppSetting>) => {
 }
 
 export const setLanguage = (locale: Parameters<typeof applyLanguage>[0]) => {
+  applyLanguage(locale)
   updateSetting({ 'common.langId': locale })
   global.state_event.languageChanged(locale)
-  requestAnimationFrame(() => {
-    applyLanguage(locale)
-  })
 }
 
 let isDestroying = false

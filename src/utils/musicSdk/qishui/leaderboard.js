@@ -1,4 +1,5 @@
 import { formatPlayTime } from '@/utils/common'
+import { httpFetch } from '@/utils/request'
 import songList from './songList'
 
 const H5_UA = 'Luna/19.1.0 Android'
@@ -23,10 +24,13 @@ const pickUrl = (value) => {
 }
 
 // 从抖音网页 SSR HTML 提取歌曲 ID 列表
+// 改用 httpFetch（与同目录 songList.js 一致）：内置 15s 超时与统一错误处理，
+// 避免裸 fetch 被挂起时排行榜回退路径无限等待。
 const fetchBoardSongIds = async(bangid) => {
-  const html = await fetch(`https://www.douyin.com/qishui/playlist/${bangid}`, {
+  const resp = await httpFetch(`https://www.douyin.com/qishui/playlist/${bangid}`, {
     headers: { 'User-Agent': WEB_UA },
-  }).then((r) => r.text())
+  }).promise
+  const html = typeof resp.body === 'string' ? resp.body : ''
   const ids = []
   // SSR HTML 里歌曲链接可能被 URL 编码成 song%2F123 或保持 song/123，两种都匹配
   const re = /song(?:%2F|\/)(\d+)/g
@@ -37,12 +41,14 @@ const fetchBoardSongIds = async(bangid) => {
   return ids
 }
 
-// 用 H5 SEO 接口获取歌曲详情
+// 用 H5 SEO 接口获取歌曲详情（httpFetch 同上，默认 15s 超时）
 const fetchTrack = async(trackId) => {
-  const data = await fetch(
+  const resp = await httpFetch(
     `https://beta-luna.douyin.com/luna/h5/seo_track?track_id=${trackId}&device_platform=web`,
     { headers: { 'User-Agent': H5_UA } },
-  ).then((r) => r.json())
+  ).promise
+  // httpFetch 在响应体为合法 JSON 时已把 body 解析成对象（同 songList.js 的口径），兼容两种形态
+  const data = typeof resp.body === 'string' ? JSON.parse(resp.body) : resp.body
   const track = data?.seo_track?.track
   if (!track || !track.id) return null
   const duration = track.duration || 0

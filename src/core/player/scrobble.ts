@@ -1,4 +1,5 @@
 import playerState from '@/store/player/state'
+import settingState from '@/store/setting/state'
 import listState from '@/store/list/state'
 import { LIST_IDS } from '@/config/constant'
 import wyApi from '@/utils/musicSdk/wy/user'
@@ -52,7 +53,8 @@ export const updateScrobblePlayTime = (currentTime: number) => {
 
   const deltaTime = currentTime - scrobbleInfo.lastReportedTime
 
-  if (deltaTime > 0 && deltaTime < 2) {
+  const maxDelta = Math.max(2, 2 * (settingState.setting['player.playbackRate'] || 1) + 1)
+  if (deltaTime > 0 && deltaTime < maxDelta) {
     scrobbleInfo.accumulatedPlayedTime += deltaTime
   }
 
@@ -64,7 +66,7 @@ export const updateScrobblePlayTime = (currentTime: number) => {
     if (playedTime >= 120 || (totalTime > 0 && playedTime >= totalTime * 0.5)) {
       scrobbleInfo.isScrobbled = true
       console.log(`Scrobbling song realtime: ${scrobbleInfo.songId}, Source ID: '${scrobbleInfo.sourceId}', Time: ${playedTime}s`)
-      void wyApi.scrobble(scrobbleInfo.songId, scrobbleInfo.sourceId, playedTime)
+      void wyApi.scrobble(scrobbleInfo.songId, scrobbleInfo.sourceId, playedTime).catch(() => {})
     }
   }
 }

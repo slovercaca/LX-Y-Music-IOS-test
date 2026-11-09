@@ -46,7 +46,7 @@ export default memo(({ componentId, similarSongs: initialSimilarSongs }: { compo
           <View style={styles.listWrap}>
             <OnlineList componentId={componentId}
               ref={listRef}
-              listId="dailyrec_wy"
+              listId="similar_songs_list"
               forcePlayList={true}
               playingId={playerMusicInfo.id}
               onPlayList={onPlayList}
@@ -55,7 +55,7 @@ export default memo(({ componentId, similarSongs: initialSimilarSongs }: { compo
               onListUpdate={handleListUpdate}
             />
           </View>
-          <PlayerBar />
+          <PlayerBar componentId={componentId} />
         </View>
       </LandscapeCentered>
     </PageContent>

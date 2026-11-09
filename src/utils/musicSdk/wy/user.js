@@ -239,11 +239,11 @@ export default {
     const retryDelay = 200
     try {
       const data = {
-        '/api/playlist/desc/update': `{"id":${id},"desc":"${desc}"}`,
-        '/api/playlist/update/name': `{"id":${id},"name":"${name}"}`,
+        '/api/playlist/desc/update': JSON.stringify({ id, desc }),
+        '/api/playlist/update/name': JSON.stringify({ id, name }),
       }
-      const cookie = settingState.setting['common.wy_cookie']
-      const csrfToken = (cookie.match(/_csrf=([^(;|$)]+)/) || [])[1]
+      const cookie = settingState.setting['common.wy_cookie'] || ''
+      const csrfToken = (cookie.match(/_csrf=([^;\s]+)/) || [])[1]
       const { body } = await httpFetch('https://music.163.com/weapi/batch', {
         method: 'post',
         headers: {

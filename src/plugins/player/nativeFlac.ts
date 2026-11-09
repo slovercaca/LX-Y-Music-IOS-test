@@ -70,9 +70,11 @@ export const prefetchNativeFlacPlayback = async(musicInfo: LX.Player.PlayMusic, 
   return isRemoteUrl(url)
 }
 
+let nativeFlacTrackSeq = 0
+
 export const startNativeFlacPlayback = async(musicInfo: LX.Player.PlayMusic, url: string, position: number, autoplay = true, quality: LX.Quality | null = null) => {
   await resetNativeFlacPlayback().catch(() => {})
-  const nextTrackId = `nativeflac://${getMusicInfo(musicInfo).id}`
+  const nextTrackId = `nativeflac://${getMusicInfo(musicInfo).id}__//${++nativeFlacTrackSeq}`
   const playbackContext: NativeFlacPlaybackContext = {
     musicInfo,
     url,

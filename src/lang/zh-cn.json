@@ -435,7 +435,6 @@
   "webdav_download_path_default": "默认路径",
   "webdav_download_path_set_success": "路径设置成功",
   "webdav_download_path_reset_success": "已重置为默认路径",
-  // 2026-10-05：WebDAV 上传 tab（P1-14 i18n）
   "webdav_upload_tab": "上传",
   "webdav_upload_target_dir": "上传目标",
   "webdav_upload_from_downloads": "从下载列表选择",

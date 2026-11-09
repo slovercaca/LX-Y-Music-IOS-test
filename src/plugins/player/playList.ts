@@ -3,6 +3,7 @@ import { Platform } from 'react-native'
 import settingState from '@/store/setting/state'
 import {
   getNativeFlacDuration,
+  getNativeFlacTrackId,
   isNativeFlacActive,
 } from './nativeFlac'
 import { getPositionStamped, elapsedSnapshotFields } from './utils'
@@ -34,6 +35,11 @@ const resolveMetadataDuration = (duration: number) => {
 // 比较处用松散 `!=`，null 与 undefined 视为同一「未缓存」语义，故无需额外区分。
 let cachedDurationMusicId: string | null | undefined
 
+const hasActiveTrack = async() => {
+  if (Platform.OS == 'ios' && isNativeFlacActive()) return !!getNativeFlacTrackId()
+  return !!(await getCurrentTrack())
+}
+
 export const updateMetaData = async(musicInfo: LX.Player.MusicInfo, isPlay: boolean, lyric?: string, force = false) => {
   const prevIsPlaying = state.isPlaying
   state.isPlaying = isPlay
@@ -51,16 +57,16 @@ export const updateMetaData = async(musicInfo: LX.Player.MusicInfo, isPlay: bool
     if (state.prevDuration != duration) {
       state.prevDuration = duration
       cachedDurationMusicId = musicInfo.id
-      const trackInfo = await getCurrentTrack()
-      if (trackInfo && musicInfo) {
+      const trackActive = await hasActiveTrack()
+      if (trackActive && musicInfo) {
         delayUpdateMusicInfo(musicInfo, lyric, isPlay)
       }
     }
   } else {
-    const [duration, trackInfo] = await Promise.all([isNativeFlacActive() ? getNativeFlacDuration() : getTrackDuration(), getCurrentTrack()])
+    const [duration, trackActive] = await Promise.all([isNativeFlacActive() ? getNativeFlacDuration() : getTrackDuration(), hasActiveTrack()])
     state.prevDuration = resolveMetadataDuration(duration)
     cachedDurationMusicId = musicInfo.id
-    if (trackInfo && musicInfo) {
+    if (trackActive && musicInfo) {
       delayUpdateMusicInfo(musicInfo, lyric, isPlay)
     }
   }

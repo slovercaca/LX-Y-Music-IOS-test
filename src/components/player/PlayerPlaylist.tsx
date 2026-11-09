@@ -95,6 +95,11 @@ export default forwardRef<PlayerPlaylistType, {}>((props, ref) => {
   // 面板标题需反映真实模式：临时队列显示「临时列表」，否则显示当前播放歌单名。
   // 原实现写死 list_name_temp，会让用户误以为展示当前歌单时也在「临时列表」中。
   // 依赖里必须带 playerListId：切播放列表时标题也要跟着换（原因见上面 playerListId 注释）。
+  // 普通列表模式下，playlist 直接读 store 中的歌单数据（getListMusicSync）。
+  // 该数据变化只通过 global.list_event 广播，不会触发组件重新计算，
+  // 因此这里订阅相关事件，在当前播放列表被改动时强制刷新。
+  const [listVersion, setListVersion] = useState(0)
+
   const title = useMemo(() => {
     if (isTempMode) return t('list_name_temp')
     if (playerListId === LIST_IDS.TEMP) return t('list_name_temp')
@@ -103,11 +108,6 @@ export default forwardRef<PlayerPlaylistType, {}>((props, ref) => {
     if (playerListId === LIST_IDS.DOWNLOAD) return t('list_name_download')
     return listState.allList.find(l => l.id === playerListId)?.name ?? t('list_name_play')
   }, [isTempMode, t, playerListId, listVersion]) // 低-1：补 listVersion，歌单改名后标题才刷新
-
-  // 普通列表模式下，playlist 直接读 store 中的歌单数据（getListMusicSync）。
-  // 该数据变化只通过 global.list_event 广播，不会触发组件重新计算，
-  // 因此这里订阅相关事件，在当前播放列表被改动时强制刷新。
-  const [listVersion, setListVersion] = useState(0)
   useEffect(() => {
     const handleListChange = async(changedListId: string) => {
       if (changedListId === playerState.playInfo.playerListId) setListVersion(v => v + 1)

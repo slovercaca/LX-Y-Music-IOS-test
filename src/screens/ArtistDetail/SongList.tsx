@@ -65,7 +65,11 @@ const SongList = forwardRef<SongListRef, SongListProps>(({
   }, [songs.list, artistId, onLoadAllSongs])
 
   useEffect(() => {
-    if (activeTab === 'songs') {
+    if (activeTab !== 'songs') {
+      lastSyncedListRef.current = null
+      return
+    }
+    {
       // 下一页加载期间也必须保持 loading，避免 iOS FlatList 的 onEndReached
       // 连续触发多个分页请求；之前只有“首屏为空”时才设 loading，导致滚动
       // 到底部时状态立刻回到 idle，分页请求互相覆盖/丢页。

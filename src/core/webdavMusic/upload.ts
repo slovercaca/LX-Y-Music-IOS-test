@@ -35,7 +35,7 @@ const putViaNative = async(
   url: string,
   localPath: string,
   headers: Record<string, string>,
-  onProgress: (loaded: number, total: number) => void,
+  onProgress: (loaded: number, total: number, info?: { heartbeat?: boolean, noRealProgress?: boolean }) => void,
   onAbortHandle: PutFileOptions['onAbortHandle'],
   /** 分块/断点续传：指定字节范围 [startOffset, endOffset)，totalSize 为文件总大小 */
   range?: { startOffset: number; endOffset: number; totalSize: number },
@@ -69,13 +69,16 @@ const putViaNative = async(
   // 还在跑”（JS 侧无法从原生查询字节数）；真正的停滞由 URLSession 的
   // 60 秒请求超时兜底，失败后走 JS 自动重试。间隔按看门狗阈值自适应：
   // 阈值 - 5 秒，且不低于 3 秒、不高于 10 秒（与降级通道的 10 秒心跳同口径）。
+  // 2026-11-09：心跳带 heartbeat 标记，管理器只把它当存活信号——不再刷新
+  // 停滞判定基准（只认真实字节前进），否则看门狗永远测不到停滞、真卡死
+  // 不会被中断。心跳本身保留：原生还活着/JS 未冻结仍靠它区分。
   const stallSec = Number(settingState.setting['webdav.uploadStallTimeoutSec'] ?? 15)
   const heartbeatMs = stallSec > 0
     ? Math.min(10000, Math.max(3000, (stallSec - 5) * 1000))
     : 10000
   const heartbeat = setInterval(() => {
     try {
-      onProgress(lastLoaded, lastTotal)
+      onProgress(lastLoaded, lastTotal, { heartbeat: true })
     } catch { /* 忽略 */ }
   }, heartbeatMs)
 
@@ -378,8 +381,9 @@ export interface PutFileOptions {
   localPath: string
   size: number
   contentType?: string
-  /** 进度回调（当前为模拟进度：0% → 50% → 100%，非真实字节） */
-  onProgress?: (loaded: number, total: number) => void
+  /** 进度回调。info.heartbeat=true 为心跳重报（字节未前进，不算真实进度）；
+   * info.noRealProgress=true 表示已切到降级通道、该通道全程无真实字节进度 */
+  onProgress?: (loaded: number, total: number, info?: { heartbeat?: boolean, noRealProgress?: boolean }) => void
   /** 用户已明确选择「覆盖」远端同名文件时为 true：禁用按大小断点续传，从头传（W1） */
   forceFresh?: boolean
   /** 传输方式说明（如降级到无实时进度的通道时通知 UI 如实展示，W6） */
@@ -408,9 +412,9 @@ export interface PutFileOptions {
 const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void> => {
   const { remotePath, localPath, size, onProgress, onAbortHandle, forceFresh, onPhaseNote } = options
   // 注意：contentType 不再使用（webdav 库自动处理）；保留在接口中以兼容调用方
-  const report = (loaded: number, total: number) => {
+  const report = (loaded: number, total: number, info?: { heartbeat?: boolean, noRealProgress?: boolean }) => {
     try {
-      onProgress?.(loaded, total)
+      onProgress?.(loaded, total, info)
     } catch {
       // 进度回调永不打断上传
     }
@@ -504,9 +508,9 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
             url,
             localPath,
             headers,
-            (loaded, total) => {
+            (loaded, total, info) => {
               // loaded 是全局偏移（putViaNative 已映射）
-              report(loaded, total)
+              report(loaded, total, info)
             },
             onAbortHandle,
             { startOffset: offset, endOffset, totalSize: actualSize },
@@ -572,7 +576,9 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
 
   // 降级：webdav 库（JS 层，无原生桥接崩溃风险，但无真实进度、大内存）
   // 读文件为 Buffer（webdav 库需要）
-  report(0, actualSize)
+  // 2026-11-09：从进入降级通道起，所有进度上报带 noRealProgress 标记——
+  // 管理器据此把本轮切到「总时长硬顶」看门狗，不再套用字节停滞判定。
+  report(0, actualSize, { noRealProgress: true })
   const base64 = await readFile(localPath, 'base64').catch(() => '')
   if (!base64) throw new Error(`本地文件读取失败：${localPath}`)
   // W6：不再把「读完文件」伪装成上传 50%——该通道没有真实进度，如实告知 UI；
@@ -607,11 +613,14 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
   await deleteRemoteFileOrAbort(remotePath)
 
   // 心跳保活：webdav 库无进度回调，上传期间每 10s 重复上报最后真实进度（0），
-  // 只为刷新 useUploadManager 看门狗的活跃时间，不伪造百分比（W6）。
+  // 只作存活信号，不伪造百分比（W6）。
   // P0-1（2026-10-06）：此前 30s 心跳 > 15s 看门狗，大文件走降级必被误杀。
+  // 2026-11-09：心跳不再刷新管理器的停滞判定基准（只认真实字节前进），
+  // 本通道改由下方 PUT 硬超时竞速 + 管理器总时长硬顶兜底，不会被误杀、
+  // 也不会永不超时。
   const heartbeat = setInterval(() => {
     try {
-      report(0, actualSize)
+      report(0, actualSize, { heartbeat: true, noRealProgress: true })
     } catch { /* 忽略 */ }
   }, 10000)
 

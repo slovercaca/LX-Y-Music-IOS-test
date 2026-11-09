@@ -39,7 +39,10 @@ async function getCookie() {
     } catch (error) {
       log.error('[Bilibili Search] Cookie获取失败: ' + error.message)
       log.error('[Bilibili Search] Cookie获取失败堆栈: ' + (error.stack || '无'))
-      cookie = { b_3: '', b_4: '' }
+      // 失败不固化：直接返回空 cookie 供本次搜索使用，模块级 cookie 保持 null，
+      // 下次搜索会重新请求指纹接口。旧实现把空对象写进缓存，cookie 变真值后
+      // 后续搜索永远不再重试，接口恢复了也拿不到指纹。
+      return { b_3: '', b_4: '' }
     }
   }
   return cookie

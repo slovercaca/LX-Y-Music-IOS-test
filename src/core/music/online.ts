@@ -103,7 +103,8 @@ export const resolveMusicUrl = async({
     } else {
       const availableQualities = Object.keys(currentMusicInfo.meta._qualitys) as LX.Quality[]
       const preferredQualityIndex = QUALITY_RANK.indexOf(preferredQuality)
-      const maxAvailableQualityIndex = Math.min(...availableQualities.map(q => QUALITY_RANK.indexOf(q)))
+      const qualityIndexes = availableQualities.map(q => QUALITY_RANK.indexOf(q)).filter(idx => idx !== -1)
+      const maxAvailableQualityIndex = qualityIndexes.length ? Math.min(...qualityIndexes) : Infinity
 
       if (preferredQualityIndex < maxAvailableQualityIndex) {
         if (!silent) console.log('用户想要的音质比当前已知的最好音质还要高，获取音质详情')

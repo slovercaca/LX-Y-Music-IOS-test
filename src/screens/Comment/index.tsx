@@ -139,6 +139,8 @@ export default memo(({ componentId }: { componentId: string }) => {
   const commentInputRef = useRef<CommentInputType>(null)
   const [isSending, setIsSending] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current) }, [])
 
   // Check if user is logged in to NetEase and the song is from wy source
   const isWyLoggedIn = useMemo(() => {
@@ -213,7 +215,8 @@ export default memo(({ componentId }: { componentId: string }) => {
               .then(() => {
                 toast(t('comment_delete_success' as any))
                 // Delay refresh to allow server to propagate the deletion
-                setTimeout(() => { setRefreshKey(k => k + 1) }, 1500)
+                if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
+                refreshTimerRef.current = setTimeout(() => { refreshTimerRef.current = null; setRefreshKey(k => k + 1) }, 1500)
               })
               .catch((err: any) => {
                 console.error('Delete comment failed:', err)
@@ -245,7 +248,8 @@ export default memo(({ componentId }: { componentId: string }) => {
       .then(() => {
         toast(t((replyInfo ? 'comment_reply_success' : 'comment_send_success') as any))
         // Delay refresh to allow server to propagate the new comment
-        setTimeout(() => { setRefreshKey(k => k + 1) }, 1500)
+        if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
+        refreshTimerRef.current = setTimeout(() => { refreshTimerRef.current = null; setRefreshKey(k => k + 1) }, 1500)
         return true
       })
       .catch((err: any) => {

@@ -500,7 +500,7 @@ export const resetIgnoringBatteryOptimizationCheck = async() => {
 }
 
 export const formatMusicName = (format: string, name: string, singer: string) => {
-  return format.replace('歌手', singer).replace('歌名', name)
+  return format.replace(/歌手|歌名/g, (m) => (m === '歌手' ? singer : name))
 }
 
 export const shareMusic = (

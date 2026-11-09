@@ -106,6 +106,10 @@ export const getActiveWebDAVProfileId = async(): Promise<string | null> => {
   return typeof id === 'string' && id ? id : null
 }
 
+export const setActiveWebDAVProfileId = async(id: string | null): Promise<void> => {
+  await saveData(ACTIVE_ID_KEY, id ?? '').catch(() => {})
+}
+
 /**
  * 一键切换：把配置写入共享的 sync.webdav.* 设置键（连接与同步两边同时生效），
  * 并重置缓存的 webdav client，下一次目录浏览/扫描/下载即用新凭据。

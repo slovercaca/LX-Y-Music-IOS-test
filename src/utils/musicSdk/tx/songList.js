@@ -419,7 +419,7 @@ export default {
           source: 'tx',
           interval: formatPlayTime(item.interval),
           songId: item.id,
-          albumMid: item.album.mid,
+          albumMid: item.album?.mid ?? '',
           strMediaMid: item.file?.media_mid || '',
           songmid: item.mid,
           img:
@@ -533,7 +533,7 @@ export default {
           source: 'tx',
           interval: formatPlayTime(item.interval),
           songId: item.id,
-          albumMid: item.album.mid,
+          albumMid: item.album?.mid ?? '',
           strMediaMid: item.file.media_mid,
           songmid: item.mid,
           img:

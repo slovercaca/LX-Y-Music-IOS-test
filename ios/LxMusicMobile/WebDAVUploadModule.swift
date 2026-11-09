@@ -281,7 +281,11 @@ class WebDAVUploadModule: RCTEventEmitter {
     lock.unlock()
 
     guard let httpResponse = response as? HTTPURLResponse else {
-      // 非 HTTP 响应：等待 didComplete 的 error 处理
+      lock.lock()
+      contexts.removeValue(forKey: uploadId)
+      taskIdMap.removeValue(forKey: ctx.task.taskIdentifier)
+      lock.unlock()
+      ctx.rejecter("E_INVALID_RESPONSE", "无效的服务器响应", nil)
       return
     }
 

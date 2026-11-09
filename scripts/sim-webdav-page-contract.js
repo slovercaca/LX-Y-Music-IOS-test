@@ -23,6 +23,14 @@
  * 与 设置 → 数据同步 → WebDAV 同步 共用同一批 sync.webdav.* 键（同源，不会分叉）；
  * 目录浏览并入「目录」页，不再一半藏在「配置」里。
  *
+ * 锚点更新（2026-11-09）：页面与 drive 均已重构，断言目标随之迁移，不变量不变——
+ *   - 页面：index.tsx 只剩装配壳，状态/逻辑收拢进 useWebDAVPage.ts，
+ *     配置 UI 拆到 components/ConfigTab.tsx（②③⑦⑧ 改查这两个文件）；
+ *   - drive.ts 已降为 re-export 兼容层，实现拆到 library.ts（⑤⑥ 改查 library.ts）；
+ *   - ⑦ 下拉刷新语义按 W17 演进（见 useWebDAVPage.ts 内注释）：旧「逐首重读本地
+ *     标签」名不符实，已改为远端重新扫描。⑦ 改钉新语义（刷新必须走 executeScan），
+ *     「不得不假报成功」的底线不变。
+ *
  * 运行：node scripts/sim-webdav-page-contract.js
  * 退出码：不变量全过、且所有反例被拦下时为 0，否则 1。
  */
@@ -37,8 +45,13 @@ const FILES = {
   verticalMain: 'src/screens/Home/Vertical/Main.tsx',
   horizontalMain: 'src/screens/Home/Horizontal/Main.tsx',
   page: 'src/screens/Home/Views/WebDAV/index.tsx',
+  // 2026-11-09 锚点更新：页面逻辑与配置 UI 已拆出 index.tsx（见文件头说明）
+  pageHook: 'src/screens/Home/Views/WebDAV/useWebDAVPage.ts',
+  configTab: 'src/screens/Home/Views/WebDAV/components/ConfigTab.tsx',
   action: 'src/screens/Home/Views/WebDAV/WebDAVListAction.ts',
   drive: 'src/core/webdavMusic/drive.ts',
+  // 2026-11-09 锚点更新：drive.ts 只剩 re-export，实现在 library.ts
+  library: 'src/core/webdavMusic/library.ts',
   syncScreen: 'src/screens/Home/Views/Setting/settings/Sync/index.tsx',
 }
 
@@ -61,17 +74,19 @@ const structuralReasons = (files, pageDirExists) => {
   if (!pageDirExists) reasons.push('src/screens/Home/Views/WebDAV 页面目录不存在')
 
   // ② 配置态必须是响应式的（不得再一次性冻结）
-  if (!/useSettingValue\('sync\.webdav\.url'\)/.test(files.page)) reasons.push('页面没有响应式读取 sync.webdav.url')
-  if (!/useSettingValue\('sync\.webdav\.username'\)/.test(files.page)) reasons.push('页面没有响应式读取 sync.webdav.username')
-  if (/const hasConfig = useMemo\(/.test(files.page)) reasons.push('hasConfig 又变回 useMemo（配置改动不会刷新，按钮永远禁用）')
+  //    2026-11-09：响应式读值在 useWebDAVPage.ts（index.tsx 只做装配）
+  if (!/useSettingValue\('sync\.webdav\.url'\)/.test(files.pageHook)) reasons.push('页面没有响应式读取 sync.webdav.url')
+  if (!/useSettingValue\('sync\.webdav\.username'\)/.test(files.pageHook)) reasons.push('页面没有响应式读取 sync.webdav.username')
+  if (/const hasConfig = useMemo\(/.test(files.pageHook)) reasons.push('hasConfig 又变回 useMemo（配置改动不会刷新，按钮永远禁用）')
 
   // ③ 页面内即可配置 + 测试连接（去割裂）
-  if (!/InputItem/.test(files.page)) reasons.push('配置页没有可编辑的连接输入项')
+  //    2026-11-09：输入项在 components/ConfigTab.tsx；resetClient/testConnection 的调用在 useWebDAVPage.ts
+  if (!/InputItem/.test(files.configTab)) reasons.push('配置页没有可编辑的连接输入项')
   for (const key of ['sync.webdav.url', 'sync.webdav.username', 'sync.webdav.password']) {
-    if (!files.page.includes(`'${key}'`)) reasons.push(`配置页缺少 ${key} 的写入`)
+    if (!files.configTab.includes(`'${key}'`)) reasons.push(`配置页缺少 ${key} 的写入`)
   }
-  if (!/resetClient\(\)/.test(files.page)) reasons.push('改完连接配置没有 resetClient（新凭据不生效）')
-  if (!/testConnection\(\)/.test(files.page)) reasons.push('配置页缺少「测试连接」')
+  if (!/resetClient\(\)/.test(files.pageHook)) reasons.push('改完连接配置没有 resetClient（新凭据不生效）')
+  if (!/testConnection\(\)/.test(files.pageHook)) reasons.push('配置页缺少「测试连接」')
 
   // ④ 下载目录必须读真实设置键
   if (!/settings\['webdav\.downloadPath'\]/.test(files.action)) {
@@ -83,32 +98,40 @@ const structuralReasons = (files, pageDirExists) => {
     }
   }
 
-  // ⑤ 标签字段必须能落库
-  if (!/interface WebDAVMusicMetaUpdate[\s\S]{0,400}?name\?: string[\s\S]{0,200}?singer\?: string/.test(files.drive)) {
+  // ⑤ 标签字段必须能落库（2026-11-09：实现已从 drive.ts 移到 library.ts）
+  if (!/interface WebDAVMusicMetaUpdate[\s\S]{0,400}?name\?: string[\s\S]{0,200}?singer\?: string/.test(files.library)) {
     reasons.push('WebDAVMusicMetaUpdate 没支持 name/singer（读标签的结果存不下来）')
   }
-  if (!/if \(update\.name\) song\.name = update\.name/.test(files.drive)) reasons.push('updateWebDAVMusicMeta 没有应用 name')
-  if (!/if \(update\.singer\) song\.singer = update\.singer/.test(files.drive)) reasons.push('updateWebDAVMusicMeta 没有应用 singer')
+  if (!/if \(update\.name\) song\.name = update\.name/.test(files.library)) reasons.push('updateWebDAVMusicMeta 没有应用 name')
+  if (!/if \(update\.singer\) song\.singer = update\.singer/.test(files.library)) reasons.push('updateWebDAVMusicMeta 没有应用 singer')
 
-  // ⑥ 远程路径不得冒充本地文件 + 名称/歌手不得被文件名洗掉
-  if (!/filePath: '',\n\s*remotePath: path,/.test(files.drive)) {
+  // ⑥ 远程路径不得冒充本地文件 + 名称/歌手不得被文件名洗掉（同上，查 library.ts；
+  //    扫描构造的对象里远程路径字段现为 remotePath: entry.path）
+  if (!/filePath: '',\n\s*remotePath: entry\.path,/.test(files.library)) {
     reasons.push('扫描结果仍把远程路径写进 meta.filePath（未下载会被当成已下载）')
   }
-  if (!/if \(remotePath && musicInfo\.meta\.filePath === remotePath\) musicInfo\.meta\.filePath = ''/.test(files.drive)) {
+  if (!/if \(remotePath && musicInfo\.meta\.filePath === remotePath\) musicInfo\.meta\.filePath = ''/.test(files.library)) {
     reasons.push('缺少旧数据迁移：meta.filePath === remotePath 时应清空')
   }
-  if (/musicInfo\.name = title\.name\n\s*musicInfo\.singer = title\.singer/.test(files.drive)) {
+  if (/musicInfo\.name = title\.name\n\s*musicInfo\.singer = title\.singer/.test(files.library)) {
     reasons.push('normalizeWebDAVMusicInfo 又无条件用文件名覆盖 name/singer（标签会被洗掉）')
   }
 
-  // ⑦ 下拉刷新只处理已下载到本地的文件，且不再假报成功
-  if (!/const localSongs = songs\.filter\(song => !!song\.meta\.filePath\)/.test(files.page)) {
-    reasons.push('下拉刷新没有只挑本地已下载的歌曲（会对远程路径读标签）')
+  // ⑦ 下拉刷新 = 远端重新扫描（W17 演进，2026-11-09 锚点更新）：
+  //    旧语义「逐首重读本地标签」已废弃——它正是当年拿远程路径读标签、假报成功的
+  //    温床。新语义钉住：handleRefresh 必须走 executeScan 重新扫描，且不得假报成功。
+  {
+    const refreshAt = files.pageHook.indexOf('const handleRefresh = useCallback')
+    const refreshEnd = refreshAt < 0 ? -1 : files.pageHook.indexOf('}, [hasConfig, loading, executeScan])', refreshAt)
+    const refreshBlock = refreshAt < 0 ? '' : files.pageHook.slice(refreshAt, refreshEnd < 0 ? refreshAt + 400 : refreshEnd)
+    if (!/executeScan\(\)/.test(refreshBlock)) {
+      reasons.push('下拉刷新没有重新扫描远端（W17 语义回退：下拉应看服务器最新列表）')
+    }
   }
-  if (/'标签加载完成'/.test(files.page)) reasons.push('下拉刷新仍在假报「标签加载完成」')
+  if (/'标签加载完成'/.test(files.pageHook) || /'标签加载完成'/.test(files.page)) reasons.push('下拉刷新仍在假报「标签加载完成」')
 
-  // ⑧ 编辑标签前必须确认本地文件存在
-  if (!/请先下载歌曲，再编辑标签/.test(files.page)) reasons.push('编辑标签没有「请先下载」的守卫')
+  // ⑧ 编辑标签前必须确认本地文件存在（2026-11-09：守卫在 useWebDAVPage.ts）
+  if (!/请先下载歌曲，再编辑标签/.test(files.pageHook)) reasons.push('编辑标签没有「请先下载」的守卫')
 
   // ⑨ 设置里的 WebDAV 同步必须保留（两处同源，缺一不可）
   if (!/sync\.webdav\.url/.test(files.syncScreen)) reasons.push('设置→数据同步 的 WebDAV 同步配置界面不见了')
@@ -186,9 +209,10 @@ const failedModels = models.filter(([, pass]) => !pass)
 const cases = []
 
 {
+  // 2026-11-09：hasConfig 已随页面逻辑迁到 useWebDAVPage.ts，篡改目标随之迁移
   const tampered = {
     ...REAL,
-    page: REAL.page.replace(
+    pageHook: REAL.pageHook.replace(
       '  const hasConfig = !!(webdavUrl && webdavUsername)',
       '  const hasConfig = useMemo(() => !!(webdavUrl && webdavUsername), [])',
     ),
@@ -205,17 +229,19 @@ const cases = []
   cases.push(['下载目录键写回 sync.webdav.downloadPath', caught])
 }
 {
+  // 2026-11-09：扫描构造已随实现迁到 library.ts，且远程路径字段现为 entry.path
   const tampered = {
     ...REAL,
-    drive: REAL.drive.replace("  filePath: '',\n      remotePath: path,", '  filePath: path,\n      remotePath: path,'),
+    library: REAL.library.replace("      filePath: '',\n      remotePath: entry.path,", '      filePath: entry.path,\n      remotePath: entry.path,'),
   }
   const caught = structuralReasons(tampered, true).some((r) => r.includes('仍把远程路径写进 meta.filePath'))
   cases.push(['扫描把远程路径写回 meta.filePath', caught])
 }
 {
+  // 2026-11-09：normalize 已随实现迁到 library.ts，篡改锚点文本与现源码逐字一致
   const tampered = {
     ...REAL,
-    drive: REAL.drive.replace(
+    library: REAL.library.replace(
       "  const title = parseFileName(musicInfo.meta.fileName || musicInfo.name || '')\n  if (!musicInfo.name) musicInfo.name = title.name\n  if (!musicInfo.singer) musicInfo.singer = title.singer",
       "  const title = parseFileName(musicInfo.meta.fileName || musicInfo.name || '')\n  musicInfo.name = title.name\n  musicInfo.singer = title.singer",
     ),
@@ -224,14 +250,16 @@ const cases = []
   cases.push(['归一化改回无条件覆盖 name/singer', caught])
 }
 {
+  // 2026-11-09：下拉刷新已按 W17 改为重新扫描，反例随之更新——把 handleRefresh
+  // 里的 executeScan() 换成旧式「对全部歌曲逐首读标签」，必须被 ⑦ 的新断言拦下
   const tampered = {
     ...REAL,
-    page: REAL.page.replace(
-      'const localSongs = songs.filter(song => !!song.meta.filePath)',
-      'const localSongs = songs',
+    pageHook: REAL.pageHook.replace(
+      '    if (loading) return\n    executeScan()\n  }, [hasConfig, loading, executeScan])',
+      '    if (loading) return\n    void reloadAllSongTags(songs)\n  }, [hasConfig, loading, executeScan])',
     ),
   }
-  const caught = structuralReasons(tampered, true).some((r) => r.includes('没有只挑本地已下载的歌曲'))
+  const caught = structuralReasons(tampered, true).some((r) => r.includes('没有重新扫描'))
   cases.push(['下拉刷新改回对所有歌曲读标签（远程路径）', caught])
 }
 

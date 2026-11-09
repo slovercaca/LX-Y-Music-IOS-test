@@ -7,7 +7,12 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 
 let keepAliveTimer: ReturnType<typeof setInterval> | null = null
 
-const getResponseCode = (body: string | Blob): number | null => {
+const getResponseCode = (body: unknown): number | null => {
+  if (!body) return null
+  if (typeof body === 'object') {
+    const code = (body as { code?: unknown }).code
+    return typeof code === 'number' ? code : null
+  }
   if (typeof body !== 'string') return null
   try {
     const data = JSON.parse(body) as { code?: unknown }
@@ -20,7 +25,7 @@ const getResponseCode = (body: string | Blob): number | null => {
 const pingWy = async() => {
   const cookie = settingState.setting['common.wy_cookie']
   if (!cookie) return
-  const csrfToken = (cookie.match(/_csrf=([^(;|$)]+)/) || [])[1] || ''
+  const csrfToken = (cookie.match(/_csrf=([^;\s]+)/) || [])[1] || ''
   try {
     const requestObj = httpFetch('https://music.163.com/weapi/nuser/account/get', {
       method: 'post',

@@ -117,7 +117,6 @@ export default memo(({ componentId: _componentId }: { componentId: string }) => 
       ...shadow(3),
       opacity: 1,
       backgroundColor: 'transparent',
-      overflow: 'hidden',
     }
   }, [winWidth, winHeight, statusBarHeight, isSquare, coverSize, layout])
 
@@ -138,7 +137,7 @@ export default memo(({ componentId: _componentId }: { componentId: string }) => 
         coverUrl={musicInfo.pic ?? ''}
         style={{ width: imageContainerStyle.width, height: imageContainerStyle.height }}
       >
-        <View style={[styles.content, imageContainerStyle, { overflow: 'hidden' }]}>
+        <View style={[styles.content, imageContainerStyle]}>
           <Animated.View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, borderRadius: imageContainerStyle.borderRadius, transform: [{ rotate: spin }] }}>
             <Image
               url={musicInfo.pic}
@@ -157,7 +156,6 @@ const styles = createStyle({
     flexGrow: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    overflow: 'hidden',
   },
   content: {
     backgroundColor: 'rgba(0,0,0,0)',

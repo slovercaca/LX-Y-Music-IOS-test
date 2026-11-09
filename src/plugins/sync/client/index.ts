@@ -12,11 +12,10 @@ import { SYNC_CODE } from '../constants'
 
 let connectId = 0
 
-const handleConnect = async(host: string, authCode?: string, options?: { silent?: boolean }) => {
+const handleConnect = async(host: string, authCode?: string, options?: { silent?: boolean }, id = connectId) => {
   // const hostInfo = await getSyncHost()
   // console.log(hostInfo)
   // if (!hostInfo || !hostInfo.host || !hostInfo.port) throw new Error(SYNC_CODE.unknownServiceAddress)
-  const id = connectId
   const urlInfo = parseUrl(host)
   await disconnectServer(false)
   if (id != connectId) return
@@ -33,8 +32,8 @@ const connectServer = async(host: string, authCode?: string, options?: { silent?
     status: false,
     message: SYNC_CODE.connecting,
   })
-  const id = connectId
-  return handleConnect(host, authCode, options).catch(async(err) => {
+  const id = ++connectId
+  return handleConnect(host, authCode, options, id).catch(async(err) => {
     if (id != connectId) return
     sendSyncStatus({
       status: false,

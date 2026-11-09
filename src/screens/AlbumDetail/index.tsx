@@ -193,7 +193,7 @@ export default memo(({ componentId, albumInfo }: { componentId: string, albumInf
             playingId={playerMusicInfo.id}
           />
         }
-        footer={<PlayerBar />}
+        footer={<PlayerBar componentId={componentId} />}
       />
       <SwipeBackArea onBack={handleBack} />
     </PageContent>

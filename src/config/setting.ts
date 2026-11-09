@@ -157,10 +157,10 @@ export const initSetting = async() => {
   patchOrder('common.navOrder')
   patchOrder('common.navFlatOrder')
 
-  // 另外把 navOrder 里存在、navFlatOrder 仍缺失的项再补一次（兼容旧逻辑）。
+  // 另外把 navOrder 里存在、navFlatOrder 仍缺失的项再补一次（兼容旧逻辑，空数组保持为空）。
   const navOrder = updatedSetting.setting['common.navOrder'] as string[] | undefined
   const navFlatOrder = (updatedSetting.setting['common.navFlatOrder'] as string[] | undefined) ?? []
-  if (Array.isArray(navOrder) && navOrder.length) {
+  if (navFlatOrder.length > 0 && Array.isArray(navOrder) && navOrder.length) {
     const flatSet = new Set(navFlatOrder)
     const missing = navOrder.filter(id => !flatSet.has(id) && NAV_MENUS.some(m => m.id === id))
     if (missing.length) {

@@ -7,6 +7,9 @@ import { BorderWidths } from '@/theme'
 import { designSpacing } from '@/theme/DesignTokens'
 import { useTheme } from '@/store/theme/hook'
 import { subscribeScrollLock } from '@/utils/scrollLock'
+import WebLoginManager from '@/components/WebLoginManager'
+import QQWebLoginManager from '@/components/QQWebLoginManager'
+import KgWebLoginManager from '@/components/KgWebLoginManager'
 
 const styles = createStyle({
   container: {
@@ -44,6 +47,9 @@ export default () => {
           <Main ref={mainRef} />
         </View>
       </ScrollView>
+      <WebLoginManager />
+      <QQWebLoginManager />
+      <KgWebLoginManager />
     </View>
   )
 }
