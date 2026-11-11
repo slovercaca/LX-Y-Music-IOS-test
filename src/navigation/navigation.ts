@@ -6,7 +6,7 @@ import {
   PLAY_DETAIL_SCREEN,
   SONGLIST_DETAIL_SCREEN,
   SIMILAR_SONGS_SCREEN,
-  COMMENT_SCREEN, ARTIST_DETAIL_SCREEN, ALBUM_DETAIL_SCREEN, DOWNLOAD_MANAGER_SCREEN,
+  COMMENT_SCREEN, ARTIST_DETAIL_SCREEN, ALBUM_DETAIL_SCREEN,
   SETTING_DETAIL_SCREEN,
 } from './screenNames'
 
@@ -680,36 +680,6 @@ export function pushSettingDetailScreen(componentId: string, settingId: string) 
       },
     },
   }), COMPONENT_IDS.SETTING_DETAIL)
-}
-
-
-export function pushDownloadManagerScreen(componentId: string) {
-  if (!startPush(COMPONENT_IDS.DOWNLOAD_MANAGER)) return
-  const theme = themeState.theme
-  void guardPush(Navigation.push(componentId, {
-    component: {
-      name: DOWNLOAD_MANAGER_SCREEN,
-      options: {
-        topBar: {
-          visible: false,
-          height: 0,
-        },
-        statusBar: {
-          drawBehind: true,
-          visible: true,
-          style: getStatusBarStyle(theme.isDark),
-          backgroundColor: 'transparent',
-        },
-        layout: {
-          orientation: ['portrait', 'landscape'],
-          componentBackgroundColor: getPushBackgroundColor(theme),
-          fitSystemWindows: false,
-        },
-        // 走系统默认转场，原因见 pushPlayDetailScreen 注释
-      },
-    },
-  }),
-  COMPONENT_IDS.DOWNLOAD_MANAGER)
 }
 
 

@@ -152,6 +152,13 @@ export const getMusicUrl = async({
       isRefresh,
     })
   } else if (musicInfo.source == 'qs') {
+    // 2026-11-12：离线模式对 qs 同样生效——此前 qs 分支绕过了离线判断，
+    // 离线模式下汽水歌曲仍会联网取链，与其他源行为不一致
+    if (settingState.setting['player.offlineMode'] === true) {
+      const localPath = await findOfflineLocalFile(musicInfo as LX.Music.MusicInfo)
+      if (localPath) return localPath
+      throw new Error('离线模式：该歌曲未下载')
+    }
     // 汽水音乐：本地无文件，走「其他源匹配」播放（用歌名+歌手在线搜索其他平台）
     // picUrl 传 null，强制跨平台匹配封面，避免汽水自身封面为空/不可用时卡在空图
     return localPlay.getMusicUrl({
@@ -238,6 +245,11 @@ export const getPicPath = async({
       isRefresh,
     })
   } else if (musicInfo.source == 'qs') {
+    // 2026-11-12：离线模式下 qs 封面也只读本地 picture/ 缓存，不再跨平台联网匹配
+    if (settingState.setting['player.offlineMode'] === true) {
+      const localPic = await findLocalCachedPic(musicInfo as LX.Music.MusicInfo)
+      return localPic ?? ''
+    }
     // 汽水音乐封面：汽水自身通常不返回可用封面，直接走「其他源匹配」在线获取
     // （跨平台顺序：企鹅 → 网易 → 酷狗 → 酷我 → 咪咕），picUrl 传 null 强制回退匹配
     return localPlay.getPicUrl({
@@ -294,6 +306,21 @@ export const getLyricInfo = async({
       isRefresh,
     })
   } else if (musicInfo.source == 'qs') {
+    // 2026-11-12：离线模式下 qs 歌词也只读本地（匹配到的已下载文件的内嵌/同名 lrc），
+    // 不再跨平台联网取词
+    if (settingState.setting['player.offlineMode'] === true) {
+      const localPath = await findOfflineLocalFile(musicInfo as LX.Music.MusicInfo)
+      return localPlay.getLyricInfo({
+        target: {
+          name: musicInfo.name,
+          singer: musicInfo.singer,
+          filePath: localPath ?? '',
+          picUrl: null,
+        },
+        isRefresh,
+        offlineOnly: true,
+      })
+    }
     // 汽水音乐歌词：走「其他源匹配」在线获取（跨平台顺序同上）
     return localPlay.getLyricInfo({
       target: {

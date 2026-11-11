@@ -21,7 +21,7 @@ import {
   PACT_MODAL,
   ARTIST_DETAIL_SCREEN,
   SYNC_MODE_MODAL,
-  ALBUM_DETAIL_SCREEN, DOWNLOAD_MANAGER_SCREEN,
+  ALBUM_DETAIL_SCREEN,
   SIMILAR_SONGS_SCREEN,
   SETTING_DETAIL_SCREEN,
   ANNOUNCEMENT_MODAL,
@@ -31,7 +31,6 @@ import {
 import PactModal from './components/PactModal'
 import SyncModeModal from './components/SyncModeModal'
 import AnnouncementModal from './components/AnnouncementModal'
-import DownloadManager from '@/screens/DownloadManager'
 import ToastOverlay from './components/Toast'
 function WrappedComponent(Component: any) {
   return function inject(props: Record<string, any>) {
@@ -53,7 +52,6 @@ const SimilarSongsProvider = WrappedComponent(SimilarSongs)
 const PactModalProvider = WrappedComponent(PactModal)
 const SyncModeModalProvider = WrappedComponent(SyncModeModal)
 const AnnouncementModalProvider = WrappedComponent(AnnouncementModal)
-const DownloadManagerProvider = WrappedComponent(DownloadManager)
 const SettingDetailProvider = WrappedComponent(SettingDetail)
 const ToastOverlayProvider = WrappedComponent(ToastOverlay)
 
@@ -66,7 +64,6 @@ export default () => {
   Navigation.registerComponent(ARTIST_DETAIL_SCREEN, () => ArtistDetailProvider)
   Navigation.registerComponent(ALBUM_DETAIL_SCREEN, () => AlbumDetailProvider)
   Navigation.registerComponent(SYNC_MODE_MODAL, () => SyncModeModalProvider)
-  Navigation.registerComponent(DOWNLOAD_MANAGER_SCREEN, () => DownloadManagerProvider)
   Navigation.registerComponent(SIMILAR_SONGS_SCREEN, () => SimilarSongsProvider)
   Navigation.registerComponent(SETTING_DETAIL_SCREEN, () => SettingDetailProvider)
   Navigation.registerComponent(ANNOUNCEMENT_MODAL, () => AnnouncementModalProvider)

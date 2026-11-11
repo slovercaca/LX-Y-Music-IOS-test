@@ -6,8 +6,8 @@ import { Icon } from '@/components/common/Icon'
 import { useTheme } from '@/store/theme/hook'
 import { useSafeAreaBottom } from '@/store/common/hook'
 import { createStyle, clamp01 } from '@/utils/tools'
-import { navigations } from '@/navigation'
-import commonState from '@/store/common/state'
+import { forceSyncNavActiveId, setNavActiveId } from '@/core/common'
+import { setPendingAction } from '@/core/pendingAction'
 import downloadState from '@/store/download/state'
 
 import DownloadTask = LX.Download.DownloadTask
@@ -132,8 +132,14 @@ export default memo(() => {
 
 
   const handlePress = () => {
-    // 只跳转到下载管理查看详情，不再顺手把球清掉（D16：点一下就消失且看不到进度汇总）
-    navigations.pushDownloadManagerScreen(commonState.componentIds[commonState.componentIds.length - 1]?.id)
+    // 独立下载管理页已下线：去「本地与下载」页的下载标签看详情。
+    // 先记 pendingAction（页面还没挂载时靠它在挂载后切标签），再切导航，
+    // 最后发事件（页面已挂载时靠它立即切标签）；顺序反了都会丢一次切换。
+    // 只跳转查看详情，不顺手把球清掉（D16：点一下就消失且看不到进度汇总）
+    setPendingAction({ type: 'localDownloadTab', data: 'download' })
+    setNavActiveId('nav_local_download')
+    forceSyncNavActiveId()
+    global.app_event.show_local_download_tab()
   }
 
   if (!isVisible) return null

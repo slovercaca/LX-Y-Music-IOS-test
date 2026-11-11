@@ -269,6 +269,11 @@ export class AppEvent extends Event {
     this.emit('show_download_ball')
   }
 
+  /** 打开「本地与下载」页并切到下载标签（悬浮下载球的新去向） */
+  show_local_download_tab() {
+    this.emit('show_local_download_tab')
+  }
+
   playlist_updated(data: { source: string, listId: string }) {
     this.emit('playlist_updated', data)
   }

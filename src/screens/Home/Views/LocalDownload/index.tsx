@@ -12,7 +12,7 @@ import { overwriteListMusics } from '@/core/list'
 import { playList } from '@/core/player/player'
 import { LIST_IDS } from '@/config/constant'
 import downloadActions from '@/store/download/action'
-import { mkdir, readDir, unlink, stat } from '@/utils/fs'
+import { mkdir, readDir, unlink } from '@/utils/fs'
 import { sizeFormate } from '@/utils'
 import {
   getLibraryRoot,
@@ -30,17 +30,23 @@ import { useSafeAreaBottom, useBottomOverlayInset } from '@/store/common/hook'
 import PageTopInset from '@/components/common/PageTopInset'
 import Image from '@/components/common/Image'
 import useCoverUrl from '@/utils/hooks/useCoverUrl'
+import DownloadTab from './DownloadTab'
+import { consumePendingAction } from '@/core/pendingAction'
 
 /**
- * 本地与下载（2026-10-22 合并版）。
+ * 本地与下载（2026-10-22 合并版；2026-11-12 改为双标签）。
  *
- * 「下载」与「本地」不再分两个列表：下载完成的歌曲就是本地歌曲，统一在一个
- * 列表里展示与管理。数据来源合并去重：
- * - 已完成下载任务（按 filePath 与磁盘文件对齐，任务条目信息更全，优先）
- * - music/ 目录（及迁移过渡期的根目录/旧「本地」子夹）里未被任务覆盖的音频文件
+ * 页面顶部用「本地 | 下载」切换：
+ * - 本地标签以磁盘扫描为唯一准绳：只有 music/ 目录（及迁移过渡期的根目录、
+ *   旧「本地」子夹）里真实扫到的音频才显示；扫到的文件若能按完整路径对上
+ *   已完成下载任务，则用任务的歌名/歌手/音质等信息展示。没扫到的下载记录
+ *   不再在这里冒充本地歌曲（此前任务记录与真实文件路径对不上时会同时出现
+ *   「文件不存在」幻影条目与真实文件条目）。
+ * - 下载标签管理全部下载任务：下载中（等待/下载/暂停/失败）与已完成分组；
+ *   已完成下载记录统一在这里管理，即使对应文件已被外部删除/移动也不丢失。
  *
- * 每条都标注歌词/封面有无（lrc/、picture/ 同名文件），删除时连带清理同名
- * 歌词与封面；另提供「清理无用文件」删除无对应音频的歌词/封面。
+ * 本地条目都标注歌词/封面有无（lrc/、picture/ 同名文件），删除时连带清理
+ * 同名歌词与封面；另提供「清理无用文件」删除无对应音频的歌词/封面。
  */
 
 const AUDIO_EXT_SET = new Set(AUDIO_EXTS)
@@ -70,8 +76,6 @@ interface MergedItem {
   task?: LX.Download.DownloadTask
   hasLyric: boolean
   hasCover: boolean
-  /** 下载任务记录还在、但文件已被外部删除/移动（D8） */
-  missing?: boolean
 }
 
 // 本地文件转播放器可识别结构（走 localPlay 本地播放接口）
@@ -195,46 +199,28 @@ export default memo(() => {
 
   const [items, setItems] = useState<MergedItem[]>([])
   const [loading, setLoading] = useState(false)
-  const [taskSizes, setTaskSizes] = useState<Record<string, number>>({})
+  const [activeTab, setActiveTab] = useState<'local' | 'download'>('local')
 
   const completedTasks = useMemo(
     () => tasks.filter(task => task.status === 'completed' && task.filePath),
     [tasks],
   )
 
-  // 读取已完成下载文件的真实大小（progress.total 在某些场景为 0，导致页面上不显示大小）
-  const completedKey = useMemo(
-    () => completedTasks.map(task => task.id).join(','),
-    [completedTasks],
-  )
+  // 悬浮下载球会先写入 pendingAction 再切到本页：本页若尚未挂载，靠这里消费；
+  // 已经挂载时则靠下面的 app_event 直接切换。两个入口都指向「下载」标签。
   useEffect(() => {
-    let active = true
-    if (completedTasks.length === 0) {
-      setTaskSizes({})
-      return
+    if (consumePendingAction('localDownloadTab') === 'download') setActiveTab('download')
+    const handleShowDownloads = () => {
+      // 已挂载时事件就是本次切换的凭据：把 pending 一并消费掉，
+      // 免得它残留到下次挂载时又把用户手动切回的本地标签覆盖掉
+      consumePendingAction('localDownloadTab')
+      setActiveTab('download')
     }
-    void Promise.all(
-      completedTasks.map(async task => {
-        if (!task.filePath) return null
-        try {
-          const info = await stat(task.filePath)
-          return { id: task.id, size: info.size }
-        } catch {
-          return null
-        }
-      }),
-    ).then(results => {
-      if (!active) return
-      const next: Record<string, number> = {}
-      for (const r of results) {
-        if (r) next[r.id] = r.size
-      }
-      setTaskSizes(next)
-    })
+    global.app_event.on('show_local_download_tab', handleShowDownloads)
     return () => {
-      active = false
+      global.app_event.off('show_local_download_tab', handleShowDownloads)
     }
-  }, [completedKey])
+  }, [])
 
   const scanGenRef = useRef(0)
   // 扫描本地库并与下载任务合并
@@ -281,39 +267,38 @@ export default memo(() => {
         }
       }
 
-      const taskPaths = new Set(completedTasks.map(task => task.filePath))
+      // 本地列表只从「扫到的真实文件」生成条目：已完成任务仅在完整路径命中
+      // 扫到的文件时提供更完整的歌名/歌手/音质信息。没扫到的任务记录不进入
+      // 本地列表——它可能只是路径与真实落盘位置对不上，记录本身去「下载」
+      // 标签的已完成分组里管理，不在这里生成一条点不开的幻影。
+      const completedTaskByPath = new Map(completedTasks.map(task => [task.filePath, task]))
       const merged: MergedItem[] = []
-
-      // 任务条目优先（信息全：歌名/歌手/音质/原歌曲信息）
-      for (const task of completedTasks) {
-        const base = baseNameOf(task.fileName).toLowerCase() // 中：集合里存的是去扩展名基名，此前带扩展名比对永远命不中、任务歌恒显示「无歌词/封面」
-        merged.push({
-          id: task.id,
-          kind: 'task',
-          name: task.musicInfo.name,
-          singer: task.musicInfo.singer ?? '',
-          path: task.filePath,
-          size: 0,
-          quality: task.actualQuality ?? task.quality,
-          task,
-          hasLyric: lrcBases.has(base),
-          hasCover: picBases.has(base) || !!((task.musicInfo.meta as any)?.picUrl),
-          // 文件不在任何扫描目录里 = 已被外部删除/移动，明确标记而非冒充本地歌曲（D8）
-          missing: !seenPaths.has(task.filePath),
-        })
-      }
-      // 未被任务覆盖的裸文件
       const unfinishedTaskPaths = new Set(
         tasksRef.current.filter(task => task.status !== 'completed').map(task => task.filePath).filter(Boolean),
       )
       for (const file of audioFiles) {
-        if (taskPaths.has(file.path)) continue
         // 中-23：下载中的临时文件（*.download.*）与失败/暂停任务的半截文件不是
         // 完整歌曲，不能当本地歌展示（点播会半截断、还会多出怪名条目）
         if (file.fileName.includes('.download.')) continue
         if (unfinishedTaskPaths.has(file.path)) continue
+        const base = baseNameOf(file.fileName).toLowerCase() // 中：集合里存的是去扩展名基名，此前带扩展名比对永远命不中、任务歌恒显示「无歌词/封面」
+        const task = completedTaskByPath.get(file.path)
+        if (task) {
+          merged.push({
+            id: task.id,
+            kind: 'task',
+            name: task.musicInfo.name,
+            singer: task.musicInfo.singer ?? '',
+            path: file.path,
+            size: file.size,
+            quality: task.actualQuality ?? task.quality,
+            task,
+            hasLyric: lrcBases.has(base),
+            hasCover: picBases.has(base) || !!((task.musicInfo.meta as any)?.picUrl),
+          })
+          continue
+        }
         const parsed = parseFileName(file.fileName)
-        const base = baseNameOf(file.fileName).toLowerCase()
         merged.push({
           id: `localdl_${file.path}`,
           kind: 'file',
@@ -352,10 +337,6 @@ export default memo(() => {
 
   const handlePlay = useCallback(
     (item: MergedItem, index: number) => {
-      if (item.missing) {
-        toast('该歌曲文件不存在（可能已被删除或移动），可删除这条记录后重新下载', 'long')
-        return
-      }
       const playListData = displayItems.map(i => (i.kind === 'task' && i.task ? taskToPlayItem(i.task) : localFileToPlayItem(i)))
       void overwriteListMusics(LIST_IDS.TEMP, playListData).then(() => {
         void playList(LIST_IDS.TEMP, index)
@@ -392,6 +373,17 @@ export default memo(() => {
     setSelectedIds(new Set())
   }, [])
 
+  // 切标签时退出本地批量选择：选择栏是本地列表的悬浮层，不能带到下载标签上
+  const switchTab = useCallback((tab: 'local' | 'download') => {
+    if (activeTab !== tab) exitSelecting()
+    setActiveTab(tab)
+  }, [activeTab, exitSelecting])
+
+  // 下载球经 app_event 切标签时没有走 switchTab，这里统一兜底退出批量选择
+  useEffect(() => {
+    if (activeTab !== 'local' && selecting) exitSelecting()
+  }, [activeTab, selecting, exitSelecting])
+
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds(prev => {
       const next = new Set(prev)
@@ -421,17 +413,6 @@ export default memo(() => {
         const item = items.find(i => i.id === id)
         if (!item) continue
         try {
-          if (item.missing) {
-            // 文件本就不存在：只删任务记录，不算失败（D8）
-            // 低-13：它的同名歌词/封面可能还在，一并清掉，否则会变孤儿且
-            // 孤儿判定按基名又把它们算作有效、删不干净
-            const lrcPath = await findLyricForAudio(item.path).catch(() => null)
-            if (lrcPath) await unlink(lrcPath).catch(() => {})
-            const picPath = await findPictureForAudio(item.path).catch(() => null)
-            if (picPath) await unlink(picPath).catch(() => {})
-            if (item.kind === 'task') downloadActions.removeTask(id)
-            continue
-          }
           await unlink(item.path)
           const lrcPath = await findLyricForAudio(item.path).catch(() => null)
           if (lrcPath) await unlink(lrcPath).catch(() => {})
@@ -455,7 +436,6 @@ export default memo(() => {
       const audioBases = new Set<string>()
       for (const item of items) {
         audioBases.add(baseNameOf(item.path.split('/').pop() || '').toLowerCase())
-        if (item.task) audioBases.add(item.task.fileName.toLowerCase())
       }
       const orphans: string[] = []
       for (const dir of [getLrcDir(), getPictureDir()]) {
@@ -496,22 +476,19 @@ export default memo(() => {
 
   const renderItem = useCallback(
     ({ item, index }: { item: MergedItem, index: number }) => {
-      const fileSize = item.kind === 'task' ? (taskSizes[item.id] ?? item.task?.progress?.total ?? 0) : item.size
       return (
         <View style={isHorizontal ? styles.itemWrapper : null}>
           <SongRow
             title={item.name}
-            subText={item.missing
-              ? '文件不存在 · 可在批量管理中删除这条记录'
-              : [
-                item.singer,
-                item.kind === 'task' ? qualityLabel(item.quality) : '',
-                fileSize ? sizeFormate(fileSize) : '',
-                item.hasLyric ? '有歌词' : '无歌词',
-                item.hasCover ? '有封面' : '无封面',
-              ]
-                .filter(Boolean)
-                .join(' · ')}
+            subText={[
+              item.singer,
+              item.kind === 'task' ? qualityLabel(item.quality) : '',
+              item.size ? sizeFormate(item.size) : '',
+              item.hasLyric ? '有歌词' : '无歌词',
+              item.hasCover ? '有封面' : '无封面',
+            ]
+              .filter(Boolean)
+              .join(' · ')}
             singer={item.singer}
             coverFile={item.path}
             coverPicUrl={item.task ? ((item.task.musicInfo.meta as any)?.picUrl ?? null) : null}
@@ -522,14 +499,46 @@ export default memo(() => {
         </View>
       )
     },
-    [isHorizontal, isPlayingId, selectedIds, selecting, toggleSelect, handlePlay, taskSizes, qualityLabel],
+    [isHorizontal, isPlayingId, selectedIds, selecting, toggleSelect, handlePlay, qualityLabel],
   )
 
-  const pageHeader = (
+  const activeTaskCount = tasks.filter(task => task.status !== 'completed').length
+
+  const tabHeader = (
     <>
       {/* 竖屏下共享页头已含状态栏占位，这里再叠加 PageTopInset 会出现大段空白；
           仅横屏（LandscapeDetailLayout 自带页头、共享页头隐藏）需要保留 */}
       {isHorizontal ? <PageTopInset /> : null}
+      <View style={{ ...styles.tabBar, backgroundColor: theme['c-primary-light-900-alpha-200'] }}>
+        <TouchableOpacity
+          style={{ ...styles.tabBtn, backgroundColor: activeTab === 'local' ? theme['c-primary-background'] : 'transparent' }}
+          onPress={() => { switchTab('local') }}
+        >
+          <Text size={designTypography.body} color={activeTab === 'local' ? theme['c-primary-font'] : theme['c-font-label']}>
+            本地
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={{ ...styles.tabBtn, backgroundColor: activeTab === 'download' ? theme['c-primary-background'] : 'transparent' }}
+          onPress={() => { switchTab('download') }}
+        >
+          <View style={styles.tabLabelRow}>
+            <Text size={designTypography.body} color={activeTab === 'download' ? theme['c-primary-font'] : theme['c-font-label']}>
+              下载
+            </Text>
+            {activeTaskCount > 0 ? (
+              <View style={{ ...styles.tabBadge, backgroundColor: theme['c-primary'] }}>
+                <Text size={10} color="#fff">{activeTaskCount > 99 ? '99+' : activeTaskCount}</Text>
+              </View>
+            ) : null}
+          </View>
+        </TouchableOpacity>
+      </View>
+    </>
+  )
+
+  const localHeader = (
+    <>
           <View style={styles.header}>
             <View style={styles.headerActions}>
               <TouchableOpacity
@@ -560,7 +569,7 @@ export default memo(() => {
           </View>
 
           <Text size={11} color={theme['c-500']} style={styles.tip}>
-            下载的歌曲与本地歌曲已合并在一个列表；删除歌曲时会连带清理它的歌词与封面文件
+            本地列表以磁盘扫描为准；下载记录在「下载」标签里管理。删除本地歌曲时会连带清理它的歌词与封面文件
           </Text>
           <View style={{ ...styles.searchWrap, borderColor: theme['c-border-background'], backgroundColor: theme['c-content-background'] }}>
             <TextInput
@@ -580,15 +589,30 @@ export default memo(() => {
     </>
   )
 
+  const pageHeader = (
+    <>
+      {tabHeader}
+      {localHeader}
+    </>
+  )
+
   return (
     <LandscapeDetailLayout
-      header={isHorizontal ? pageHeader : null}
-      body={
+      header={isHorizontal ? (activeTab === 'local' ? pageHeader : tabHeader) : null}
+      body={activeTab === 'download' ? (
         <View style={styles.listArea}>
+          {isHorizontal ? null : tabHeader}
+          <DownloadTab bottomInset={bottomInset} />
+        </View>
+      ) : (
+        <View style={styles.listArea}>
+          {/* 竖屏：标签栏固定在列表上方（照酷狗，滚动时不跟着列表跑掉）；
+              横屏标签栏在 LandscapeDetailLayout 的固定页头里，这里不重复 */}
+          {isHorizontal ? null : tabHeader}
           <FlatList
             style={styles.list}
             data={displayItems}
-            ListHeaderComponent={isHorizontal ? undefined : pageHeader}
+            ListHeaderComponent={isHorizontal ? undefined : localHeader}
             contentContainerStyle={{ paddingBottom: bottomInset }}
             key={isHorizontal ? 'horizontal' : 'vertical'}
             numColumns={isHorizontal ? 2 : 1}
@@ -643,12 +667,42 @@ export default memo(() => {
             </View>
           )}
         </View>
-      }
+      )}
       />
   )
 })
 
 const styles = createStyle({
+  tabBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: designSpacing.md,
+    marginTop: designSpacing.sm,
+    marginBottom: designSpacing.xs,
+    padding: 3,
+    borderRadius: designRadius.pill,
+    gap: 3,
+  },
+  tabBtn: {
+    flex: 1,
+    height: 34,
+    borderRadius: designRadius.pill,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tabLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  tabBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 5,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

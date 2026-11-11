@@ -10,11 +10,13 @@ import { dateFormat, sizeFormate } from '@/utils/common'
 import { pauseTask, resumeTask, retryTask } from '@/core/download'
 import { confirmDialog } from '@/utils/tools'
 import { useI18n } from '@/lang'
+import { stat } from '@/utils/fs'
 
-export default memo(({ task: initialTask, rowWidth = '100%', onRemove }: { task: LX.Download.DownloadTask, rowWidth?: `${number}%`, onRemove: (id: string) => void }) => {
+export default memo(({ task: initialTask, rowWidth = '100%', onRemove, fileMissing = false }: { task: LX.Download.DownloadTask, rowWidth?: `${number}%`, onRemove: (id: string) => void, fileMissing?: boolean }) => {
   const theme = useTheme()
   const t = useI18n()
   const [task, setTask] = useState(initialTask)
+  const [fileSize, setFileSize] = useState(0)
   const errorColor = theme['c-600']
   // 实际音质（请求音质不支持时会降级，如 hires → flac）：没有记录时回退请求音质
   const quality = task.actualQuality ?? task.quality
@@ -58,6 +60,19 @@ export default memo(({ task: initialTask, rowWidth = '100%', onRemove }: { task:
     }
   }, [task.id, initialTask])
 
+  // 已完成任务的真实文件大小：progress.total 在源站分块传输时可能一直是 0，
+  // 只靠它会让已完成行永远不显示大小；文件还在就直接 stat 磁盘大小兜底。
+  useEffect(() => {
+    let active = true
+    if (initialTask.status !== 'completed' || !initialTask.filePath) {
+      setFileSize(0)
+      return
+    }
+    void stat(initialTask.filePath)
+      .then(info => { if (active) setFileSize(info.size) })
+      .catch(() => { if (active) setFileSize(0) })
+    return () => { active = false }
+  }, [initialTask.id, initialTask.status, initialTask.filePath])
 
   const hasMetaError = useMemo(() => Object.values(task.metadataStatus ?? {}).includes('fail'), [task.metadataStatus])
 
@@ -103,13 +118,15 @@ export default memo(({ task: initialTask, rowWidth = '100%', onRemove }: { task:
                   : `${sizeFormate(task.progress.downloaded)} · 总量未知`}
               </Text>
               <Text size={10} color={theme['c-font-label']}>
-                {task.progress.speed}
+                {task.progress.speed || '0 B/s'}
               </Text>
             </View>
           </View>
         )
       case 'completed':
-        return <Text size={12} color={theme['c-primary']}>已完成</Text>
+        return fileMissing
+          ? <Text size={12} color="#e5484d">文件不存在 · 仅剩下载记录</Text>
+          : <Text size={12} color={theme['c-primary']}>已完成</Text>
       case 'error':
         return <Text size={12} color={errorColor} numberOfLines={2}>{task.errorMsg || '下载失败'}</Text>
       case 'paused':
@@ -155,13 +172,13 @@ export default memo(({ task: initialTask, rowWidth = '100%', onRemove }: { task:
         </Text>
         <View style={styles.detailsRow}>
           <Text size={11} color={theme['c-font-label']}>{t(quality) || String(quality).toUpperCase()}</Text>
-          {task.status === 'completed' && (task.progress?.total ?? 0) > 0 &&
-            <Text size={11} color={theme['c-font-label']}> • {sizeFormate(task.progress?.total ?? 0)}</Text>
+          {task.status === 'completed' && (fileSize || (task.progress?.total ?? 0)) > 0 &&
+            <Text size={11} color={theme['c-font-label']}> • {sizeFormate(fileSize || (task.progress?.total ?? 0))}</Text>
           }
           <Text size={11} color={theme['c-font-label']}> • {dateFormat(task.createdAt, 'Y-M-D h:m')}</Text>
         </View>
         {renderStatus()}
-        {task.status === 'completed' && renderMetadataStatus()}
+        {task.status === 'completed' && !fileMissing && renderMetadataStatus()}
       </View>
       <View style={styles.actionsContainer}>
         { !task.isRemoteSynced && (task.status === 'downloading' || task.status === 'waiting') && (
@@ -174,7 +191,7 @@ export default memo(({ task: initialTask, rowWidth = '100%', onRemove }: { task:
             <Icon name="play-outline" size={18} color={theme['c-primary']} />
           </TouchableOpacity>
         ) }
-        { !task.isRemoteSynced && (task.status === 'error' || (task.status === 'completed' && hasMetaError)) && (
+        { !task.isRemoteSynced && (task.status === 'error' || (task.status === 'completed' && hasMetaError && !fileMissing)) && (
           <TouchableOpacity onPress={handleRetry} style={styles.actionButton}>
             <Icon name="available_updates" size={18} color={theme['c-primary']} />
           </TouchableOpacity>

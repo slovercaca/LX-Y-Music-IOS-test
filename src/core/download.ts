@@ -137,7 +137,7 @@ const cleanupDownloadTempFiles = (task: DownloadTask) => {
 const startDownload = async(task: DownloadTask) => {
   downloadActions.updateTask(task.id, { status: 'downloading' })
   // 不再弹「开始下载」（D4）：入队时已有「已加入队列」提示，串行队列里排后面的
-  // 任务几分钟后才真正开始，这条 toast 只会让人困惑；进度看悬浮球/下载管理即可。
+  // 任务几分钟后才真正开始，这条 toast 只会让人困惑；进度看悬浮球/下载标签即可。
 
   let url: string
   // 实际拿到的音质（可能因歌曲不支持请求档位而降级）：写入任务，供「本地与下载」列表显示
@@ -259,7 +259,9 @@ const startDownload = async(task: DownloadTask) => {
     if (fsInfo.freeSpace < 100 * 1024 * 1024) toast(`存储空间不足（剩余 ${sizeFormate(fsInfo.freeSpace)}），下载可能失败`, 'long')
   } catch {}
   let lastWritten = 0
-  let lastTime = Date.now()
+  let lastSpeedText = '0 B/s'
+  let knownTotal = 0
+  const progressSamples: Array<{ time: number, written: number }> = []
   let downloadedFilePath: string
   try {
     // 统一本地库结构：根目录 + music/ + lrc/ + picture/
@@ -277,30 +279,66 @@ const startDownload = async(task: DownloadTask) => {
       return
     }
 
+    const publishProgress = () => {
+      const freshTask = downloadState.tasks.find(t => t.id === task.id)
+      if (!freshTask || freshTask.status !== 'downloading') return
+      downloadActions.updateTask(task.id, {
+        progress: {
+          ...freshTask.progress,
+          percent: knownTotal > 0 ? Math.min(1, Math.max(0, lastWritten / knownTotal)) : 0,
+          downloaded: lastWritten,
+          total: knownTotal,
+          speed: lastSpeedText,
+        },
+      })
+    }
+
+    // 总量兜底：部分源站对 GET 使用分块传输，RNFS 回调的 contentLength
+    // 全程是 -1/0，进度条只能一直显示「总量未知」。下载开始后并发发一个
+    // HEAD 探测总大小（不阻塞下载、不下载正文）；探测不到就维持未知，
+    // GET 回调一旦给出真实 contentLength，以 GET 的值为准覆盖探测值。
+    const probeTotalByHead = () => {
+      if (!/^https?:\/\//i.test(url)) return
+      try {
+        void fetch(url, { method: 'HEAD', headers })
+          .then(response => {
+            if (response.status < 200 || response.status >= 300 || knownTotal > 0) return
+            const parsed = Number.parseInt(response.headers.get('content-length') ?? '', 10)
+            if (!Number.isFinite(parsed) || parsed <= 0) return
+            knownTotal = parsed
+            publishProgress()
+            console.log(`[Download] HEAD 探测到文件总量: ${task.fileName} ${parsed}`)
+          })
+          .catch(() => {})
+      } catch {}
+    }
+    probeTotalByHead()
+
     const downloadTask = downloadFile(url, downloadFilePath, {
       headers,
       progress: (res) => {
         const now = Date.now()
-        const written = res.bytesWritten
-        const total = res.contentLength
-        const deltaTime = now - lastTime
-        if (deltaTime === 0) return
+        const written = Math.max(0, res.bytesWritten || 0)
+        // GET 的 contentLength 是本次响应的权威总量；缺失（-1/0）时保留
+        // HEAD 探测值，不再把已知的总量又覆写回未知
+        if (res.contentLength > 0) knownTotal = res.contentLength
 
-        const deltaBytes = written - lastWritten
-        const speed = deltaBytes / (deltaTime / 1000)
+        // 速度用最近 2 秒的滑动窗口算，不再用相邻两次回调的瞬时差：
+        // 250ms 级别的瞬时值抖动大、首帧还经常算出空/异常值，行里看起来
+        // 就像「没有速度」。窗口不足 500ms 时先沿用上一次速度（初始 0 B/s）。
+        progressSamples.push({ time: now, written })
+        while (progressSamples.length > 2 && now - progressSamples[0].time > 2000) {
+          progressSamples.shift()
+        }
+        const firstSample = progressSamples[0]
+        const elapsed = now - firstSample.time
+        if (elapsed >= 500) {
+          const speed = (written - firstSample.written) / (elapsed / 1000)
+          if (Number.isFinite(speed) && speed >= 0) lastSpeedText = `${sizeFormate(speed)}/s`
+        }
 
         lastWritten = written
-        lastTime = now
-        const percent = total > 0 ? written / total : 0
-        downloadActions.updateTask(task.id, {
-          progress: {
-            ...task.progress,
-            percent,
-            downloaded: written,
-            total,
-            speed: `${sizeFormate(speed)}/s`,
-          },
-        })
+        publishProgress()
       },
     })
 
@@ -369,7 +407,19 @@ const startDownload = async(task: DownloadTask) => {
     } catch (scanError) {
       console.error(`[Download Manager] Failed to request media scan for ${downloadedFilePath}:`, scanError)
     }
-    downloadActions.updateTask(task.id, { status: 'completed', progress: { ...task.progress, percent: 1 }, filePath: downloadedFilePath })
+    const latestProgress = downloadState.tasks.find(t => t.id === task.id)?.progress ?? task.progress
+    downloadActions.updateTask(task.id, {
+      status: 'completed',
+      progress: {
+        ...latestProgress,
+        percent: 1,
+        downloaded: downloadResult.bytesWritten,
+        // 下载已完整落盘：实际写入字节就是文件总量，HEAD/GET 都没给
+        // 总量时用它兜底，避免已完成记录还显示大小未知
+        total: knownTotal > 0 ? knownTotal : downloadResult.bytesWritten,
+      },
+      filePath: downloadedFilePath,
+    })
     // 2026-11-09：临时文件已改名为最终路径，清掉任务里的临时路径记录
     if (recordedTempPath(task)) setRecordedTempPath(task)
 
@@ -733,7 +783,7 @@ export const addTask = (
     if (!silent) {
       if (existingTask.status === 'completed') toast('这首歌已下载，去「本地与下载」里听吧')
       else if (existingTask.status === 'downloading' || existingTask.status === 'waiting') toast('已在下载队列中')
-      else toast('任务已存在，在「下载管理」里可继续')
+      else toast('任务已存在，在「本地与下载」的下载标签里可继续')
     }
     return
   }

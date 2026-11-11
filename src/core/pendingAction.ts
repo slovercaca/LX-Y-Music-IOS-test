@@ -1,5 +1,5 @@
 interface PendingAction {
-  type: 'searchFocus' | 'songlistImport'
+  type: 'searchFocus' | 'songlistImport' | 'localDownloadTab'
   data?: any
 }
 

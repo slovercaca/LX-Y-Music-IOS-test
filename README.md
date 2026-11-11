@@ -52,11 +52,17 @@
 - 封面功能：本地下载封面存 `<下载目录>/picture/`；远端 `picture/` 目录（`music/` 兄弟，规则同 `lrc/`）；扫描自动匹配同名封面；上传新增"同时上传封面"开关（默认开）；上传覆盖确认四选项（覆盖/跳过/后续全部覆盖/后续全部跳过）；支持 11 种图片后缀（jpg/jpeg/png/webp/bmp/gif/tif/tiff/heic/heif/avif）
 
 #### 离线播放修复
+- 离线模式对汽水（qs）源同样生效：取链先匹配已下载文件（未匹配按未下载拦截）、歌词只读本地内嵌/同名 lrc、封面只读本地 picture/ 缓存，不再绕过离线判断联网跨平台匹配（2026-11-12）
 - 下载迁移不再无条件改写任务路径（只在文件存在且移动成功后）
 - 启动时自动修复已被旧版写坏的下载任务路径（按文件名在下载目录找回）
 - 远端同步 JSON 损坏时跳过并提示，不阻断其他同步
 - 同步的下载任务剥离本机绝对路径，合并时保留本地有效路径
 - WebDAV 下载后同步更新列表内存状态，同一会话可离线播放
+
+#### 下载与本地列表整理（2026-11-12）
+- 独立下载管理页下线：下载任务并入「本地与下载」页的「下载」标签，按「下载中 / 已完成」分组，带全部暂停 / 全部清空；悬浮下载球改为跳到该标签
+- 本地列表改为以磁盘扫描为准：没扫到的下载记录不再冒充本地歌曲（修复同一首歌同时出现「文件不存在」幻影条目与真实文件条目）；下载记录统一在「下载」标签的已完成分组里管理，文件不存在的记录会如实标注；已完成分组带「清理记录」，一键删掉文件已不存在的失效记录（只删记录、不动文件）
+- 下载总量与速度修复：GET 不返回 Content-Length 时并发 HEAD 探测总量、下载完成时以实际写入字节兜底；速度改为 2 秒滑动窗口计算，空值显示 0 B/s；已完成行用磁盘真实大小兜底显示
 
 #### 液态玻璃（iOS）
 - 全局玻璃效果，主题可开关
@@ -137,7 +143,7 @@ LX-Y-Music-IOS/
 │   │   │       ├── Search/ SongList/ Mylist/ ...
 │   │   │       └── Setting/settings/              # 设置（Player / Download / Basic / ...）
 │   │   ├── PlayDetail/          # 播放详情（Vertical / Horizontal）
-│   │   └── AlbumDetail/ ArtistDetail/ SonglistDetail/ Comment/ DownloadManager/ SimilarSongs/
+│   │   └── AlbumDetail/ ArtistDetail/ SonglistDetail/ Comment/ SimilarSongs/
 │   ├── store/                   # 状态管理（player / setting / list / user / theme / ...）
 │   ├── theme/themes/
 │   ├── types/
