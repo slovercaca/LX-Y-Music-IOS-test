@@ -47,6 +47,19 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Contract scripts
+        # S-14: 与 build-test.yml 的同名步内容相同——全量跑契约脚本（sim-*.js
+        # 与 check-*.js），用 shell 循环逐个跑，任一失败即失败，避免某个脚本
+        # 的失败被掩盖。build-test.yml 仅 PR 到 dev 分支触发、实际休眠，契约步
+        # 只放那里等于没接入 CI；这里是真正跑的构建门（push 到 master /
+        # ios-adaptation + tag 触发），放在 npm install 之后、Xcode 构建之前，
+        # 契约失败时尽早拦下、省 macOS runner 时间。
+        run: |
+          for script in scripts/sim-*.js scripts/check-*.js; do
+            echo "Running $script"
+            node "$script" || exit 1
+          done
+
       - name: Install CocoaPods dependencies
         shell: bash
         run: |

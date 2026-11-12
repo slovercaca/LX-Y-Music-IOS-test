@@ -16,13 +16,24 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 6-10: 与 ios-ipa.yml / ios-runtime-debug.yml 一致，统一读 .nvmrc（v18），
+          # 不再硬编码 node-version: 20。
+          node-version-file: .nvmrc
 
       - name: Install Dependencies
         run: npm install
 
       - name: Eslint check
         run: npm run lint
+
+      - name: Contract scripts
+        # 6-10: 全量跑契约脚本（sim-*.js 与 check-*.js），用 shell 循环逐个跑，
+        # 任一失败即失败，避免某个脚本的失败被掩盖。
+        run: |
+          for script in scripts/sim-*.js scripts/check-*.js; do
+            echo "Running $script"
+            node "$script" || exit 1
+          done
 
       - name: Test Build
         run: npm run build-test

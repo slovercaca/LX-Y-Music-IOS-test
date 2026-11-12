@@ -18,6 +18,9 @@ jobs:
     runs-on: macos-26
     env:
       NO_FLIPPER: 1
+      # 6-14(a): 开启 JSX 探针（babel.config.js 仅在 LX_JSX_PROBE=1 时重写 jsx-runtime 导入），
+      # 保持本 workflow 的 ###UNDEFINED_ELEMENT### 检测机制可用。
+      LX_JSX_PROBE: '1'
       SOURCEMAP_FILE: ${{ github.workspace }}/build/main.jsbundle.map
       IOS_SCHEME: LxMusicMobile
       IOS_WORKSPACE: ios/LxMusicMobile.xcworkspace
@@ -39,7 +42,8 @@ jobs:
       - name: Install CocoaPods dependencies
         shell: bash
         run: |
-          gem install cocoapods -v '~> 1.12' --no-document
+          # 6-10: 与 Gemfile / ios-ipa.yml 一致，统一为 ~> 1.15。
+          gem install cocoapods -v '~> 1.15' --no-document
           cd ios
           pod install --repo-update
 
