@@ -11,6 +11,7 @@ import IsShowBackBtn from './IsShowBackBtn'
 import IsShowExitBtn from './IsShowExitBtn'
 import DrawerLayoutPosition from './DrawerLayoutPosition'
 import IsStartupPushPlayDetailScreen from './IsStartupPushPlayDetailScreen'
+import MediaCacheSettings from './MediaCacheSettings'
 
 export default memo(() => {
   return (
@@ -31,6 +32,7 @@ export default memo(() => {
       <ShareType />
       <Source />
       <SourceName />
+      <MediaCacheSettings />
     </Section>
   )
 })

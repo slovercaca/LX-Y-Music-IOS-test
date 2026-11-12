@@ -136,6 +136,15 @@ export const initSetting = async() => {
   if (setting && 'player.autoPlayOnReturn' in setting) {
     delete (setting as Record<string, any>)['player.autoPlayOnReturn']
   }
+  // 2026-11-12：旧键 player.autoCacheOnlinePic（自动缓存在线歌单封面）→
+  // 新缓存策略的 player.mediaCachePic。只在新键尚未写入时迁移一次，把用户
+  // 当时关掉封面缓存的意图带过来；新键已有值时以新键为准。迁完删旧键。
+  if (setting && setting['player.mediaCachePic'] === undefined && typeof (setting as Record<string, any>)['player.autoCacheOnlinePic'] === 'boolean') {
+    setting['player.mediaCachePic'] = (setting as Record<string, any>)['player.autoCacheOnlinePic']
+  }
+  if (setting && 'player.autoCacheOnlinePic' in setting) {
+    delete (setting as Record<string, any>)['player.autoCacheOnlinePic']
+  }
 
   const updatedSetting = updateSetting(setting, true)
 

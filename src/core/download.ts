@@ -4,7 +4,7 @@ import { getMusicUrl, getMusicUrlWithQuality, getLyricInfo } from '@/core/music'
 import { getFileExtension, getFileExtensionFromUrl } from '@/screens/Home/Views/Mylist/MusicList/download/utils'
 import { mergeLyrics } from '@/screens/Home/Views/Mylist/MusicList/download/lrcTool'
 import { writeFile, unlink, downloadFile, moveFile, stopDownload } from '@/utils/fs'
-import { getMusicDir, getLrcDir, getPictureDir, ensureLibraryDirs, findLibraryPicture, cacheCoverToLibrary, truncateToUtf8Bytes } from '@/utils/localLibrary'
+import { getMusicDir, getLrcDir, getPictureDir, ensureLibraryDirs, findLibraryPicture, cacheCoverToLibrary, isPicCacheEnabled, truncateToUtf8Bytes } from '@/utils/localLibrary'
 import { writeMetadata, writePic, writeLyric, isWriteSupported } from '@/utils/localMediaMetadata'
 import settingState from '@/store/setting/state'
 import downloadState from '@/store/download/state'
@@ -442,6 +442,9 @@ const startDownload = async(task: DownloadTask) => {
 // 与「下载设置-写入封面」（内嵌进音频）相互独立，保证本地有缓存时各处控件都能直接加载。
 const cacheDownloadedCover = async(task: DownloadTask) => {
   try {
+    // 歌词/封面缓存策略（2026-11-12）：封面缓存关闭时不补缓存，连在线取图
+    // 的网络请求都省掉（cacheCoverToLibrary 内部还有一道同样的门）
+    if (!isPicCacheEnabled()) return
     if (await findLibraryPicture(task.fileName)) return
     const picUrl = await getPicUrl({ musicInfo: task.musicInfo as LX.Music.MusicInfoOnline } as any).catch(() => '')
     if (picUrl && picUrl.startsWith('http')) {
@@ -454,6 +457,8 @@ const cacheDownloadedCover = async(task: DownloadTask) => {
 
 // 下载完成后缓存歌词：仅当用户明确勾选「下载歌词文件」时才写出同名 .lrc；
 // 「写入内嵌歌词」已由 handleMetadata 把歌词嵌入音频文件内部，不再额外生成 .lrc。
+// 注意（2026-11-12）：这是用户明确要的下载产物、不是自动缓存，不受歌词/封面
+// 缓存策略开关控制——关掉「缓存歌词至本地」也不会影响下载时勾选的歌词文件。
 const cacheLyricForOffline = async(task: DownloadTask, filePath: string) => {
   try {
     if (!settingState.setting['download.writeLyric']) return

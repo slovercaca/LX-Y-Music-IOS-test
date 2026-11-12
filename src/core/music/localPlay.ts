@@ -15,7 +15,7 @@ import musicSdk, { searchMusic } from '@/utils/musicSdk'
 import wySdk from '@/utils/musicSdk/wy'
 import bilibiliSdk from '@/utils/musicSdk/bilibili'
 import { existsFile, readFile } from '@/utils/fs'
-import { findLyricForAudio, findPictureForAudio, findLibraryPicture, coverBaseForSong } from '@/utils/localLibrary'
+import { findLyricForAudio, findPictureForAudio, findLibraryPicture, coverBaseForSong, cacheLyricToLibrary } from '@/utils/localLibrary'
 import { readPic, readLyric } from '@/utils/localMediaMetadata'
 import { buildLyricInfo } from './utils'
 
@@ -281,7 +281,12 @@ export const getLyricInfo = async({
     const sdk = (musicSdk as any)[candidate.source]
     if (!sdk?.getLyric || !candidate.songmid) continue
     const lyricInfo = await resolveSdkResult<{ lyric?: string }>(sdk.getLyric(candidate))
-    if (lyricInfo?.lyric) return buildLyricInfo(lyricInfo as LX.Player.LyricInfo)
+    if (lyricInfo?.lyric) {
+      // 歌词缓存（2026-11-12，与在线歌词链路对称）：跨平台匹配到的歌词也落盘
+      // lrc/，缓存开关关闭时内部直接返回、不写盘
+      void cacheLyricToLibrary(coverBaseForSong(target.name, target.singer), lyricInfo.lyric)
+      return buildLyricInfo(lyricInfo as LX.Player.LyricInfo)
+    }
   }
 
   return buildLyricInfo({ lyric: '' })

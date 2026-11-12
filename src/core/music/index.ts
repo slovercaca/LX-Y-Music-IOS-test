@@ -15,7 +15,7 @@ import { webDAVLog } from '@/core/webdavMusic/logger'
 import settingState from '@/store/setting/state'
 import downloadState from '@/store/download/state'
 import { existsFile } from '@/utils/fs'
-import { findPictureForAudio, findLibraryPicture, coverBaseForSong, cacheCoverToLibrary } from '@/utils/localLibrary'
+import { findPictureForAudio, findLibraryPicture, coverBaseForSong, cacheCoverToLibrary, isPicCacheEnabled } from '@/utils/localLibrary'
 
 export { handleGetOnlinePicUrl }
 
@@ -271,9 +271,10 @@ export const getPicPath = async({
       return ''
     }
     const url = await getOnlinePicUrl({ musicInfo, isRefresh, listId, onToggleSource })
-    // 「自动缓存在线歌单封面」：在线拿到的封面落盘 picture/，并直接返回本地路径，
-    // 保证本次显示与后续所有控件都走本地缓存
-    if (url && url.startsWith('http') && settingState.setting['player.autoCacheOnlinePic'] === true) {
+    // 歌词/封面缓存策略（2026-11-12）：在线拿到的封面在封面缓存开启时落盘
+    // picture/，并直接返回本地路径，保证本次显示与后续所有控件都走本地缓存；
+    // 关闭时只返回在线地址、内存显示一次，不落盘
+    if (url && url.startsWith('http') && isPicCacheEnabled()) {
       const cached = await cacheCoverToLibrary(coverBaseForSong(musicInfo.name, musicInfo.singer), url).catch(() => null)
       if (cached) return cached
     }

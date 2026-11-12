@@ -100,9 +100,13 @@ const defaultSetting: LX.AppSetting = {
   'player.timeoutExitPlayed': true,
   // 2026-10-18：离线模式。开启后播放时优先使用本地已下载文件，封面优先用本地缓存
   'player.offlineMode': false,
-  // 2026-10-22：自动缓存在线歌单封面。在线获取到的封面自动存到本地 picture/，
-  // 之后各处控件优先读本地缓存
-  'player.autoCacheOnlinePic': true,
+  // 2026-11-12：歌词/封面缓存策略（设置：基础设置）。总开关关 = 不进行任何
+  // 歌词封面缓存，在线获取的只在内存里显示一次、用完即删；分开关分别控制
+  // 歌词（lrc/）与封面（picture/）的自动落盘。旧键 player.autoCacheOnlinePic
+  // 已由 player.mediaCachePic 取代（见 config/setting.ts 的迁移）。
+  'player.mediaCacheEnabled': true,
+  'player.mediaCacheLyric': true,
+  'player.mediaCachePic': true,
   'player.isAutoCleanPlayedList': false,
   'player.autoSkipOnError': true,
   'player.soundEffect.enabled': false,

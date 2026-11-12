@@ -1,4 +1,6 @@
 import { saveLyric, saveMusicUrl, getMusicUrl as getStoreMusicUrl } from '@/utils/data'
+import { cacheLyricToLibrary, coverBaseForSong } from '@/utils/localLibrary'
+import { mergeLyrics } from '@/screens/Home/Views/Mylist/MusicList/download/lrcTool'
 import {
   setLastTryQuality,
   buildLyricInfo,
@@ -248,11 +250,18 @@ export const getLyricInfo = async({
         const merged = { ...lyricInfo, lyric: lyricInfo.lyric || cachedLyricInfo.lyric }
         if (targetMusicInfo.id == musicInfo.id) void saveLyric(musicInfo, merged)
         else void saveLyric(targetMusicInfo, merged)
+        // 歌词缓存（2026-11-12）：刚从网络拿到的歌词落盘 lrc/（与封面缓存对称），
+        // 写的是 buildLyricInfo 转换前的原始文本，读回时再走统一转换；缓存开关
+        // 关闭时内部直接返回、不写盘。基名按请求的歌（musicInfo）取，不按跨平台
+        // 匹配到的目标歌取，保证与该歌下载后的音频同名对应
+        void cacheLyricToLibrary(coverBaseForSong(musicInfo.name, musicInfo.singer), mergeLyrics(merged.lyric, merged.tlyric, merged.rlyric))
         return buildLyricInfo(merged)
       }
 
       if (targetMusicInfo.id == musicInfo.id) void saveLyric(musicInfo, lyricInfo)
       else void saveLyric(targetMusicInfo, lyricInfo)
+
+      void cacheLyricToLibrary(coverBaseForSong(musicInfo.name, musicInfo.singer), mergeLyrics(lyricInfo.lyric, lyricInfo.tlyric, lyricInfo.rlyric))
 
       return buildLyricInfo(lyricInfo)
     },

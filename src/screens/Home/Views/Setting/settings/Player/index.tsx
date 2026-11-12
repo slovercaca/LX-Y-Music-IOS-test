@@ -15,7 +15,6 @@ import IsShowBluetoothLyric from './IsShowBluetoothLyric'
 import IsS2T from './IsS2T'
 import ClearCache from './ClearCache'
 import IsAutoPlayOnStartup from './IsAutoPlayOnStartup'
-import IsAutoCacheOnlinePic from './IsAutoCacheOnlinePic'
 import IsShowNotificationImage from './IsShowNotificationImage'
 
 export default memo(() => {
@@ -23,7 +22,8 @@ export default memo(() => {
     <Section sectionId="setting_player">
       <IsSavePlayTime />
       <IsAutoPlayOnStartup />
-      <IsAutoCacheOnlinePic />
+      {/* 2026-11-12：旧「自动缓存在线歌单的封面」已并入基础设置的歌词/封面
+          缓存策略（三开关），旧键值在启动时迁移到 player.mediaCachePic */}
       <IsAutoCleanPlayedList />
       <IsAutoSkipOnError />
       <IsHandleAudioFocus />

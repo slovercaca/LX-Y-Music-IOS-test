@@ -22,8 +22,8 @@ import {
   baseNameOf,
   findLyricForAudio,
   findPictureForAudio,
+  scanLibraryMediaFiles,
   AUDIO_EXTS,
-  PIC_EXTS,
 } from '@/utils/localLibrary'
 import { designRadius, designSpacing, designTypography } from '@/theme/DesignTokens'
 import { useSafeAreaBottom, useBottomOverlayInset } from '@/store/common/hook'
@@ -50,7 +50,6 @@ import { consumePendingAction } from '@/core/pendingAction'
  */
 
 const AUDIO_EXT_SET = new Set(AUDIO_EXTS)
-const PIC_EXT_SET = new Set(PIC_EXTS)
 
 const getExt = (name: string) => {
   const ext = name.split('.').pop()
@@ -237,15 +236,12 @@ export default memo(() => {
       await mkdir(lrcDir).catch(() => {})
       await mkdir(pictureDir).catch(() => {})
 
-      // 歌词/封面基名集合（同名匹配用）
-      const lrcBases = new Set<string>()
-      for (const f of await readDir(lrcDir).catch(() => [])) {
-        if (f.isFile && getExt(f.name) === 'lrc') lrcBases.add(baseNameOf(f.name).toLowerCase())
-      }
-      const picBases = new Set<string>()
-      for (const f of await readDir(pictureDir).catch(() => [])) {
-        if (f.isFile && PIC_EXT_SET.has(getExt(f.name))) picBases.add(baseNameOf(f.name).toLowerCase())
-      }
+      // 歌词/封面指示（2026-11-12）：递归直扫整个本地库（lrc/、picture/ 及其
+      // 各级子目录），扫到了就是有、没扫到就是没有；每次点「刷新」都会重新扫
+      // 一次。递归口径与播放查找（同目录 → 子目录 → 父目录兄弟目录）一致——
+      // 此前只读 lrc/、picture/ 顶层 + 几个顶层目录的散落文件，漏掉了子目录
+      // 里的缓存文件，造成「本地明明缓存到了、列表却显示没有」。
+      const { lrcBases, picBases } = await scanLibraryMediaFiles()
 
       // 音频来源：music/ 为主；根目录平铺与旧「本地」子夹是迁移过渡期的遗留，一并纳入
       const audioFiles: Array<{ path: string, fileName: string, size: number }> = []
@@ -259,10 +255,6 @@ export default memo(() => {
               seenPaths.add(f.path)
               audioFiles.push({ path: f.path, fileName: f.name, size: f.size })
             }
-          } else if (ext === 'lrc') {
-            lrcBases.add(baseNameOf(f.name).toLowerCase())
-          } else if (PIC_EXT_SET.has(ext)) {
-            picBases.add(baseNameOf(f.name).toLowerCase())
           }
         }
       }
@@ -294,7 +286,9 @@ export default memo(() => {
             quality: task.actualQuality ?? task.quality,
             task,
             hasLyric: lrcBases.has(base),
-            hasCover: picBases.has(base) || !!((task.musicInfo.meta as any)?.picUrl),
+            // 指示只看本地扫描结果：任务自带的在线封面地址不算「有封面」，
+            // 否则没缓存到本地的歌也会显示有封面、与扫描口径不一致
+            hasCover: picBases.has(base),
           })
           continue
         }
@@ -430,20 +424,15 @@ export default memo(() => {
     })
   }, [selectedIds, items, exitSelecting, scanLibrary])
 
-  // 清理孤立文件：lrc/ 与 picture/ 里找不到对应音频（任务/文件基名集合）的
+  // 清理孤立文件：与指示同一口径，递归扫出的全部歌词/封面文件里，找不到
+  // 对应音频（递归音频基名集合，含子目录里的歌）的即孤立。不能只按列表里的
+  // 歌判定——列表只展示顶层音频，子目录歌曲的歌词/封面会被误判孤立删掉。
   const handleCleanupOrphans = useCallback(() => {
     void (async() => {
-      const audioBases = new Set<string>()
-      for (const item of items) {
-        audioBases.add(baseNameOf(item.path.split('/').pop() || '').toLowerCase())
-      }
-      const orphans: string[] = []
-      for (const dir of [getLrcDir(), getPictureDir()]) {
-        for (const f of await readDir(dir).catch(() => [])) {
-          if (!f.isFile) continue
-          if (!audioBases.has(baseNameOf(f.name).toLowerCase())) orphans.push(f.path)
-        }
-      }
+      const { lrcFiles, picFiles, audioBases } = await scanLibraryMediaFiles()
+      const orphans = [...lrcFiles, ...picFiles].filter(p =>
+        !audioBases.has(baseNameOf(p.split('/').pop() || '').toLowerCase()),
+      )
       if (!orphans.length) {
         toast('没有无用的歌词/封面文件', 'short')
         return
@@ -464,7 +453,7 @@ export default memo(() => {
       else toast(`已清理 ${orphans.length} 个无用文件`, 'short')
       void scanLibrary()
     })()
-  }, [items, scanLibrary])
+  }, [scanLibrary])
 
   const isPlayingId = playMusicInfo.musicInfo?.id
 
