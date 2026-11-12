@@ -147,7 +147,7 @@ FoldersTab 选定目录
 | `webdav.mediaSource` | `'file'` | 封面/歌词来源：file（用云盘文件）/ online（用在线音源） |
 | `webdav.downloadPath` | `''` | 主动下载目录，空则用 App 私有目录 |
 | `webdav.uploadConcurrency` | `2` | 上传并发（1–6） |
-| `webdav.uploadResume` | `true` | 断点续传开关——**实际未生效**，见 5.6 第 4 条 |
+| `webdav.uploadResume` | — | ~~断点续传开关~~（2026-11-12 已删除：开关承诺的行为从未生效，见 5.6 第 4 条） |
 | `webdav.uploadChunked` | `true` | 原生通道分块上传 |
 | `webdav.uploadChunkSizeMB` | `5` | 分块大小 |
 | `webdav.uploadStallTimeoutSec` | `15` | 看门狗停滞超时，0 关闭 |
@@ -176,7 +176,7 @@ FoldersTab 选定目录
 1. **同源判定弃用 `new URL()`**（`client.ts` 的 `extractOrigin` / `isWebDAVServerOrigin` 用纯字符串切分）。2026-11-07 真机事故（提交 `fc60ff1d`）：Hermes 的 `new URL().origin` 把用户自家服务器误判为跨源，`downloadToFileAtomic` 据此剥掉 Authorization，未认证请求被服务器直接断开（日志报 RNFS -1005），表现为云盘歌曲全部播不了。同理，`getWebDAVRemoteUrl` 手工逐段编码 query/hash、档案编辑器的地址校验用前缀正则——本项目所有 URL 判断都不用 `new URL()`，这是第三次同类事故后的统一口径。
 2. **DELETE-before-PUT**。已核对 webdav 库源码：它的 DELETE 不带任何 If 条件头，412 是服务器自己的前置条件策略；部分服务器（CloudDrive 类后端）不接受对已存在文件的无条件覆盖 PUT。策略：上传前先删（`files.ts` 与 `upload.ts` **各有一份模块本地的 `deleteRemoteFileOrAbort`**，未互相导出）、404 忽略、409 抛错中止以保住旧文件。
 3. **超时一律按大小放宽**。`putTimeoutForSize` 按 50KB/s 保守估算、钳制在 120 秒–1800 秒之间。Swift 模块原来的 `timeoutIntervalForRequest=60` 是「与文件大小无关的硬顶」：PUT 的响应要等 body 传完才返回，慢速上行下 10MB 以上必超时——这就是「大文件传不上」的真凶，已改为 1800/1800 与 JS 侧上限对齐，真停滞交给看门狗判断。
-4. **断点续传：开关默认开，实现有意停用**。`upload.ts` 注释明示：跨会话续传无法验证远端残片与本地文件内容是同一份，一律从 0 重传。所以 `webdav.uploadResume=true` 时行为仍是整传，调参时不要被这个开关误导。
+4. **断点续传：开关已删除（2026-11-12，S-8）**。`upload.ts` 注释明示：跨会话续传无法验证远端残片与本地文件内容是同一份，一律从 0 重传。开关默认开但实现有意停用，且 3-3 删掉最后一个消费点后全仓零逻辑消费方，文案承诺的是不存在的行为，故删开关与设置键（存储残留旧键由 `mergeSetting` 显式丢弃）。上传中断后一律从头重传。
 5. **毒缓存防线全线共享**。`isPoisonedCache` 被音频、封面两条下载链共用；歌词侧的「首字符 `<` 拒收」是同一思想。防的是服务器错误页被当成媒体永久缓存——这类缓存不校验就会「这首歌永远播不了」且用户无从下手。
 6. **以服务器返回路径为权威**。`files.ts` 的条目路径用服务器返回的 filename 而非本地拼接，避免 NFC/NFD 规范化与 URL 编码差异导致莫名 404。
 7. **扫描防丢白名单收紧过**。扫描合并旧库时，「扫描期间本地新增」的防丢判定只认 `filePath / customPicPath / customLrcPath` 三个字段；`picPath/lrcPath` 是扫描派生字段，曾被算作本地状态，导致改过路径的旧条目永生、与新条目并存出现「同歌双份」（2026-11-07 修复，提交 `fc60ff1d`）。配套的 `dedupeWebDAVSongs` 在配置读取时再兜底去重：同名 + 同大小 + 路径整段后缀才判同一文件，保留优先级按「已下载 8 > 位于同步目录下 4 > 自定义封面/歌词 2 > picUrl 1」打分。

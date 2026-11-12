@@ -184,11 +184,20 @@ export default {
     }
     if (resp.statusCode !== 200 || resp.body.code !== 200) { return this.getList(bangid, page, _retryNum) }
     // console.log(resp.body)
+    // 4-19：playlist/trackIds 缺失时直接返回空榜，不让裸 .map 抛错拖垮整榜加载
+    const trackIds = resp.body.playlist?.trackIds?.map((trackId) => trackId.id)
+    if (!trackIds?.length) {
+      return {
+        total: 0,
+        list: [],
+        limit: this.limit,
+        page,
+        source: 'wy',
+      }
+    }
     let musicDetail
     try {
-      musicDetail = await musicDetailApi.getList(
-        resp.body.playlist.trackIds.map((trackId) => trackId.id),
-      )
+      musicDetail = await musicDetailApi.getList(trackIds)
     } catch (err) {
       console.log(err)
       if (err.message == 'try max num') {

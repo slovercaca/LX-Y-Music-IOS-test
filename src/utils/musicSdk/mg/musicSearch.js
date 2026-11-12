@@ -135,6 +135,8 @@ export default {
     const ids = new Set()
 
     rawData.forEach((item) => {
+      // 4-20：内层 item 非数组时跳过，不让裸 forEach 抛错拖垮整批
+      if (!Array.isArray(item)) return
       item.forEach((data) => {
         if (!data.songId || !data.copyrightId || ids.has(data.copyrightId)) return
         ids.add(data.copyrightId)
@@ -211,7 +213,8 @@ export default {
       if (!result || result.code !== '000000') { return Promise.reject(new Error(result ? result.info : '搜索失败')) }
       const songResultData = result.songResultData || { resultList: [], totalCount: 0 }
 
-      let list = this.filterData(songResultData.resultList)
+      // 4-20：songResultData 存在但 resultList 缺失时传空数组，不调 filterData(undefined)
+      let list = this.filterData(songResultData.resultList ?? [])
       if (list == null) return this.search(str, page, limit, retryNum)
 
       this.total = parseInt(songResultData.totalCount)

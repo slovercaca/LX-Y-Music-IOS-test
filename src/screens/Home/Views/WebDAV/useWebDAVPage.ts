@@ -94,6 +94,8 @@ export function useWebDAVPage() {
   const loadFoldersRequestIdRef = useRef(0)
   // 扫描取消令牌（W7）：「取消」按钮置 true，扫描循环逐目录检查
   const scanCancelRef = useRef(false)
+  // 3-11(2)：当前展示列表长度（scrollToMusic 定时器回调里 clamp 用）
+  const displayedSongsLengthRef = useRef(0)
 
   // ---------------- 目录浏览 ----------------
   const [folderStack, setFolderStack] = useState<LX.WebDAV.DriveFolder[]>([])
@@ -171,56 +173,9 @@ export function useWebDAVPage() {
     [selectedFolder],
   )
 
-  // 上传队列排空后的重扫：让刚上传的歌曲出现在列表里（旧 runWebDAVUpload 尾部逻辑）
-  const handleUploadDrainedRescan = useCallback(async(summary: { completed: number; failed: number }) => {
-    const { completed, failed } = summary
-    if (failed > 0) {
-      toast(`上传结束：${completed} 成功，${failed} 失败（可在队列中重试）`, 'long')
-    } else if (completed > 0) {
-      toast(`上传完成：${completed} 个文件`)
-    }
-    if (completed > 0) {
-      setLoading(true)
-      setScanText('正在刷新列表...')
-      try {
-        scanCancelRef.current = false
-        const { config } = await scanWebDAVSongs(selectedFolder, (count, path) => {
-          setScanText(`已找到 ${count} 首，正在扫描：${path}`)
-        }, () => scanCancelRef.current)
-        setSongs(config.songs ?? [])
-        setScannedAt(config.scannedAt)
-      } catch (err: any) {
-        webDAVLog.warn('[WebDAV] 上传后重扫失败', { error: err?.message ?? err })
-        toast(friendlyWebDAVError(err), 'long')
-      } finally {
-        setScanText('')
-        setLoading(false)
-      }
-    }
-  }, [selectedFolder])
-
-  // 上传管理器：队列 + 并发 + 真实进度 + 历史（显式状态机）
-  const uploadManager = useUploadManager({
-    getTargetDir: () => uploadTargetDir,
-    getWithLyrics: () => uploadWithLyrics,
-    getWithCover: () => uploadWithCover,
-    testConnection,
-    checkRemoteExists: checkWebDAVRemoteExists,
-    onQueueDrained: (summary) => { void handleUploadDrainedRescan(summary) },
-  })
-
-  // 列数响应式（对齐 OnlineList）：iPad 横屏/分屏时双列，避免歌曲行在超宽屏上
-  // 被拉得过长、左右留白；竖屏保持单列零回归。
-  // numColumns 变更时 FlatList 必须重挂载（RN 不支持运行中改列数），故加 key。
-  const isHorizontal = useHorizontalMode()
-  const rowInfo = useMemo(() => {
-    void isHorizontal
-    return getRowInfo()
-  }, [isHorizontal])
-  const numColumns = rowInfo.rowNum ?? 1
-
-  // ================= 歌曲/封面 =================
-
+  // 3-11(3)：syncSongsCover 移到 handleUploadDrainedRescan 之前——
+  // 后者要在 deps 里引用它，放后面会在 render 时撞上 TDZ
+  //（deps 数组是立即求值的，函数体内的引用才是延迟的）。
   const syncSongsCover = useCallback(async(songList: LX.WebDAV.MusicInfo[]) => {
     // 仅补充网盘内封面（快速直连下载到本地），不触发全平台搜索；
     // 全平台封面由播放详情页按需获取。限制并发 4，避免批量下载风暴。
@@ -251,6 +206,60 @@ export function useWebDAVPage() {
       return { ...song, meta: { ...song.meta, picUrl } }
     }))
   }, [])
+
+  // 上传队列排空后的重扫：让刚上传的歌曲出现在列表里（旧 runWebDAVUpload 尾部逻辑）
+  const handleUploadDrainedRescan = useCallback(async(summary: { completed: number; failed: number }) => {
+    const { completed, failed } = summary
+    if (failed > 0) {
+      toast(`上传结束：${completed} 成功，${failed} 失败（可在队列中重试）`, 'long')
+    } else if (completed > 0) {
+      toast(`上传完成：${completed} 个文件`)
+    }
+    if (completed > 0) {
+      setLoading(true)
+      setScanText('正在刷新列表...')
+      try {
+        scanCancelRef.current = false
+        const { config } = await scanWebDAVSongs(selectedFolder, (count, path) => {
+          setScanText(`已找到 ${count} 首，正在扫描：${path}`)
+        }, () => scanCancelRef.current)
+        const scannedSongs = config.songs ?? []
+        setSongs(scannedSongs)
+        setScannedAt(config.scannedAt)
+        // 3-11(3)：重扫后补同步封面（照抄 executeScan/loadConfig/播放后刷新），
+        // 否则刚上传的歌在列表里无封面，直到下次进页/手动扫描
+        void syncSongsCover(scannedSongs)
+      } catch (err: any) {
+        webDAVLog.warn('[WebDAV] 上传后重扫失败', { error: err?.message ?? err })
+        toast(friendlyWebDAVError(err), 'long')
+      } finally {
+        setScanText('')
+        setLoading(false)
+      }
+    }
+  }, [selectedFolder, syncSongsCover])
+
+  // 上传管理器：队列 + 并发 + 真实进度 + 历史（显式状态机）
+  const uploadManager = useUploadManager({
+    getTargetDir: () => uploadTargetDir,
+    getWithLyrics: () => uploadWithLyrics,
+    getWithCover: () => uploadWithCover,
+    testConnection,
+    checkRemoteExists: checkWebDAVRemoteExists,
+    onQueueDrained: (summary) => { void handleUploadDrainedRescan(summary) },
+  })
+
+  // 列数响应式（对齐 OnlineList）：iPad 横屏/分屏时双列，避免歌曲行在超宽屏上
+  // 被拉得过长、左右留白；竖屏保持单列零回归。
+  // numColumns 变更时 FlatList 必须重挂载（RN 不支持运行中改列数），故加 key。
+  const isHorizontal = useHorizontalMode()
+  const rowInfo = useMemo(() => {
+    void isHorizontal
+    return getRowInfo()
+  }, [isHorizontal])
+  const numColumns = rowInfo.rowNum ?? 1
+
+  // ================= 歌曲/封面 =================
 
   const loadConfig = useCallback(async() => {
     return getWebDAVConfig().then(config => {
@@ -495,8 +504,11 @@ export function useWebDAVPage() {
     // P1-12：空搜索结果时不清空已有选择
     if (filteredSongs.length === 0) return
     setSelectedIds(prev => {
-      // 如果已全选则清空，否则全选当前筛选列表
-      if (prev.size >= filteredSongs.length && filteredSongs.length > 0) return new Set<string>()
+      // 3-11(1)：按成员比较而非数量——选中集合跨搜索保留时，只比
+      // 数量会误清（先选 10 首再搜出 5 首不同歌时应全选这 5 首而非清空）。
+      // 全选当前筛选集当且仅当筛选集全部已在选中集合中。
+      const allSelected = filteredSongs.length > 0 && filteredSongs.every(s => prev.has(s.id))
+      if (allSelected) return new Set<string>()
       return new Set(filteredSongs.map(s => s.id))
     })
   }, [filteredSongs])
@@ -855,23 +867,36 @@ export function useWebDAVPage() {
       setTimeout(() => {
         // P0-2：scrollToIndex 越界会抛 "scrollToIndex out of range"，在 timer 回调里未捕获
         // 会导致 JS 线程崩溃。调用前用当前列表长度 clamp，并 try/catch 兜底。
+        let clampedIndex = index
+        let len = 0
         try {
           const list = listRef.current
           if (!list) return
-          // 用 ref 获取当前列表长度（闭包里的 list 可能已过期）
-          listRef.current?.scrollToIndex({
-            index,
+          // 3-11(2)：P0-2 注释声称调用前 clamp，实际没有——闭包下标对
+          // 旧列表算，清搜索后 160ms 内重渲染未必完成；用 ref 里的当前
+          // 展示列表长度 clamp，越界时定位到末项而不是静默失败。
+          len = displayedSongsLengthRef.current
+          if (len <= 0) return
+          clampedIndex = Math.min(Math.max(index, 0), len - 1)
+          list.scrollToIndex({
+            index: clampedIndex,
             viewPosition: 0.3,
             animated: true,
           })
         } catch (e: any) {
-          webDAVLog.warn('[WebDAV] scrollToIndex 失败（越界）', { index, error: e?.message })
+          webDAVLog.warn('[WebDAV] scrollToIndex 失败（越界）', { index, clampedIndex, length: len, error: e?.message })
         }
       }, searchText ? 160 : 80)
     })
   }, [filteredSongs, searchText, songs, filterPath])
 
   // ================= effects =================
+
+  // 3-11(2)：展示列表长度变化时同步到 ref，供 scrollToMusic 在
+  // 定时器回调里按当前长度 clamp（闭包里的列表可能已过期）
+  useEffect(() => {
+    displayedSongsLengthRef.current = filteredSongs.length
+  }, [filteredSongs.length])
 
   useEffect(() => {
     // P1-14：加 catch，存储损坏时给用户提示而不是静默白屏

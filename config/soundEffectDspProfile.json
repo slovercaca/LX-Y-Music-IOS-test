@@ -20,5 +20,11 @@
     "hopSize": 128,
     "windowScale": 0.8
   },
+  "panner": {
+    "attenuationFormula": "1/(1+0.18*distance)",
+    "attenuationCoefficient": 0.18,
+    "distanceAxes": ["x", "y", "z"],
+    "sidePreserve": 0.28
+  },
   "processingOrder": ["equalizer", "pitch", "convolution", "dynamics", "panner"]
 }

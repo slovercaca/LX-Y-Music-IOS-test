@@ -15,6 +15,29 @@ import { getCachedQsCover, fetchQsCover } from './qsCover'
 const coverCache = new Map<string, string>()
 const coverInflight = new Map<string, Promise<string>>()
 
+// 2-12(a)：封面内存缓存加容量上限——此前裸 Map 无上限、无淘汰，随列表浏览无限增长；
+// 超限删最旧一半（照 otherSourceCache 的淘汰口径；条目只是短字符串，上限放宽到 200）
+const MAX_COVER_CACHE_SIZE = 200
+const setCoverCache = (key: string, url: string) => {
+  if (coverCache.size > MAX_COVER_CACHE_SIZE) {
+    const keys = [...coverCache.keys()]
+    for (let i = 0; i < Math.ceil(keys.length / 2); i++) coverCache.delete(keys[i])
+  }
+  coverCache.set(key, url)
+}
+
+// 2-12(b)：带超时兜底（照抄 qsCover 的 withTimeout）——定时器保存句柄，成功/失败时都
+// clearTimeout；此前 Promise.race + 裸 setTimeout，成功返回后定时器仍挂起 12s 才空转触发
+const withTimeout = async(promise: Promise<string>, ms: number, fallback: string): Promise<string> => {
+  return new Promise<string>((resolve) => {
+    const timer = setTimeout(() => { resolve(fallback) }, ms)
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v) },
+      () => { clearTimeout(timer); resolve(fallback) },
+    )
+  })
+}
+
 const MAX_CONCURRENT = 4
 let activeCount = 0
 const taskQueue: Array<() => void> = []
@@ -62,13 +85,14 @@ export const fetchCoverUrl = async(song: CoverSong): Promise<string> => {
   const task = runWithLimit(async() =>
     // 中-7：取封面无超时——任意 4 个请求挂起（慢接口/黑洞地址）就会把并发
     // 队列堵死、全 App 封面永久排队。照 qsCover 的 12s 口径兜底，超时按无封面处理。
-    Promise.race([
+    withTimeout(
       getPicPath({ musicInfo: song as LX.Music.MusicInfo, isRefresh: false }),
-      new Promise<string>((resolve) => { setTimeout(() => { resolve('') }, 12000) }),
-    ]),
+      12000,
+      '',
+    ),
   )
     .then((url) => {
-      if (url) coverCache.set(key, url)
+      if (url) setCoverCache(key, url)
       return url
     })
     .catch(() => '')

@@ -1,4 +1,5 @@
 import { sortInsert, similar } from '@/utils/common'
+import { deduplicationList } from '@/utils'
 
 import type { InitState, ListInfoItem, Source } from './state'
 import state from './state'
@@ -28,6 +29,11 @@ const handleSortList = (list: ListInfoItem[], keyword: string) => {
 }
 
 let maxTotals: Partial<Record<LX.OnlineSource, number>> = {}
+
+// 2-14(c)：翻页拼接去重（照抄音乐侧的 deduplicationList；其约束已放宽为
+// { id: string }，歌单条目可直接用）
+const deduplicateSonglists = (list: ListInfoItem[]): ListInfoItem[] =>
+  deduplicationList(list)
 const setLists = (results: SearchResult[], page: number, text: string): ListInfoItem[] => {
   let totals = []
   let limit = 0
@@ -46,7 +52,7 @@ const setLists = (results: SearchResult[], page: number, text: string): ListInfo
   else listInfo.total = limit * page
   listInfo.page = page
   list = handleSortList(list, text)
-  listInfo.list = page > 1 ? [...listInfo.list, ...list] : list
+  listInfo.list = deduplicateSonglists(page > 1 ? [...listInfo.list, ...list] : list)
   state.source = 'all'
   return listInfo.list
 }
@@ -54,7 +60,7 @@ const setLists = (results: SearchResult[], page: number, text: string): ListInfo
 const setList = (datas: SearchResult, page: number, _text: string): ListInfoItem[] => {
   // console.log(datas.source, datas.list)
   let listInfo = state.listInfos[datas.source]!
-  listInfo.list = page == 1 ? datas.list : [...listInfo.list, ...datas.list]
+  listInfo.list = deduplicateSonglists(page == 1 ? datas.list : [...listInfo.list, ...datas.list])
   if (page == 1 || (datas.total && datas.list.length)) listInfo.total = datas.total
   else listInfo.total = datas.limit * page
   listInfo.page = page

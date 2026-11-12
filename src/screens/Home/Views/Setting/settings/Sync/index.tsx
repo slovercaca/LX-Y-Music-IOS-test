@@ -19,6 +19,7 @@ import { testConnection, resetClient } from '@/utils/webdav'
 import { friendlyWebDAVError } from '@/core/webdavMusic/client'
 import {
   triggerWebDAVSync,
+  checkSyncReady,
   manualUploadSettingsAndApis,
   manualDownloadSettingsAndApis,
   manualUploadLists,
@@ -190,67 +191,91 @@ export default memo(() => {
 
   const handleUpload = useCallback(async() => {
     if (isUploading) return
+    // 3-12(2)：先做前置检查再亮进度条——此前 startProgress 在先，
+    // 未配置/同步中时 manual* 内部才拦，进度条已以 0% 闪 1.5 秒；
+    // checkSyncReady 本身会 toast 原因。
+    if (!checkSyncReady()) return
     setIsUploading(true)
     startProgress('准备上传…')
+    // 3-12(2)：用户取消确认框时 manual* 未真正跑（无进度回调），
+    // finally 里立即清进度条而不是延迟 1.5 秒误闪。
+    let ran = false
     try {
       await manualUploadSettingsAndApis((progress, stage) => {
+        ran = true
         if (mountedRef.current) setSyncProgress({ progress, stage })
       })
     } finally {
       if (mountedRef.current) {
         setIsUploading(false)
-        // 完成后延迟清除，让用户看到 100%
-        clearProgressLater()
+        // 完成后延迟清除，让用户看到 100%；未跑起来时立即清
+        if (ran) clearProgressLater()
+        else setSyncProgress(null)
       }
     }
   }, [isUploading, startProgress, clearProgressLater])
 
   const handleDownload = useCallback(async() => {
     if (isDownloading) return
+    // 3-12(2)：同 handleUpload，先检查再亮进度条
+    if (!checkSyncReady()) return
     setIsDownloading(true)
     startProgress('准备下载…')
+    let ran = false
     try {
       const applied = await manualDownloadSettingsAndApis((progress, stage) => {
+        ran = true
         if (mountedRef.current) setSyncProgress({ progress, stage })
       })
       if (applied && mountedRef.current) await promptRestartAfterSync()
     } finally {
       if (mountedRef.current) {
         setIsDownloading(false)
-        clearProgressLater()
+        if (ran) clearProgressLater()
+        else setSyncProgress(null)
       }
     }
   }, [isDownloading, startProgress, clearProgressLater, promptRestartAfterSync])
 
   const handleUploadLists = useCallback(async() => {
     if (isUploadingLists) return
+    // 3-12(2)：同 handleUpload，先检查再亮进度条
+    if (!checkSyncReady()) return
     setIsUploadingLists(true)
     startProgress('准备上传歌单…')
+    let ran = false
     try {
       await manualUploadLists((progress, stage) => {
+        ran = true
         if (mountedRef.current) setSyncProgress({ progress, stage })
       })
     } finally {
       if (mountedRef.current) {
         setIsUploadingLists(false)
-        clearProgressLater()
+        if (ran) clearProgressLater()
+        else setSyncProgress(null)
       }
     }
   }, [isUploadingLists, startProgress, clearProgressLater])
 
   const handleDownloadLists = useCallback(async() => {
     if (isDownloadingLists) return
+    // 3-12(2)：同 handleUpload，先检查再亮进度条
+    if (!checkSyncReady()) return
     setIsDownloadingLists(true)
     startProgress('准备下载歌单…')
+    let ran = false
     try {
       const applied = await manualDownloadLists((progress, stage) => {
+        ran = true
         if (mountedRef.current) setSyncProgress({ progress, stage })
       })
       if (applied && mountedRef.current) await promptRestartAfterSync()
     } finally {
       if (mountedRef.current) {
         setIsDownloadingLists(false)
-        clearProgressLater()
+        if (ran) clearProgressLater()
+        else setSyncProgress(null)
       }
     }
   }, [isDownloadingLists, startProgress, clearProgressLater, promptRestartAfterSync])

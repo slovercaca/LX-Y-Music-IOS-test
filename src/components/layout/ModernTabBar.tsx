@@ -196,7 +196,10 @@ export default memo(() => {
         ]}
         pointerEvents={collapsed ? 'auto' : 'none'}
       >
-        <LiquidGlass glassOpacity={glassOpacity} dark={theme.isDark} liquid={liquidGlassOn} paused={glassPaused} style={{ borderRadius: designRadius.pill }} />
+        {/* 5-6：收起圆钮只在 collapsed 时可见，展开时暂停其 Metal 渲染循环
+            （此前两玻璃实例 paused 都只接 glassPaused，任一时刻必有一只
+            不可见实例仍在空转；门控口径照抄下方 LiquidLens 的 !collapsed） */}
+        <LiquidGlass glassOpacity={glassOpacity} dark={theme.isDark} liquid={liquidGlassOn} paused={!collapsed || glassPaused} style={{ borderRadius: designRadius.pill }} />
         <Pressable style={styles.pillInner} onPress={handlePillPress}>
           <View style={styles.pillIcon} pointerEvents="none">
             <Icon name="menu" size={20} color={theme['c-primary']} />
@@ -218,7 +221,8 @@ export default memo(() => {
         {/* 玻璃衬底带与容器一致的圆角：按压下陷内缩时仍呈圆角，不露直角边。
             圆角 28 = 透镜圆角（56 药丸的胶囊半高，见 LiquidLensView），2026-09-29
             起玻璃端头曲线统一 circular，观感与透镜一致 */}
-        <LiquidGlass glassOpacity={glassOpacity} dark={theme.isDark} liquid={liquidGlassOn} paused={glassPaused} style={{ borderRadius: designRadius.glass }} />
+        {/* 5-6：展开栏只在非 collapsed 时可见，收起时暂停其 Metal 渲染循环 */}
+        <LiquidGlass glassOpacity={glassOpacity} dark={theme.isDark} liquid={liquidGlassOn} paused={collapsed || glassPaused} style={{ borderRadius: designRadius.glass }} />
         {/* 液态透镜药丸（tab 切换动画）：玻璃之上、tab 内容之下；快速点击走
             Pressable 切页，透镜动画由原生弹簧驱动 */}
         {liquidGlassOn && !collapsed && barWidth > 0 && rawActiveIndex >= 0 && (

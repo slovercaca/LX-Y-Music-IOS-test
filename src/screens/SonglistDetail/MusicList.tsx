@@ -158,9 +158,16 @@ export default forwardRef<MusicListType, MusicListProps>(({ componentId, isCreat
       })
       // 先落盘，再决定要不要更新界面（组件已卸载时数据仍要缓存下来）
       await saveCache(list, finished)
+      // 4-16 后续：全量拉取成功完成后补记刷新时刻（shouldRefreshByTtl 已是纯判定；
+      // 未拉完不记，下次进入继续补全）。覆盖缓存完整分支的后台刷新与未完成缓存补全。
+      if (finished) markRefreshed(`songs|${source}|${id}`)
       if (isUnmountedRef.current) return
-      songlistState.listDetailInfo.list = list
-      songlistState.listDetailInfo.total = lastTotal || list.length
+      // 5-1：最终写回补高-2 id/source 守卫（与进度回调同款）——A 在后台补全、
+      // 用户 push 进 B 后 A 不卸载，最终写回会把 A 的 list/total 写进已属 B 的 store
+      if (songlistState.listDetailInfo.id === id && songlistState.listDetailInfo.source === source) {
+        songlistState.listDetailInfo.list = list
+        songlistState.listDetailInfo.total = lastTotal || list.length
+      }
       fullListRef.current = list
       const filtered = searchText.trim() ? filterList(list, searchText, isFuzzySearch) : list
       listRef.current?.setList(filtered)
@@ -421,11 +428,38 @@ export default forwardRef<MusicListType, MusicListProps>(({ componentId, isCreat
 
   const handleListUpdate = useCallback((newList: LX.Music.MusicInfoOnline[]) => {
     if (isUnmountedRef.current) return
+    // 5-1：搜索期间不把过滤列表整表写回全局 store——OnlineList.setList 会无条件
+    // 回调 onListUpdate，过滤后的新数组会污染 store（页头总数变错、「播放
+    // 全部」只播过滤子集）。清掉搜索后 effect 会 setList(fullList) 把 store 修回
+    if (searchText.trim()) {
+      // S-12：搜索期间仍按 id 合并单条回填。onListUpdate 有两个发射点，不止 setList：
+      // ① List.tsx 的命令式 setList（整表）；② handleMusicInfoUpdate（wy 音质回填，
+      // 单条原地替换后把当前显示数组回传）。过滤数组与全量列表共享对象引用
+      // （Array.filter 不克隆元素），故 setList 路径的按 id 合并是 no-op，
+      // 只有回填替换过的新对象会被写回 store 与 fullListRef；此前直接 return
+      // 会丢掉这次回填（清搜索后显示的仍是旧对象，下次回填才自愈）。
+      // 只替换已存在的 id，不改长度与顺序，不在 store/fullList 里的 id 跳过；
+      // 父级 onListUpdate 不调用（它用 newList.length 写总数，过滤长度是错的）。
+      const mergeById = (target: LX.Music.MusicInfoOnline[]) => {
+        if (!target.length) return
+        const indexById = new Map<string, number>()
+        target.forEach((item, index) => {
+          if (!indexById.has(item.id)) indexById.set(item.id, index)
+        })
+        for (const item of newList) {
+          const index = indexById.get(item.id)
+          if (index !== undefined && target[index] !== item) target[index] = item
+        }
+      }
+      mergeById(songlistState.listDetailInfo.list)
+      mergeById(fullListRef.current)
+      return
+    }
     songlistState.listDetailInfo.list = newList
     // 低：父组件传入的 onListUpdate 此前在解构时被丢弃，detailInfo.total
     // 永不更新，依赖它的定位判断一直用过期总数
     onListUpdate?.(newList)
-  }, [onListUpdate])
+  }, [onListUpdate, searchText])
 
   return (
     <OnlineList componentId={componentId}

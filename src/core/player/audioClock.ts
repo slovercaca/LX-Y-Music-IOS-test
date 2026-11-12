@@ -14,6 +14,10 @@ class AudioClock {
   private anchorSystemMs = 0
   private rate = 1
   private playing = false
+  // 2-1：真实锚点标志——只有带原生真实位置的 setAnchor/resume 才置位；
+  // setPlaying 只以当前外推位置重设锚点，首个真实锚点前外推位置恒为 0，
+  // 若也置位，缓冲分支会误把 0 当作有效锚点、把歌词冻结在 0s 而非引擎位置。
+  private hasRealAnchorFlag = false
   // holding：暂停外推、固定显示 holdMs（seek 目标 / buffering 起点）。
   // 用于「跳转/缓冲期间歌词按住目标值，不随外推超前/滞后」。
   private holding = false
@@ -24,6 +28,7 @@ class AudioClock {
     this.anchorSystemMs = 0
     this.rate = 1
     this.playing = false
+    this.hasRealAnchorFlag = false
     this.holding = false
     this.holdMs = 0
   }
@@ -34,6 +39,7 @@ class AudioClock {
     this.anchorSystemMs = performance.now()
     this.rate = rate
     this.playing = playing
+    this.hasRealAnchorFlag = true
     this.holding = false
   }
 
@@ -50,6 +56,7 @@ class AudioClock {
     this.anchorSystemMs = performance.now()
     this.rate = rate
     this.playing = true
+    this.hasRealAnchorFlag = true
   }
 
   /** 播放速率变化：以当前外推位置为新的锚点，避免外推跳变。 */
@@ -60,7 +67,8 @@ class AudioClock {
     this.anchorSystemMs = performance.now()
   }
 
-  /** 播放/暂停切换：以当前外推位置为新的锚点，保持位置连续。 */
+  /** 播放/暂停切换：以当前外推位置为新的锚点，保持位置连续。
+   * 2-1：此处不置 hasRealAnchor——外推位置在首个真实锚点前恒为 0，不是真实位置。 */
   setPlaying(playing: boolean) {
     if (playing === this.playing) return
     const now = this.getTime()
@@ -71,7 +79,7 @@ class AudioClock {
 
   /** 是否已有有效锚点（起播恢复前为 false）：缓冲冻结策略据此选择锚定基准。 */
   get hasAnchor(): boolean {
-    return this.anchorSystemMs > 0
+    return this.hasRealAnchorFlag
   }
 
   /** 当前外推位置（秒）。holding 时返回固定值，暂停时返回锚点位置。 */

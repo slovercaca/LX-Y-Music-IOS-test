@@ -872,11 +872,16 @@ export async function unsubscribePlaylist(
       .join('&')
     const fetchUrl = `${fullUrl}?${queryString}`
 
+    // 4-22：裸 fetch 加 AbortController 超时（10s，与本文件 axios 调用口径一致），
+    // 避免网络挂起时删歌单 UI 永久无反馈等待；超时后 abort 抛错由外层 catch 转失败返回
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 10000)
     const fetchResponse = await fetch(fetchUrl, {
       method: 'POST',
       headers: fullHeaders,
       body: aesEncrypt.str,
-    })
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeoutId))
 
     log(`响应状态: ${fetchResponse.status}`)
 

@@ -79,6 +79,19 @@ export const encryptMsg = async(keyInfo: LX.Sync.KeyInfo, msg: string): Promise<
   // return aesEncrypt(msg, keyInfo.key, keyInfo.iv)
 }
 
+/**
+ * 3-9：串行发送队列。encryptMsg 对 >1024 的消息多一次 gzip 微任务 hop，
+ * 同一 tick 内连续两次 send 时小消息会先发出、顺序颠倒；经此队列串行化
+ * 后按调用顺序发出。上一项无论成功失败都继续下一项，不让一次失败堵死
+ * 后续发送。
+ */
+export const createSerialSendQueue = () => {
+  let chain: Promise<void> = Promise.resolve()
+  return (task: () => Promise<void>): void => {
+    chain = chain.then(task, task)
+  }
+}
+
 export const decryptMsg = async(keyInfo: LX.Sync.KeyInfo, enMsg: string): Promise<string> => {
   return enMsg.substring(0, 3) == 'cg_' ? unGzipString(enMsg.replace('cg_', '')) : enMsg
   // if (!keyInfo) return ''

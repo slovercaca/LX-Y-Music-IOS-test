@@ -18,7 +18,7 @@ import playerState from '@/store/player/state'
 import { scaleSizeH } from '@/utils/pixelRatio'
 import { BorderWidths } from '@/theme'
 import settingState from '@/store/setting/state'
-import userState from '@/store/user/state'
+import { useWyUid } from '@/store/user/hook'
 import CommentInput, { type CommentInputType, type ReplyInfo } from './components/CommentInput'
 import { sendComment, replyComment, deleteComment, type Comment } from './utils'
 
@@ -148,9 +148,9 @@ export default memo(({ componentId }: { componentId: string }) => {
     return !!(cookie && musicInfo && musicInfo.source === 'wy')
   }, [musicInfo])
 
-  const currentUid = useMemo(() => {
-    return userState.wy_uid
-  }, [])
+  // 5-9：UID 改用响应式 useWyUid()——此前 useMemo 空依赖快照，挂载后换号/
+  // uid 迟到时 canDeleteComment 错判删评权限
+  const currentUid = useWyUid()
 
   useEffect(() => {
     setComponentId(COMPONENT_IDS.comment, componentId)

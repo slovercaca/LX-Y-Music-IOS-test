@@ -168,6 +168,9 @@ export default {
 
     if (body.errcode != 0) return this.getList(bangid, page, _retryNum)
 
+    // 4-20：body.data 缺失时按失败重试（与 errcode 分支同口径），不裸取 .total/.info 抛错
+    if (!body.data) return this.getList(bangid, page, _retryNum)
+
     // console.log(body)
     let total = body.data.total
     let limit = 100

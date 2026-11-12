@@ -1,4 +1,4 @@
-import { encryptMsg, decryptMsg } from './utils'
+import { encryptMsg, decryptMsg, createSerialSendQueue } from './utils'
 import { callObj } from './sync'
 // import { action as commonAction } from '@/store/modules/common'
 // import { getStore } from '@/store'
@@ -71,9 +71,14 @@ const heartbeatTools = {
     //   message: `Waiting ${waitTime / 1000}s reconnnect...`,
     // })
 
+    // 3-10(a)：记下调度时的连接代际——回调触发前若已有新连接建立
+    //（如用户手动重连），本次延迟重连作废，不再创建第三个 socket
+    // 踩掉正在工作的连接。
+    const gen = connectGen
     this.delayRetryTimeout = setTimeout(() => {
       this.delayRetryTimeout = null
       if (!client) return
+      if (gen !== connectGen) return
       console.log(dateFormat(new Date()), 'reconnnect...')
       sendSyncStatus({
         status: false,
@@ -145,11 +150,27 @@ const heartbeatTools = {
 }
 
 let client: LX.Sync.Socket | null
+// 3-10(a)：连接代际——每次 connect() 递增，延迟重连回调凭它判断自己是否已过期
+let connectGen = 0
 // let listSyncPromise: Promise<void>
 export const connect = (urlInfo: LX.Sync.UrlInfo, keyInfo: LX.Sync.KeyInfo, options?: { silent?: boolean }) => {
+  connectGen++
+  // 3-10(a)：新建连接前先关闭旧 socket、清掉旧心跳定时器——此前
+  // connect() 从不清理旧连接，旧 socket 泄漏且其 close/message 监听
+  // 继续生效；旧 ping/connect 超时定时器还可能误关新连接。
+  // 用 normal 码关闭：心跳的 close 监听对 normal 码直接返回，不会
+  // 再触发一轮重连；旧连接自身的 close 监听仍会跑清理（destroy 等）。
+  if (client) {
+    try { client.close(SYNC_CLOSE_CODE.normal) } catch { /* 忽略 */ }
+    client = null
+  }
+  heartbeatTools.clearTimeout()
   client = new WebSocket(
     `${urlInfo.wsProtocol}//${urlInfo.hostPath}/socket?i=${encodeURIComponent(keyInfo.clientId)}&t=${encodeURIComponent(aesEncrypt(SYNC_CODE.msgConnect, keyInfo.key))}`,
   ) as LX.Sync.Socket
+  // 3-9：本连接的 socket 引用——排队的发送必须发到发出它的那条连接上，
+  // 不能走模块级 client（重连后 client 已指向新 socket）
+  const socket = client
   client.data = {
     keyInfo,
     urlInfo,
@@ -158,6 +179,9 @@ export const connect = (urlInfo: LX.Sync.UrlInfo, keyInfo: LX.Sync.KeyInfo, opti
 
   let closeEvents: Array<(err: Error) => void | Promise<void>> = []
   let disconnected = true
+
+  // 3-9：本连接的串行发送队列（见 utils.ts createSerialSendQueue）
+  const sendQueue = createSerialSendQueue()
 
   const message2read = createMsg2call<LX.Sync.ServerSyncActions>({
     funcsObj: {
@@ -177,14 +201,21 @@ export const connect = (urlInfo: LX.Sync.UrlInfo, keyInfo: LX.Sync.KeyInfo, opti
     timeout: 120 * 1000,
     sendMessage(data) {
       if (disconnected) throw new Error('disconnected')
-      void encryptMsg(keyInfo, JSON.stringify(data))
-        .then((data) => {
-          client?.send(data)
-        })
-        .catch((err) => {
+      // 3-9：走串行发送队列——encryptMsg 对 >1024 的消息多一次 gzip
+      // 微任务 hop，同一 tick 内连续两次 send 会颠倒顺序；串行化后
+      // 按调用顺序发出。发送前再查 disconnected，避免断连后把旧连接
+      // 的消息发到新 socket 上。
+      sendQueue(async() => {
+        if (disconnected) return
+        try {
+          const encrypted = await encryptMsg(keyInfo, JSON.stringify(data))
+          if (disconnected) return
+          socket.send(encrypted)
+        } catch (err) {
           log.error('encrypt msg error: ', err)
-          client?.close(SYNC_CLOSE_CODE.failed)
-        })
+          try { socket.close(SYNC_CLOSE_CODE.failed) } catch { /* 忽略 */ }
+        }
+      })
     },
     onCallBeforeParams(rawArgs) {
       return [client, ...rawArgs]

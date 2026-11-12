@@ -32,6 +32,17 @@ private final class LXPhaseVocoderPitchShifter {
         var outputQueue: [Float]
     }
 
+    // 6-2: hop 处理 scratch，init 时按 blockSize 预分配、逐 hop 复用；
+    // processHop 逐声道顺序执行（且调用方 processFrame 全程持 tap 锁），单份 scratch 足够，
+    // 实时线程不再逐 hop 分配 4096 浮点数组。
+    private struct HopScratch {
+        var windowed: [Float]
+        var spectrumImag: [Float]
+        var shiftedReal: [Float]
+        var shiftedImag: [Float]
+        var magnitudes: [Float]
+    }
+
     private let blockSize: Int
     private let hopSize: Int
     private let overlapCount: Float
@@ -40,6 +51,7 @@ private final class LXPhaseVocoderPitchShifter {
     private let log2n: vDSP_Length
     private let hannWindow: [Float]
     private var channels: [ChannelState]
+    private var hopScratch: HopScratch
     private var hopFill = 0
     private var outputReadIndex = 0
     private var timeCursor = 0
@@ -66,6 +78,14 @@ private final class LXPhaseVocoderPitchShifter {
                 outputQueue: Array(repeating: 0, count: hopSize)
             ),
             count: self.channelCount
+        )
+        // 6-2: hop scratch 预分配（magnitudes 只需半谱 +1 项）。
+        self.hopScratch = HopScratch(
+            windowed: Array(repeating: 0, count: blockSize),
+            spectrumImag: Array(repeating: 0, count: blockSize),
+            shiftedReal: Array(repeating: 0, count: blockSize),
+            shiftedImag: Array(repeating: 0, count: blockSize),
+            magnitudes: Array(repeating: 0, count: blockSize / 2 + 1)
         )
     }
 
@@ -102,34 +122,56 @@ private final class LXPhaseVocoderPitchShifter {
     }
 
     private func processHop(pitchFactor: Float, usedChannels: Int) {
+        // 6-2: 全程复用 init 预分配的 hopScratch，不再逐 hop 分配 4096 浮点数组；
+        // 各声道顺序处理，单份 scratch 足够（调用方 processFrame 全程持 tap 锁）。
+        // 逐项对照原实现：数值语义逐行等价（移位/加窗/正逆变换/缩放/累加/输出移位）。
         for channel in 0..<usedChannels {
-            let shiftedInput = Array(channels[channel].inputBuffer[hopSize..<blockSize])
-            channels[channel].inputBuffer.replaceSubrange(0..<(blockSize - hopSize), with: shiftedInput)
-            channels[channel].inputBuffer.replaceSubrange((blockSize - hopSize)..<blockSize, with: channels[channel].hopInput)
+            // 输入移位：原地前移（源下标恒大于目标下标，无重叠问题），尾部填入本 hop 采样。
+            for index in 0..<(blockSize - hopSize) {
+                channels[channel].inputBuffer[index] = channels[channel].inputBuffer[index + hopSize]
+            }
+            for index in 0..<hopSize {
+                channels[channel].inputBuffer[blockSize - hopSize + index] = channels[channel].hopInput[index]
+            }
 
-            var windowedInput = channels[channel].inputBuffer
-            applyWindow(&windowedInput)
-
-            var spectrumReal = windowedInput
-            var spectrumImag = Array(repeating: Float(0), count: blockSize)
-            performFFT(real: &spectrumReal, imag: &spectrumImag, direction: FFTDirection(FFT_FORWARD))
-
-            var shiftedReal = Array(repeating: Float(0), count: blockSize)
-            var shiftedImag = Array(repeating: Float(0), count: blockSize)
-            shiftSpectrum(real: spectrumReal, imag: spectrumImag, intoReal: &shiftedReal, intoImag: &shiftedImag, pitchFactor: pitchFactor)
-            completeSpectrum(real: &shiftedReal, imag: &shiftedImag)
-
-            performFFT(real: &shiftedReal, imag: &shiftedImag, direction: FFTDirection(FFT_INVERSE))
-            var timeDomain = shiftedReal.map { $0 / Float(blockSize) }
-            applyWindow(&timeDomain)
+            // 加窗：拷入 scratch 后原地加窗；加窗后的缓冲即正变换的实部输入。
+            for index in 0..<blockSize {
+                hopScratch.windowed[index] = channels[channel].inputBuffer[index]
+            }
+            applyWindow(&hopScratch.windowed)
 
             for index in 0..<blockSize {
-                channels[channel].outputBuffer[index] += timeDomain[index] / overlapCount
+                hopScratch.spectrumImag[index] = 0
             }
-            channels[channel].outputQueue = Array(channels[channel].outputBuffer[0..<hopSize])
-            let shiftedOutput = Array(channels[channel].outputBuffer[hopSize..<blockSize])
-            channels[channel].outputBuffer.replaceSubrange(0..<(blockSize - hopSize), with: shiftedOutput)
-            channels[channel].outputBuffer.replaceSubrange((blockSize - hopSize)..<blockSize, with: repeatElement(Float(0), count: hopSize))
+            performFFT(real: &hopScratch.windowed, imag: &hopScratch.spectrumImag, direction: FFTDirection(FFT_FORWARD))
+
+            for index in 0..<blockSize {
+                hopScratch.shiftedReal[index] = 0
+                hopScratch.shiftedImag[index] = 0
+            }
+            shiftSpectrum(real: hopScratch.windowed, imag: hopScratch.spectrumImag, intoReal: &hopScratch.shiftedReal, intoImag: &hopScratch.shiftedImag, pitchFactor: pitchFactor)
+            completeSpectrum(real: &hopScratch.shiftedReal, imag: &hopScratch.shiftedImag)
+
+            performFFT(real: &hopScratch.shiftedReal, imag: &hopScratch.shiftedImag, direction: FFTDirection(FFT_INVERSE))
+            // 逆变换缩放 + 加窗：原地完成，不再经 map 新建 timeDomain 数组。
+            for index in 0..<blockSize {
+                hopScratch.shiftedReal[index] /= Float(blockSize)
+            }
+            applyWindow(&hopScratch.shiftedReal)
+
+            for index in 0..<blockSize {
+                channels[channel].outputBuffer[index] += hopScratch.shiftedReal[index] / overlapCount
+            }
+            for index in 0..<hopSize {
+                channels[channel].outputQueue[index] = channels[channel].outputBuffer[index]
+            }
+            // 输出移位：原地前移后尾部清零（与原 replaceSubrange + repeatElement(0) 等价）。
+            for index in 0..<(blockSize - hopSize) {
+                channels[channel].outputBuffer[index] = channels[channel].outputBuffer[index + hopSize]
+            }
+            for index in (blockSize - hopSize)..<blockSize {
+                channels[channel].outputBuffer[index] = 0
+            }
         }
     }
 
@@ -137,8 +179,9 @@ private final class LXPhaseVocoderPitchShifter {
         let halfCount = blockSize / 2
         guard halfCount > 2 else { return }
 
-        let magnitudes = computeMagnitudes(real: real, imag: imag, count: halfCount + 1)
-        let peaks = findPeaks(in: magnitudes)
+        // 6-2: 幅值写进预分配的 magnitudes scratch，不再逐 hop 新建数组。
+        computeMagnitudes(real: real, imag: imag, count: halfCount + 1, into: &hopScratch.magnitudes)
+        let peaks = findPeaks(in: hopScratch.magnitudes)
 
         for (peakIndex, currentPeak) in peaks.enumerated() {
             let shiftedPeak = Int(round(Float(currentPeak) * pitchFactor))
@@ -178,12 +221,11 @@ private final class LXPhaseVocoderPitchShifter {
         }
     }
 
-    private func computeMagnitudes(real: [Float], imag: [Float], count: Int) -> [Float] {
-        var result = Array(repeating: Float(0), count: count)
+    // 6-2: 幅值写进调用方传入的预分配缓冲（hopScratch.magnitudes），不再逐 hop 新建数组。
+    private func computeMagnitudes(real: [Float], imag: [Float], count: Int, into result: inout [Float]) {
         for index in 0..<count {
             result[index] = real[index] * real[index] + imag[index] * imag[index]
         }
-        return result
     }
 
     private func findPeaks(in magnitudes: [Float]) -> [Int] {
@@ -291,7 +333,10 @@ private final class LXSpatialPannerEngine {
         let x = sin(angle) * soundR
         let y = cos(angle) * soundR
         let z = cos(angle) * soundR
-        let attenuation: Float = 1
+        // 6-5: 距离衰减与 C++ 侧（FLAC 路径）公式对齐：1/(1+0.18*distance)；
+        // 原先硬编码 1，y 是死计算，两引擎开环绕时最大约 48% 音量差。
+        let distance = sqrt(x * x + y * y + z * z)
+        let attenuation: Float = 1 / (1 + 0.18 * distance)
         let normalizedX = max(-1, min(1, x / max(soundR, 0.0001)))
         let leftGain = attenuation * sqrt(0.5 * (1 - normalizedX))
         let rightGain = attenuation * sqrt(0.5 * (1 + normalizedX))
@@ -434,6 +479,10 @@ final class LXEqualizerAudioMixController {
     private var bitsPerChannel: UInt32 = 0
     private var isFloat = false
     private var isInterleaved = false
+    // 6-2: 逐帧采样 scratch，prepare 时按 channelsPerFrame 预分配、逐回调复用；
+    // processFloat32/Int16/Int32 只在 tap 锁内调用，单份 scratch 足够，
+    // 不再每回调分配 frameSamples。
+    private var frameScratch: [Float] = []
 
     init(enabled: Bool, gains: [Float]) {
         updateConfig(enabled: enabled, gains: gains)
@@ -539,6 +588,10 @@ final class LXEqualizerAudioMixController {
         bitsPerChannel = format.mBitsPerChannel
         isFloat = (format.mFormatFlags & kAudioFormatFlagIsFloat) != 0
         isInterleaved = (format.mFormatFlags & kAudioFormatFlagIsNonInterleaved) == 0
+        // 6-2: frameScratch 按当前声道数预分配；声道数不变时不重新分配。
+        if frameScratch.count != channelsPerFrame {
+            frameScratch = Array(repeating: 0, count: channelsPerFrame)
+        }
         refreshProcessingStateLocked(previousConfig: config, resetTime: true)
     }
 
@@ -722,15 +775,15 @@ final class LXEqualizerAudioMixController {
             guard let audioBuffer = audioBuffers.first,
                   let data = audioBuffer.mData?.assumingMemoryBound(to: Float.self) else { return }
 
-            var frameSamples = Array(repeating: Float(0), count: channelsPerFrame)
+            // 6-2: 复用 prepare 预分配的 frameScratch，不再每回调分配 frameSamples。
             for frame in 0..<frameCount {
                 let baseIndex = frame * channelsPerFrame
                 for channel in 0..<channelsPerFrame {
-                    frameSamples[channel] = data[baseIndex + channel]
+                    frameScratch[channel] = data[baseIndex + channel]
                 }
-                processFrame(&frameSamples)
+                processFrame(&frameScratch, activeChannels: channelsPerFrame)
                 for channel in 0..<channelsPerFrame {
-                    data[baseIndex + channel] = frameSamples[channel]
+                    data[baseIndex + channel] = frameScratch[channel]
                 }
             }
             return
@@ -738,16 +791,15 @@ final class LXEqualizerAudioMixController {
 
         let activeChannels = min(audioBuffers.count, channelsPerFrame)
         guard activeChannels > 0 else { return }
-        var frameSamples = Array(repeating: Float(0), count: activeChannels)
         for frame in 0..<frameCount {
             for channel in 0..<activeChannels {
                 guard let data = audioBuffers[channel].mData?.assumingMemoryBound(to: Float.self) else { continue }
-                frameSamples[channel] = data[frame]
+                frameScratch[channel] = data[frame]
             }
-            processFrame(&frameSamples)
+            processFrame(&frameScratch, activeChannels: activeChannels)
             for channel in 0..<activeChannels {
                 guard let data = audioBuffers[channel].mData?.assumingMemoryBound(to: Float.self) else { continue }
-                data[frame] = frameSamples[channel]
+                data[frame] = frameScratch[channel]
             }
         }
     }
@@ -758,15 +810,15 @@ final class LXEqualizerAudioMixController {
             guard let audioBuffer = audioBuffers.first,
                   let data = audioBuffer.mData?.assumingMemoryBound(to: Int16.self) else { return }
 
-            var frameSamples = Array(repeating: Float(0), count: channelsPerFrame)
+            // 6-2: 复用 prepare 预分配的 frameScratch，不再每回调分配 frameSamples。
             for frame in 0..<frameCount {
                 let baseIndex = frame * channelsPerFrame
                 for channel in 0..<channelsPerFrame {
-                    frameSamples[channel] = Float(data[baseIndex + channel]) / scale
+                    frameScratch[channel] = Float(data[baseIndex + channel]) / scale
                 }
-                processFrame(&frameSamples)
+                processFrame(&frameScratch, activeChannels: channelsPerFrame)
                 for channel in 0..<channelsPerFrame {
-                    data[baseIndex + channel] = Int16(clamping: Int(frameSamples[channel] * scale))
+                    data[baseIndex + channel] = Int16(clamping: Int(frameScratch[channel] * scale))
                 }
             }
             return
@@ -774,16 +826,15 @@ final class LXEqualizerAudioMixController {
 
         let activeChannels = min(audioBuffers.count, channelsPerFrame)
         guard activeChannels > 0 else { return }
-        var frameSamples = Array(repeating: Float(0), count: activeChannels)
         for frame in 0..<frameCount {
             for channel in 0..<activeChannels {
                 guard let data = audioBuffers[channel].mData?.assumingMemoryBound(to: Int16.self) else { continue }
-                frameSamples[channel] = Float(data[frame]) / scale
+                frameScratch[channel] = Float(data[frame]) / scale
             }
-            processFrame(&frameSamples)
+            processFrame(&frameScratch, activeChannels: activeChannels)
             for channel in 0..<activeChannels {
                 guard let data = audioBuffers[channel].mData?.assumingMemoryBound(to: Int16.self) else { continue }
-                data[frame] = Int16(clamping: Int(frameSamples[channel] * scale))
+                data[frame] = Int16(clamping: Int(frameScratch[channel] * scale))
             }
         }
     }
@@ -794,15 +845,15 @@ final class LXEqualizerAudioMixController {
             guard let audioBuffer = audioBuffers.first,
                   let data = audioBuffer.mData?.assumingMemoryBound(to: Int32.self) else { return }
 
-            var frameSamples = Array(repeating: Float(0), count: channelsPerFrame)
+            // 6-2: 复用 prepare 预分配的 frameScratch，不再每回调分配 frameSamples。
             for frame in 0..<frameCount {
                 let baseIndex = frame * channelsPerFrame
                 for channel in 0..<channelsPerFrame {
-                    frameSamples[channel] = Float(data[baseIndex + channel]) / scale
+                    frameScratch[channel] = Float(data[baseIndex + channel]) / scale
                 }
-                processFrame(&frameSamples)
+                processFrame(&frameScratch, activeChannels: channelsPerFrame)
                 for channel in 0..<channelsPerFrame {
-                    data[baseIndex + channel] = Int32(clamping: Int(frameSamples[channel] * scale))
+                    data[baseIndex + channel] = Int32(clamping: Int(frameScratch[channel] * scale))
                 }
             }
             return
@@ -810,22 +861,23 @@ final class LXEqualizerAudioMixController {
 
         let activeChannels = min(audioBuffers.count, channelsPerFrame)
         guard activeChannels > 0 else { return }
-        var frameSamples = Array(repeating: Float(0), count: activeChannels)
         for frame in 0..<frameCount {
             for channel in 0..<activeChannels {
                 guard let data = audioBuffers[channel].mData?.assumingMemoryBound(to: Int32.self) else { continue }
-                frameSamples[channel] = Float(data[frame]) / scale
+                frameScratch[channel] = Float(data[frame]) / scale
             }
-            processFrame(&frameSamples)
+            processFrame(&frameScratch, activeChannels: activeChannels)
             for channel in 0..<activeChannels {
                 guard let data = audioBuffers[channel].mData?.assumingMemoryBound(to: Int32.self) else { continue }
-                data[frame] = Int32(clamping: Int(frameSamples[channel] * scale))
+                data[frame] = Int32(clamping: Int(frameScratch[channel] * scale))
             }
         }
     }
 
-    private func processFrame(_ samples: inout [Float]) {
-        let activeChannels = min(samples.count, channelsPerFrame)
+    // 6-2: activeChannels 由调用方显式传入（frameScratch 按 channelsPerFrame 预分配，
+    // 非交错且 buffer 数不足时不能再从 samples.count 推导）。
+    private func processFrame(_ samples: inout [Float], activeChannels: Int) {
+        let activeChannels = min(activeChannels, samples.count, channelsPerFrame)
         guard activeChannels > 0 else { return }
 
         for channel in 0..<activeChannels {
@@ -938,206 +990,6 @@ final class LXEqualizerAudioMixController {
     }
 }
 
-private final class LXFFTConvolution {
-    private let blockSize: Int
-    private let fftSize: Int
-    private let partitionCount: Int
-    private let inputChannels: Int
-    private let outputChannels: Int
-    private var filterReal: [[[Float]]]
-    private var filterImag: [[[Float]]]
-    private var historyReal: [[[Float]]]
-    private var historyImag: [[[Float]]]
-    private var overlaps: [[Float]]
-    private var inputScratchReal: [[Float]]
-    private var inputScratchImag: [[Float]]
-    private var sumScratchReal: [[Float]]
-    private var sumScratchImag: [[Float]]
-    private var outputScratch: [[Float]]
-    private var historyWriteIndex = 0
-    private let fftSetup: FFTSetup
-    private let log2n: vDSP_Length
-
-    init?(irChannels: [[Float]], inputChannels: Int, outputChannels: Int, blockSize: Int = 512) {
-        guard !irChannels.isEmpty else { return nil }
-
-        self.blockSize = blockSize
-        self.fftSize = blockSize * 2
-        self.inputChannels = max(1, inputChannels)
-        self.outputChannels = max(1, outputChannels)
-
-        let impulseLength = irChannels.map(\.count).max() ?? 0
-        guard impulseLength > 0 else { return nil }
-        self.partitionCount = max(1, Int(ceil(Double(impulseLength) / Double(blockSize))))
-
-        let log2Value = Int(log2(Double(fftSize)))
-        guard (1 << log2Value) == fftSize else { return nil }
-        self.log2n = vDSP_Length(log2Value)
-        guard let setup = vDSP_create_fftsetup(self.log2n, FFTRadix(kFFTRadix2)) else { return nil }
-        self.fftSetup = setup
-
-        let routeCount = self.inputChannels * self.outputChannels
-        self.filterReal = Array(
-            repeating: Array(repeating: Array(repeating: 0, count: fftSize), count: partitionCount),
-            count: routeCount
-        )
-        self.filterImag = Array(
-            repeating: Array(repeating: Array(repeating: 0, count: fftSize), count: partitionCount),
-            count: routeCount
-        )
-        self.historyReal = Array(
-            repeating: Array(repeating: Array(repeating: 0, count: fftSize), count: partitionCount),
-            count: self.inputChannels
-        )
-        self.historyImag = Array(
-            repeating: Array(repeating: Array(repeating: 0, count: fftSize), count: partitionCount),
-            count: self.inputChannels
-        )
-        self.overlaps = Array(repeating: Array(repeating: 0, count: blockSize), count: self.outputChannels)
-        self.inputScratchReal = Array(repeating: Array(repeating: 0, count: fftSize), count: self.inputChannels)
-        self.inputScratchImag = Array(repeating: Array(repeating: 0, count: fftSize), count: self.inputChannels)
-        self.sumScratchReal = Array(repeating: Array(repeating: 0, count: fftSize), count: self.outputChannels)
-        self.sumScratchImag = Array(repeating: Array(repeating: 0, count: fftSize), count: self.outputChannels)
-        self.outputScratch = Array(repeating: Array(repeating: 0, count: blockSize), count: self.outputChannels)
-
-        let routeMapping = Self.makeRouteMapping(irChannelCount: irChannels.count, inputChannels: self.inputChannels, outputChannels: self.outputChannels)
-        for route in routeMapping {
-            let impulse = irChannels[min(route.irChannel, irChannels.count - 1)]
-            for partition in 0..<partitionCount {
-                let start = partition * blockSize
-                let end = min(start + blockSize, impulse.count)
-                var real = Array(repeating: Float(0), count: fftSize)
-                if start < end {
-                    real.replaceSubrange(0..<(end - start), with: impulse[start..<end])
-                }
-                var imag = Array(repeating: Float(0), count: fftSize)
-                Self.performFFT(setup: setup, log2n: self.log2n, real: &real, imag: &imag, direction: FFTDirection(FFT_FORWARD))
-                filterReal[route.routeIndex][partition] = real
-                filterImag[route.routeIndex][partition] = imag
-            }
-        }
-    }
-
-    deinit {
-        vDSP_destroy_fftsetup(fftSetup)
-    }
-
-    func processBlock(_ inputBlock: [[Float]]) -> [[Float]] {
-        guard !inputBlock.isEmpty else {
-            for outputChannel in 0..<outputChannels {
-                for index in 0..<blockSize {
-                    outputScratch[outputChannel][index] = 0
-                }
-            }
-            return outputScratch
-        }
-
-        let currentHistoryIndex = historyWriteIndex
-        for channel in 0..<inputChannels {
-            for index in 0..<fftSize {
-                inputScratchReal[channel][index] = 0
-                inputScratchImag[channel][index] = 0
-            }
-            if channel < inputBlock.count {
-                let source = inputBlock[channel]
-                let copyCount = min(source.count, blockSize)
-                for index in 0..<copyCount {
-                    inputScratchReal[channel][index] = source[index]
-                }
-            }
-            for index in 0..<fftSize {
-                historyReal[channel][currentHistoryIndex][index] = inputScratchReal[channel][index]
-                historyImag[channel][currentHistoryIndex][index] = inputScratchImag[channel][index]
-            }
-            Self.performFFT(setup: fftSetup, log2n: log2n, real: &historyReal[channel][currentHistoryIndex], imag: &historyImag[channel][currentHistoryIndex], direction: FFTDirection(FFT_FORWARD))
-        }
-
-        for outputChannel in 0..<outputChannels {
-            for index in 0..<fftSize {
-                sumScratchReal[outputChannel][index] = 0
-                sumScratchImag[outputChannel][index] = 0
-            }
-
-            for inputChannel in 0..<inputChannels {
-                let routeIndex = outputChannel * inputChannels + inputChannel
-                for partition in 0..<partitionCount {
-                    let historyIndex = (currentHistoryIndex + partitionCount - partition) % partitionCount
-                    let inputReal = historyReal[inputChannel][historyIndex]
-                    let inputImag = historyImag[inputChannel][historyIndex]
-                    let filterRealPart = filterReal[routeIndex][partition]
-                    let filterImagPart = filterImag[routeIndex][partition]
-                    for index in 0..<fftSize {
-                        let real = filterRealPart[index] * inputReal[index] - filterImagPart[index] * inputImag[index]
-                        let imag = filterRealPart[index] * inputImag[index] + filterImagPart[index] * inputReal[index]
-                        sumScratchReal[outputChannel][index] += real
-                        sumScratchImag[outputChannel][index] += imag
-                    }
-                }
-            }
-
-            Self.performFFT(setup: fftSetup, log2n: log2n, real: &sumScratchReal[outputChannel], imag: &sumScratchImag[outputChannel], direction: FFTDirection(FFT_INVERSE))
-            let scale = 1 / Float(fftSize)
-            for index in 0..<fftSize {
-                sumScratchReal[outputChannel][index] *= scale
-            }
-
-            for index in 0..<blockSize {
-                outputScratch[outputChannel][index] = sumScratchReal[outputChannel][index] + overlaps[outputChannel][index]
-            }
-            for index in 0..<blockSize {
-                overlaps[outputChannel][index] = sumScratchReal[outputChannel][blockSize + index]
-            }
-        }
-        historyWriteIndex = (currentHistoryIndex + 1) % partitionCount
-        return outputScratch
-    }
-
-    private static func makeRouteMapping(irChannelCount: Int, inputChannels: Int, outputChannels: Int) -> [(routeIndex: Int, irChannel: Int)] {
-        if inputChannels >= 2 && outputChannels >= 2 && irChannelCount >= 4 {
-            return [
-                (0 * inputChannels + 0, 0),
-                (0 * inputChannels + 1, 2),
-                (1 * inputChannels + 0, 1),
-                (1 * inputChannels + 1, 3),
-            ]
-        }
-
-        if outputChannels >= 2 && irChannelCount >= 2 && inputChannels == 1 {
-            return [
-                (0, 0),
-                (1, 1),
-            ]
-        }
-
-        if inputChannels >= 2 && outputChannels >= 2 && irChannelCount >= 2 {
-            return [
-                (0 * inputChannels + 0, 0),
-                (1 * inputChannels + 1, 1),
-            ]
-        }
-
-        if inputChannels >= 2 && outputChannels >= 2 {
-            return [
-                (0 * inputChannels + 0, 0),
-                (1 * inputChannels + 1, 0),
-            ]
-        }
-
-        return [
-            (0, 0),
-        ]
-    }
-
-    private static func performFFT(setup: FFTSetup, log2n: vDSP_Length, real: inout [Float], imag: inout [Float], direction: FFTDirection) {
-        real.withUnsafeMutableBufferPointer { realPointer in
-            imag.withUnsafeMutableBufferPointer { imagPointer in
-                var splitComplex = DSPSplitComplex(realp: realPointer.baseAddress!, imagp: imagPointer.baseAddress!)
-                vDSP_fft_zip(setup, &splitComplex, 1, log2n, direction)
-            }
-        }
-    }
-}
-
 private final class LXConvolutionEngine {
     private let assetKey: String
     private let sampleRate: Double
@@ -1152,6 +1004,10 @@ private final class LXConvolutionEngine {
     private var outputQueue: [[Float]]
     private var outputReadIndex = 0
     private var outputFrameCount = 0
+    // 6-2: 卷积块处理 scratch，init 时按 blockSize 预分配、逐块复用；
+    // 内核原地处理 scratch 后再逐元拷回 outputQueue（不直接赋值，避免共享存储导致下次复用时 CoW）。
+    private var processScratchChannel0: [Float]
+    private var processScratchChannel1: [Float]
 
     init?(config: LXSoundEffectConfiguration, sampleRate: Double, channelCount: Int) {
         let effectiveChannels = max(1, min(channelCount, 2))
@@ -1185,6 +1041,9 @@ private final class LXConvolutionEngine {
         )
         self.inputBuffer = Array(repeating: Array(repeating: 0, count: self.blockSize), count: effectiveChannels)
         self.outputQueue = Array(repeating: Array(repeating: 0, count: self.blockSize), count: self.outputChannels)
+        // 6-2: 块处理 scratch 预分配。
+        self.processScratchChannel0 = Array(repeating: 0, count: self.blockSize)
+        self.processScratchChannel1 = Array(repeating: 0, count: self.blockSize)
         guard kernel?.isReady() == true else { return nil }
     }
 
@@ -1248,15 +1107,22 @@ private final class LXConvolutionEngine {
         }
 
         let activeChannels = min(channelCount, outputChannels)
-        var processedChannel0 = inputBuffer[0]
-        var processedChannel1 = activeChannels > 1
-            ? inputBuffer[1]
-            : Array(repeating: Float(0), count: blockSize)
+        // 6-2: 输入逐元拷入预分配 scratch（原先 var processedChannel0 = inputBuffer[0]
+        // 是 CoW 共享、内核写入时触发 512 浮点拷贝；单声道时还另建一个零数组），
+        // 内核原地处理后逐元拷回 outputQueue。
+        for index in 0..<blockSize {
+            processScratchChannel0[index] = inputBuffer[0][index]
+        }
+        if activeChannels > 1 {
+            for index in 0..<blockSize {
+                processScratchChannel1[index] = inputBuffer[1][index]
+            }
+        }
 
-        processedChannel0.withUnsafeMutableBufferPointer { channel0 in
+        processScratchChannel0.withUnsafeMutableBufferPointer { channel0 in
             guard let channel0Base = channel0.baseAddress else { return }
             if activeChannels > 1 {
-                processedChannel1.withUnsafeMutableBufferPointer { channel1 in
+                processScratchChannel1.withUnsafeMutableBufferPointer { channel1 in
                     kernel.processStereoChannel0(
                         channel0Base,
                         channel1: channel1.baseAddress,
@@ -1274,9 +1140,13 @@ private final class LXConvolutionEngine {
             }
         }
 
-        outputQueue[0] = processedChannel0
+        for index in 0..<blockSize {
+            outputQueue[0][index] = processScratchChannel0[index]
+        }
         if outputChannels > 1 {
-            outputQueue[1] = processedChannel1
+            for index in 0..<blockSize {
+                outputQueue[1][index] = processScratchChannel1[index]
+            }
         }
     }
 

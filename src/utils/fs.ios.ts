@@ -149,8 +149,13 @@ export const mkdir = async(path: string) => {
       const exists = await RNFS.exists(current)
       if (!exists) await RNFS.mkdir(current)
     } catch {
-      // 忽略单级失败，继续尝试（最终失败由调用方感知）
+      // 忽略单级失败，继续尝试（最终失败由下方终态校验抛错）
     }
+  }
+  // 4-12：循环内 catch 吞错后做终态校验——目录最终不存在时抛错，让调用方
+  // 感知（此前静默成功，后续写文件才在别处报错，根因难定位）
+  if (!(await RNFS.exists(normalized))) {
+    throw new Error(`创建目录失败: ${normalized}`)
   }
 }
 
@@ -197,8 +202,10 @@ export const writeFile = async(path: string, data: string, encoding: Encoding = 
 export const appendFile = async(path: string, data: string, encoding: Encoding = 'utf8') => RNFS.appendFile(normalizePath(path), data, encoding)
 
 export const downloadFile = (url: string, path: string, options: Omit<RNFS.DownloadFileOptions, 'fromUrl' | 'toFile'> = {}) => {
-  if (!options.headers) {
-    options.headers = {
+  // 4-12：先浅拷贝再补默认 UA，不直接改调用方入参 options
+  const opts = { ...options }
+  if (!opts.headers) {
+    opts.headers = {
       'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile',
     }
   }
@@ -212,7 +219,7 @@ export const downloadFile = (url: string, path: string, options: Omit<RNFS.Downl
     // 进度/速度观感不变（速度本就按时间差算，限流后反而是更稳的平均值），唤醒次数
     // 降到 1/10 量级。调用方若确需更细粒度可自行传 progressInterval 覆盖。
     progressInterval: 250,
-    ...options,
+    ...opts,
   })
 }
 

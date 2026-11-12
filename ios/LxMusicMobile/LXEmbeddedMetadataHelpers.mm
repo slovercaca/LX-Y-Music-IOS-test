@@ -366,29 +366,67 @@ static BOOL LXWriteMP3Metadata(NSString *filePath, NSDictionary *metadata, NSStr
   [tag appendBytes:sizeBytes length:4];
   [tag appendData:tagBody];
 
+  // 6-7: 句柄判空——readFh 为 nil 即中止，不走 move 序列、不删 backup（否则原音频丢失）
   NSFileHandle *readFh = [NSFileHandle fileHandleForReadingAtPath:filePath];
-  [readFh seekToFileOffset:headerSize];
-  NSData *rest = [readFh readDataToEndOfFile];
-  [readFh closeFile];
-
+  if (readFh == nil) {
+    if (error) *error = [NSError errorWithDomain:@"LXMediaMetadata" code:11 userInfo:@{NSLocalizedDescriptionKey: @"Failed to open file for reading"}];
+    return NO;
+  }
+  // 6-7: headerSize 来自 ID3 头声明的 tagSize，损坏标签可使其超出文件长度——同样中止
+  unsigned long long fileLength = [readFh seekToEndOfFile];
+  if (headerSize > fileLength) {
+    [readFh closeFile];
+    if (error) *error = [NSError errorWithDomain:@"LXMediaMetadata" code:12 userInfo:@{NSLocalizedDescriptionKey: @"ID3 header size exceeds file length"}];
+    return NO;
+  }
+  // 6-7: 音频体长度 = 文件长 - 头长；尾部 128 字节 ID3v1 标签先单独摘出（仅当尾部为 TAG 时剥离，与原逻辑一致）
+  unsigned long long audioLength = fileLength - headerSize;
   NSData *id3v1 = nil;
-  if (rest.length >= 128) {
-    const uint8_t *tail = (const uint8_t *)rest.bytes + rest.length - 128;
-    if (tail[0] == 'T' && tail[1] == 'A' && tail[2] == 'G') {
-      id3v1 = [rest subdataWithRange:NSMakeRange(rest.length - 128, 128)];
-      rest = [rest subdataWithRange:NSMakeRange(0, rest.length - 128)];
+  if (audioLength >= 128) {
+    [readFh seekToFileOffset:fileLength - 128];
+    NSData *tail = [readFh readDataOfLength:128];
+    if (tail.length == 128) {
+      const uint8_t *tailBytes = (const uint8_t *)tail.bytes;
+      if (tailBytes[0] == 'T' && tailBytes[1] == 'A' && tailBytes[2] == 'G') {
+        id3v1 = tail;
+        audioLength -= 128;
+      }
     }
   }
 
   NSString *tempPath = [filePath stringByAppendingString:@".lxmetadata.tmp"];
   if (![[NSFileManager defaultManager] createFileAtPath:tempPath contents:nil attributes:nil]) {
+    [readFh closeFile];
     if (error) *error = [NSError errorWithDomain:@"LXMediaMetadata" code:10 userInfo:@{NSLocalizedDescriptionKey: @"Failed to create temp file"}];
     return NO;
   }
   NSFileHandle *writeFh = [NSFileHandle fileHandleForWritingAtPath:tempPath];
+  // 6-7: 写句柄 nil 即中止（删临时文件，不动原文件与 backup）
+  if (writeFh == nil) {
+    [readFh closeFile];
+    [[NSFileManager defaultManager] removeItemAtPath:tempPath error:nil];
+    if (error) *error = [NSError errorWithDomain:@"LXMediaMetadata" code:13 userInfo:@{NSLocalizedDescriptionKey: @"Failed to open temp file for writing"}];
+    return NO;
+  }
   [writeFh writeData:tag];
-  [writeFh writeData:rest];
+  // 6-7: 256KB 分块流式拷贝音频体，不再整首读入内存；短读（文件被截断）即中止
+  [readFh seekToFileOffset:headerSize];
+  unsigned long long remaining = audioLength;
+  while (remaining > 0) {
+    NSUInteger chunkSize = remaining > (256 * 1024) ? (256 * 1024) : (NSUInteger)remaining;
+    NSData *chunk = [readFh readDataOfLength:chunkSize];
+    if (chunk.length == 0) {
+      [readFh closeFile];
+      [writeFh closeFile];
+      [[NSFileManager defaultManager] removeItemAtPath:tempPath error:nil];
+      if (error) *error = [NSError errorWithDomain:@"LXMediaMetadata" code:14 userInfo:@{NSLocalizedDescriptionKey: @"Unexpected end of file while copying audio data"}];
+      return NO;
+    }
+    [writeFh writeData:chunk];
+    remaining -= chunk.length;
+  }
   if (id3v1) [writeFh writeData:id3v1];
+  [readFh closeFile];
   [writeFh closeFile];
 
   NSString *backupPath = [filePath stringByAppendingString:@".lxmetadata.bak"];

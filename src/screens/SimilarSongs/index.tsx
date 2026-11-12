@@ -55,9 +55,11 @@ export default memo(({ componentId, similarSongs: initialSimilarSongs }: { compo
               onListUpdate={handleListUpdate}
             />
           </View>
-          <PlayerBar componentId={componentId} />
         </View>
       </LandscapeCentered>
+      {/* 5-9：PlayerBar 移出 LandscapeCentered——横屏时不再被限宽 1000 居中，
+          与全宽 ModernTabBar 对齐（PlayerBar「横屏不再限宽」定案）；竖屏不变 */}
+      <PlayerBar componentId={componentId} />
     </PageContent>
   )
 })

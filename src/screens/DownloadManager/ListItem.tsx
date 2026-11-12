@@ -172,6 +172,10 @@ export default memo(({ task: initialTask, rowWidth = '100%', onRemove, fileMissi
         </Text>
         <View style={styles.detailsRow}>
           <Text size={11} color={theme['c-font-label']}>{t(quality) || String(quality).toUpperCase()}</Text>
+          {/* 失败策略换源成功时显示实际来源（未换源时不显示，避免行里多余信息） */}
+          {task.actualSource && task.actualSource !== task.musicInfo.source &&
+            <Text size={11} color={theme['c-font-label']}> • {t(`source_${task.actualSource}`)}</Text>
+          }
           {task.status === 'completed' && (fileSize || (task.progress?.total ?? 0)) > 0 &&
             <Text size={11} color={theme['c-font-label']}> • {sizeFormate(fileSize || (task.progress?.total ?? 0))}</Text>
           }

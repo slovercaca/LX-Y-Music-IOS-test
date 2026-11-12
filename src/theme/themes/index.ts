@@ -30,6 +30,8 @@ export const getAllThemes = async() => {
 }
 
 export const saveTheme = async(theme: LX.Theme) => {
+  // 5-5：防御——userThemes 未初始化（getAllThemes 未调用过）时先置空数组
+  userThemes ??= []
   const targetTheme = userThemes.find((t) => t.id === theme.id)
   if (targetTheme) Object.assign(targetTheme, theme)
   else userThemes.push(theme)
@@ -37,6 +39,8 @@ export const saveTheme = async(theme: LX.Theme) => {
 }
 
 export const removeTheme = async(id: string) => {
+  // 5-5：同上，防御未初始化
+  userThemes ??= []
   const index = userThemes.findIndex((t) => t.id === id)
   if (index < 0) return
   userThemes.splice(index, 1)
@@ -129,7 +133,9 @@ export const buildActiveThemeColors = (theme: LX.Theme): LX.ActiveTheme => {
   }
 
   if (theme.isDark) {
-    activeTheme['c-primary-font-active'] = activeTheme['c-000']
+    // 5-2：深色分支激活态改映射为 c-1000（白色）——此前映射 c-000，
+    // 实测 rgb(92,92,92)，在深色背景上对比度仅约 1.95:1，近乎不可见
+    activeTheme['c-primary-font-active'] = activeTheme['c-1000']
   }
 
   return activeTheme

@@ -2,9 +2,18 @@
 # Shaders are compiled on-device at runtime via MTLDevice.makeLibrary(source:),
 # so CI needs no Metal compile step. Run from repo scripts/ dir.
 # NOTE: ASCII-only file; PowerShell 5.1 mis-parses BOM-less UTF-8 Chinese comments.
+# 6-14(b): shader source dir is a parameter now. Default: an upstream
+# LiquidGlassKit checkout placed at ios/Vendor/LiquidGlassKit-upstream
+# (clone https://github.com/DnV1eX/LiquidGlassKit there when re-vendoring);
+# pass -Src <path> to use a checkout elsewhere. Previously this was hardcoded
+# to the author's D:\lgtk-tmp\... and failed on any other machine.
+param(
+    [string]$Src = (Join-Path $PSScriptRoot '..\ios\Vendor\LiquidGlassKit-upstream\Sources\LiquidGlassKit')
+)
 $ErrorActionPreference = 'Stop'
 
-$src = 'D:\lgtk-tmp\Sources\LiquidGlassKit'
+$src = $Src
+if (-not (Test-Path -LiteralPath $src)) { throw "LiquidGlassKit source not found: $src (clone upstream to ios/Vendor/LiquidGlassKit-upstream or pass -Src <path>)" }
 $dstDir = Join-Path $PSScriptRoot '..\ios\Vendor\LiquidGlassKit\Sources'
 
 $vert = (Get-Content (Join-Path $src 'LiquidGlassVertex.metal') -Raw).Trim()

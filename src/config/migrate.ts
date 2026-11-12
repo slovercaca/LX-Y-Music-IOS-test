@@ -134,19 +134,22 @@ export const migrateListData = async() => {
     userList: [],
     tempList: [],
   }
+  // 1-20②：旧数据 .list 未必是数组，损坏时按空列表计，避免迁移抛 TypeError 退出
+  // （toNewMusicInfo 返回的 null 由 filterMusicList 过滤，见 1-20③）
+  const toFilteredList = (list: any) => filterMusicList(
+    (Array.isArray(list) ? list : []).map((m) => toNewMusicInfo(m)),
+  )
   if (playList.defaultList) {
-    listDataAll.defaultList = filterMusicList(
-      playList.defaultList.list.map((m) => toNewMusicInfo(m)!),
-    )
+    listDataAll.defaultList = toFilteredList(playList.defaultList.list)
   }
-  if (playList.loveList) { listDataAll.loveList = filterMusicList(playList.loveList.list.map((m) => toNewMusicInfo(m)!)) }
-  if (playList.tempList) { listDataAll.tempList = filterMusicList(playList.tempList.list.map((m) => toNewMusicInfo(m)!)) }
+  if (playList.loveList) { listDataAll.loveList = toFilteredList(playList.loveList.list) }
+  if (playList.tempList) { listDataAll.tempList = toFilteredList(playList.tempList.list) }
   if (playList.userList) {
     listDataAll.userList = playList.userList.map((l) => {
       return {
         ...l,
         locationUpdateTime: l.locationUpdateTime ?? null,
-        list: filterMusicList(l.list.map((m) => toNewMusicInfo(m)!)),
+        list: toFilteredList(l.list),
       }
     })
   }

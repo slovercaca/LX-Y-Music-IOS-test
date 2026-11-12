@@ -41,7 +41,9 @@ if (NativeModules.LocalMediaMetadata) {
 export const isWriteSupported = (): boolean =>
   !!(nativeLocalMediaMetadata?.writeMetadata && nativeLocalMediaMetadata?.writePic && nativeLocalMediaMetadata?.writeLyric)
 
-let cleared = false
+// 4-6：首次清理缓存用单例 promise 去重——原 cleared 布尔非原子，双并发会
+// 双清，后到的 unlink 可能删掉先到 readPic 刚建的缓存目录
+let clearPicCachePromise: Promise<void> | null = null
 const picCachePath = temporaryDirectoryPath + '/local-media-metadata'
 const unsupportedError = new Error('Local media metadata is not supported on ios yet')
 
@@ -86,9 +88,15 @@ export const scanAudioFiles = async(dirPath: string) => {
   }).map(file => file)
 }
 
-const clearPicCache = async() => {
-  await unlink(picCachePath)
-  cleared = true
+const clearPicCache = () => {
+  if (!clearPicCachePromise) {
+    clearPicCachePromise = unlink(picCachePath).catch((err) => {
+      // 清理失败时复位单例，下次 readPic 可重试（不让一次失败永久毒化）
+      clearPicCachePromise = null
+      throw err
+    })
+  }
+  return clearPicCachePromise
 }
 
 export const readMetadata = async(filePath: string): Promise<MusicMetadataFull | null> => {
@@ -135,6 +143,6 @@ export const writeLyric = async(filePath: string, lyric: string): Promise<void> 
 
 export const readPic = async(dirPath: string): Promise<string> => {
   if (!nativeLocalMediaMetadata?.readPic) throw unsupportedError
-  if (!cleared) await clearPicCache()
+  await clearPicCache()
   return nativeLocalMediaMetadata.readPic(dirPath, picCachePath)
 }

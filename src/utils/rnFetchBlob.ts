@@ -45,7 +45,8 @@ const config = (opts: FetchConfigOptions = {}) => ({
    * 目标路径已存在时先删除：iOS 侧下载器内部用 moveItemAtURL 落盘，目标存在会失败。
    */
   async fetch(_method: string, url: string): Promise<FetchResult> {
-    const target = opts.path ?? `${CachesDirectoryPath}/rnfetchblob_${Date.now()}`
+    // 4-11：无 path 默认名加随机后缀，防同毫秒并发碰撞
+    const target = opts.path ?? `${CachesDirectoryPath}/rnfetchblob_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
     await fsUnlink(target).catch(() => {})
 
     if (/^https?:/i.test(url)) {
@@ -61,7 +62,17 @@ const config = (opts: FetchConfigOptions = {}) => ({
       }
     }
 
-    const source = url.startsWith('file://') ? decodeURIComponent(url.replace(/^file:\/\//, '')) : url
+    // 4-11：file:// URL 含字面 %（如 100%.jpg）时 decodeURIComponent 抛
+    // URIError，失败用原串（与 fs.ios.ts 的 normalizePath 同口径）
+    let source = url
+    if (url.startsWith('file://')) {
+      const raw = url.replace(/^file:\/\//, '')
+      try {
+        source = decodeURIComponent(raw)
+      } catch {
+        source = raw
+      }
+    }
     await fsCopyFile(source, target)
     return {
       path: () => target,

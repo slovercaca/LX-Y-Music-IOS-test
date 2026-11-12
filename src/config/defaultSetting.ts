@@ -87,6 +87,7 @@ const defaultSetting: LX.AppSetting = {
     setting_version: true,
     setting_basic_nav_menu: true,
     setting_basic_source_user_api: true,
+    setting_failure_strategy: true,
   },
 
   'player.startupPushPlayDetailScreen': false,
@@ -140,6 +141,20 @@ const defaultSetting: LX.AppSetting = {
   // 关 = 只显示歌名·歌手，不推送歌词行。默认开，保持既有行为。
   'player.isShowBluetoothLyric': true,
 
+  // 2026-11-12：失败策略（设置：失败策略）。下载/播放取链失败时，按 order
+  // 依次自动重试：platform = 切换平台重试（按 platformPriority 顺序逐个试
+  // 其它平台的同名歌曲）；quality = 换音质重试（按 qualityDirection 从首选
+  // 档位一档一档往下降/往上升）；source = 更换音源重试（临时借用另一自定义
+  // 音源脚本试一次，事后自动切回原音源；只有 ≥2 个 user_api 脚本时才生效）。
+  // 429 限流直通、不进策略循环；策略跑完仍失败才按原有终态处理（播放跳歌 /
+  // 下载标错）。order / platformPriority / stepEnabled 三个非原始值键已登记
+  // 在 config/setting.ts 的 DEEP_KEYS 里，否则 updateSetting 会静默丢弃。
+  'failureStrategy.enabled': true,
+  'failureStrategy.order': ['platform', 'quality', 'source'],
+  'failureStrategy.stepEnabled': { platform: true, quality: true, source: true },
+  'failureStrategy.platformPriority': ['kw', 'kg', 'tx', 'wy', 'mg'],
+  'failureStrategy.qualityDirection': 'down',
+
   'playDetail.isCoverSpin': false,
   'playDetail.style.align': 'center',
   'playDetail.style.miniLyricAlign': 'center',
@@ -182,6 +197,9 @@ const defaultSetting: LX.AppSetting = {
   'download.writePicture': true,
   'download.writeAlias': false,
   'download.quality': '128k',
+  // 同时下载数量（2026-11-12）：下载队列 worker 数，1-6，默认 3。
+  // 1 = 旧行为（严格串行一次下一首）；改大后排队的任务会立即并行启动。
+  'download.concurrency': 3,
 
   'sync.enable': false,
   'sync.webdav.enable': false,
@@ -194,8 +212,8 @@ const defaultSetting: LX.AppSetting = {
   'webdav.downloadPath': '',
   // 上传并发线程数（2026-10-05）：上传 tab 可调，1-6，默认 2
   'webdav.uploadConcurrency': 2,
-  // 断点续传（Test-v2）：上传前检查远端已有大小，从断点继续。默认开。
-  'webdav.uploadResume': true,
+  // S-8：'webdav.uploadResume' 已删除（见 UploadTab）——零逻辑消费方，
+  // 存储残留旧键由 mergeSetting 的未知键丢弃规则自动清除。
   // 分块上传（Test-v2）：大文件切块逐块传，单块失败只重传该块。默认开。
   'webdav.uploadChunked': true,
   // 分块大小 MB（Test-v2）：默认 5

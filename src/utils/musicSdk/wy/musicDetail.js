@@ -56,7 +56,8 @@ export const fetchAndApplyDetailedQuality = async(musicInfo, retryNum = 0, silen
 
     const data = body.data
 
-    const newTypes = [...musicInfo.meta.qualitys]
+    // 4-18：qualitys 缺失时兜底空数组（生产者恒设数组，纯防御）
+    const newTypes = [...(musicInfo.meta.qualitys ?? [])]
     const new_Types = { ...musicInfo.meta._qualitys }
 
     if (data.jm && data.jm.size && !new_Types.master) {
@@ -119,9 +120,11 @@ export const fetchAndApplyDetailedQuality = async(musicInfo, retryNum = 0, silen
 
 export default {
   getSinger(singers) {
+    // 4-19 后续：同款脏数据防护——ar 缺失/非数组时返回空串，不拖垮整批
+    if (!Array.isArray(singers)) return ''
     let arr = []
-    singers?.forEach((singer) => {
-      arr.push(singer.name)
+    singers.forEach((singer) => {
+      arr.push(singer?.name)
     })
     return arr.join('、')
   },

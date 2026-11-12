@@ -1,20 +1,24 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import state, { type InitState } from './state'
 import { getListMusics } from '@/core/list'
 
 export const useMyList = () => {
   const [lists, setList] = useState(state.allList)
-  lists[0].name = global.i18n.t('list_name_default')
-  lists[1].name = global.i18n.t('list_name_love')
+  // 1-17：render 期不再原地改共享 state.allList——useMemo 返回带本地化名
+  // 的浅拷贝新对象（前两项换新对象，其余项沿用原引用）
+  const displayLists = useMemo(() => {
+    if (lists.length < 2) return lists
+    const next = [...lists]
+    next[0] = { ...next[0], name: global.i18n.t('list_name_default') }
+    next[1] = { ...next[1], name: global.i18n.t('list_name_love') }
+    return next
+  }, [lists])
 
   useEffect(() => {
     const handleConfigUpdate = (keys: Array<keyof LX.AppSetting>) => {
       if (!keys.includes('common.langId')) return
-      setList((lists) => {
-        lists[0].name = global.i18n.t('list_name_default')
-        lists[1].name = global.i18n.t('list_name_love')
-        return [...lists]
-      })
+      // 语言变化时换一个新数组引用，触发 useMemo 用新语言重算名字
+      setList((lists) => [...lists])
     }
     global.state_event.on('mylistUpdated', setList)
     global.state_event.on('configUpdated', handleConfigUpdate)
@@ -24,7 +28,7 @@ export const useMyList = () => {
     }
   }, [])
 
-  return lists
+  return displayLists
 }
 
 export const useActiveListId = () => {

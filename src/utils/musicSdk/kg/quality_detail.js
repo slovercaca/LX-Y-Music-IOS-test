@@ -156,7 +156,8 @@ export const filterData = async(rawList, options = {}) => {
         name: decodeName(item.songname),
         singer: decodeName(item.author_name),
         albumName: decodeName(item.album_info?.album_name || item.remark),
-        albumId: item.album_info.album_id,
+        // 4-20：album_info 缺失时判空（同表达式其他字段已用 ?.，此处漏了）
+        albumId: item.album_info?.album_id ?? '',
         songmid: item.audio_info.audio_id,
         songId: item.audio_info.audio_id,
         source: 'kg',
@@ -174,7 +175,7 @@ export const filterData = async(rawList, options = {}) => {
         meta: {
           songId: item.audio_info.audio_id,
           albumName: decodeName(item.album_info?.album_name || item.remark),
-          albumId: item.album_info.album_id,
+          albumId: item.album_info?.album_id ?? '',
           picUrl: item.album_info?.sizable_cover?.replace('{size}', '480') ?? null,
           qualitys: types,
           _qualitys: _types,

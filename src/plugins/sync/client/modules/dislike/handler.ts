@@ -47,7 +47,8 @@ const handler: LX.Sync.ClientSyncHandlerDislikeActions<LX.Sync.Socket> = {
     socket.moduleReadys.dislike = true
     registerEvent(socket)
     socket.onClose(() => {
-      unregisterEvent()
+      // 3-10(c)：注销绑定 socket 身份，旧 socket 的迟到 close 不注销新监听
+      unregisterEvent(socket)
     })
   },
 }

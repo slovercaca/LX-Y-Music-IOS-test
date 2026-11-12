@@ -48,6 +48,8 @@ const dynamicsMode = profile.dynamics.mode
 const dynamicsThresholdLinear = profile.dynamics.thresholdLinear
 const dynamicsAttack = profile.dynamics.attackSeconds
 const dynamicsRelease = profile.dynamics.releaseSeconds
+const pannerCoefficient = profile.panner.attenuationCoefficient
+const pannerSidePreserve = profile.panner.sidePreserve
 
 expectIncludes(appDelegate, `frequencies = @[ @${profile.equalizerFrequencies.join(', @')} ];`, 'AppDelegate equalizer frequencies')
 expectIncludes(swiftPatch, `let lxSoundEffectBandFrequencies: [Float] = [${frequencyList}]`, 'Swift equalizer frequencies')
@@ -56,13 +58,14 @@ expectIncludes(appDelegate, `const float q = ${q}f;`, 'AppDelegate equalizer Q')
 expectIncludes(swiftPatch, `let q: Float = ${q}`, 'Swift equalizer Q')
 
 expectIncludes(swiftPatch, `init?(channelCount: Int, blockSize: Int = ${blockSize}, hopSize: Int = ${hopSize}) {`, 'Swift phase vocoder sizes')
-expectCountAtLeast(appDelegate, new RegExp(`_blockSize = ${blockSize};`, 'g'), 2, 'AppDelegate phase vocoder block size')
-expectCountAtLeast(appDelegate, new RegExp(`_hopSize = ${hopSize};`, 'g'), 2, 'AppDelegate phase vocoder hop size')
+// 6-11: 死 ObjC DSP 类已删，AppDelegate 内仅剩活 C++ 实现一份，下限 2→1、3→2
+expectCountAtLeast(appDelegate, new RegExp(`_blockSize = ${blockSize};`, 'g'), 1, 'AppDelegate phase vocoder block size')
+expectCountAtLeast(appDelegate, new RegExp(`_hopSize = ${hopSize};`, 'g'), 1, 'AppDelegate phase vocoder hop size')
 
-expectCountAtLeast(appDelegate, new RegExp(`${windowScale.toFixed(1)} \\* \\(1\\.0 - cos`, 'g'), 2, 'AppDelegate Hann window scale')
+expectCountAtLeast(appDelegate, new RegExp(`${windowScale.toFixed(1)} \\* \\(1\\.0 - cos`, 'g'), 1, 'AppDelegate Hann window scale')
 expectIncludes(swiftPatch, `${windowScale.toFixed(1)} * (1 - cos`, 'Swift Hann window scale')
 
-expectCountAtLeast(appDelegate, new RegExp(`fabsf\\(pitchFactor - ${pitchDefault.toFixed(1)}f\\) < ${pitchBypass.toFixed(2)}f`, 'g'), 3, 'AppDelegate pitch bypass threshold')
+expectCountAtLeast(appDelegate, new RegExp(`fabsf\\(pitchFactor - ${pitchDefault.toFixed(1)}f\\) < ${pitchBypass.toFixed(2)}f`, 'g'), 2, 'AppDelegate pitch bypass threshold')
 expectIncludes(swiftPatch, `abs(pitchPlaybackRate - ${pitchDefault}) >= ${pitchBypass.toFixed(2)}`, 'Swift pitch bypass threshold')
 
 expectCountAtLeast(appDelegate, new RegExp(`fabsf\\(gain\\) < ${eqBypass.toFixed(2)}f`, 'g'), 1, 'AppDelegate EQ bypass threshold')
@@ -83,6 +86,15 @@ if (dynamicsMode === 'peakLimiter') {
   expectIncludes(swiftPatch, `${dynamicsRelease.toFixed(2)} * Float(sampleRate)`, 'Swift limiter release')
   expectIncludes(swiftPatch, 'targetGain = limiterThreshold / peak', 'Swift limiter gain reduction')
 }
+
+// 6-5：声像距离衰减公式与侧向保留系数——C++ FLAC 路径与 Swift 逐帧路径必须一致
+// （原先 Swift 侧硬编码衰减 1，两引擎开环绕时最大约 48% 音量差）
+expectIncludes(appDelegate, `sqrtf(x * x + y * y + z * z)`, 'AppDelegate panner distance axes')
+expectIncludes(swiftPatch, `sqrt(x * x + y * y + z * z)`, 'Swift panner distance axes')
+expectIncludes(appDelegate, `1.0f / (1.0f + ${pannerCoefficient.toFixed(2)}f * distance)`, 'AppDelegate panner attenuation formula')
+expectIncludes(swiftPatch, `1 / (1 + ${pannerCoefficient.toFixed(2)} * distance)`, 'Swift panner attenuation formula')
+expectIncludes(appDelegate, `float sidePreserve = ${pannerSidePreserve.toFixed(2)}f * attenuation;`, 'AppDelegate panner side preserve')
+expectIncludes(swiftPatch, `let sidePreserve = ${pannerSidePreserve.toFixed(2)} * attenuation`, 'Swift panner side preserve')
 
 expectCountAtLeast(appDelegate, new RegExp(`LXSoundEffectClampFloatValue\\([^\\n]+${pitchDefault.toFixed(1)}f, ${pitchMin.toFixed(1)}f, ${pitchMax.toFixed(1)}f\\)`, 'g'), 2, 'AppDelegate pitch clamp range')
 expectIncludes(swiftPatch, `pitchPlaybackRate: clampedFloat(pitchInfo?["playbackRate"], defaultValue: ${pitchDefault}, minValue: ${pitchMin}, maxValue: ${pitchMax})`, 'Swift pitch clamp range')

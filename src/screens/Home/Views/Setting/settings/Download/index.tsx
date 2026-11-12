@@ -12,6 +12,7 @@ import SubTitle from '../../components/SubTitle'
 import DownloadPath from '@/screens/Home/Views/Setting/settings/Download/DownloadPath.tsx'
 import IsWriteAlias from '@/screens/Home/Views/Setting/settings/Download/IsWriteAlias.tsx'
 import DownloadQuality from '@/screens/Home/Views/Setting/settings/Download/DownloadQuality.tsx'
+import DownloadConcurrency from '@/screens/Home/Views/Setting/settings/Download/DownloadConcurrency.tsx'
 import IsEnable from './IsEnable'
 
 export default memo(() => {
@@ -25,6 +26,7 @@ export default memo(() => {
       <IsEnable />
       <DownloadPath />
       <DownloadQuality />
+      <DownloadConcurrency />
       <SubTitle title={t('setting_download_options_title')}>
         <IsWriteTags />
         <IsWriteAlias />

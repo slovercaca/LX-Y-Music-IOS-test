@@ -81,7 +81,9 @@ const structuralReasons = (files) => {
   if (!files.localPlay.includes('findPictureForAudio')) reasons.push('localPlay 封面没有读 picture/ 同名封面')
   if (!files.localPlay.includes('findLibraryPicture')) reasons.push('localPlay 封面没有读本地库 picture/ 模板基名封面')
   const sidecarPicAt = files.localPlay.indexOf('findPictureForAudio(target.filePath)')
-  const metaPicAt = files.localPlay.indexOf('if (!isRefresh && target.picUrl) return target.picUrl')
+  // 2-9(b)：meta 行加了 offlineOnly 守卫（离线时只认 file://），锚点只取前缀，
+  // 顺序判定（picture/ 在 meta 之前）不受影响
+  const metaPicAt = files.localPlay.indexOf('if (!isRefresh && target.picUrl')
   if (sidecarPicAt < 0 || metaPicAt < 0 || sidecarPicAt > metaPicAt) {
     reasons.push('localPlay 封面顺序被改：picture/ 本地封面必须排在 meta.picUrl 之前')
   }

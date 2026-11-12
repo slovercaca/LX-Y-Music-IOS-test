@@ -26,8 +26,8 @@ export const addUserApi = (info: LX.UserApi.UserApiInfo) => {
 export const setUserApiAllowShowUpdateAlert = (id: string, enable: boolean) => {
   const targetIndex = state.list.findIndex((api) => api.id == id)
   if (targetIndex < 0) return
-  state.list[targetIndex].allowShowUpdateAlert = enable
-  state.list.splice(targetIndex, 1, { ...state.list[targetIndex] })
+  // 1-18(c)：直接换上带新值的浅拷贝——此前先原地改共享对象再拷贝，多余一行
+  state.list.splice(targetIndex, 1, { ...state.list[targetIndex], allowShowUpdateAlert: enable })
 
   event.list_changed([...state.list])
 }

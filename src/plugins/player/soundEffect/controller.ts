@@ -86,10 +86,13 @@ const buildCurrentEqualizerConfig = (gainsOverride?: Partial<Record<EqualizerFre
 const buildCurrentConvolutionConfig = (): SoundEffectConvolutionConfig => {
   const setting = settingState.setting
   const fileName = setting['player.soundEffect.convolution.fileName'] || ''
+  // 2-8(b)：enabled 须 assetUri 非空才置位——fileName 匹配不到任何选项时 assetUri
+  // 为空串，此前只凭 fileName 置 enabled，原生会收到「启用 + 空 URI」
+  const assetUri = getSoundEffectConvolutionAssetUri(fileName)
   return {
     fileName,
-    assetUri: getSoundEffectConvolutionAssetUri(fileName),
-    enabled: !!fileName,
+    assetUri,
+    enabled: !!fileName && !!assetUri,
     mainGain: normalizeConvolutionGain(setting['player.soundEffect.convolution.mainGain']),
     sendGain: normalizeConvolutionGain(setting['player.soundEffect.convolution.sendGain']),
   }

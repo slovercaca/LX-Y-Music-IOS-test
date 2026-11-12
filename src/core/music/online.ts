@@ -81,7 +81,7 @@ export const resolveMusicUrl = async({
   allowToggleSource?: boolean
   onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
   silent?: boolean
-}): Promise<{ url: string, quality: LX.Quality }> => {
+}): Promise<{ url: string, quality: LX.Quality, musicInfo: LX.Music.MusicInfoOnline }> => {
   // if (!musicInfo._types[type]) {
   //   if (!(musicInfo.source == 'kw' && type == '128k')) throw new Error('该歌曲没有可播放的音频')
 
@@ -125,7 +125,7 @@ export const resolveMusicUrl = async({
     const cachedUrl = await getStoreMusicUrl(currentMusicInfo, targetQuality)
     if (cachedUrl) {
       setLastTryQuality(currentMusicInfo.id, targetQuality)
-      return { url: cachedUrl, quality: targetQuality }
+      return { url: cachedUrl, quality: targetQuality, musicInfo: currentMusicInfo }
     }
   }
 
@@ -150,9 +150,13 @@ export const resolveMusicUrl = async({
       })
       if (!silent) console.log('Custom API request succeeded', result)
       if (!silent) console.log('### [WHITEBOX_API_URL] 异步 URL 真正就绪 ###', { title: currentMusicInfo.name, songId: currentMusicInfo.id, url: result.url })
+      // 2-10：按兜底路径对齐缓存同步——换源歌曲自己的条目也要写（否则下次直接播它时
+      // 缓存未命中、重复取链）；缓存命中时不重复写盘；wy 详情重取导致 id 变化时原条目也同步
+      if (result.musicInfo.id != currentMusicInfo.id && !result.isFromCache) void saveMusicUrl(result.musicInfo, result.quality, result.url)
       void saveMusicUrl(currentMusicInfo, result.quality, result.url)
       setLastTryQuality(currentMusicInfo.id, result.quality)
-      return { url: result.url, quality: result.quality ?? targetQuality }
+      if (currentMusicInfo.id !== musicInfo.id) void saveMusicUrl(musicInfo, result.quality, result.url)
+      return { url: result.url, quality: result.quality ?? targetQuality, musicInfo: result.musicInfo }
     } catch (apiError) {
       if (!silent) console.log('Custom API request failed', apiError)
       throw apiError
@@ -171,7 +175,7 @@ export const resolveMusicUrl = async({
         void saveMusicUrl(currentMusicInfo, actualQuality, url)
         setLastTryQuality(currentMusicInfo.id, actualQuality)
         if (currentMusicInfo.id !== musicInfo.id) void saveMusicUrl(musicInfo, actualQuality, url)
-        return { url, quality: actualQuality }
+        return { url, quality: actualQuality, musicInfo: currentMusicInfo }
       }
     } catch (error) {
       if (!silent) console.log('Get music url with cookie failed, fallback to custom api', error)
@@ -189,7 +193,7 @@ export const resolveMusicUrl = async({
     void saveMusicUrl(currentMusicInfo, resolvedQuality, url)
     setLastTryQuality(currentMusicInfo.id, resolvedQuality)
     if (currentMusicInfo.id !== musicInfo.id) void saveMusicUrl(musicInfo, resolvedQuality, url)
-    return { url, quality: resolvedQuality ?? targetQuality }
+    return { url, quality: resolvedQuality ?? targetQuality, musicInfo: targetMusicInfo }
   })
 }
 

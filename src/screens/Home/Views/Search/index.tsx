@@ -7,7 +7,7 @@ import commonState from '@/store/common/state'
 import searchMusicState from '@/store/search/music/state'
 import searchSonglistState, { type ListInfoItem } from '@/store/search/songlist/state'
 import { getSearchSetting, saveSearchSetting } from '@/utils/data'
-import { consumePendingAction } from '@/core/pendingAction'
+import { consumePendingAction, hasPendingAction } from '@/core/pendingAction'
 import { createStyle } from '@/utils/tools'
 import List, { type ListType } from './List'
 import { addHistoryWord, setSearchText as setSearchState } from '@/core/search/search'
@@ -96,19 +96,25 @@ export default () => {
   }, [])
 
   useEffect(() => {
-    void getSearchSetting().then((info) => {
-      searchInfo.current.temp_source = info.temp_source
-      searchInfo.current.source = info.source
-      searchInfo.current.searchType = info.type
-      setSource(info.source)
-      setSourceType(info.type)
-      headerBarRef.current?.setText(searchState.searchText)
-      void listRef.current?.loadList(
-        searchState.searchText,
-        searchInfo.current.source,
-        searchInfo.current.searchType,
-      )
-    })
+    // S-2：挂载时若有未消费的 deeplink 搜索待办，跳过旧词加载——待办随后由
+    // 下面的消费 effect 转发 deeplink 搜索，旧词 load 会白发一次请求并短暂
+    // 闪现旧结果。必须在异步调用前同步判断（.then 里查时待办已被消费掉）；
+    // 源/类型同步由 handleSearchDeepLink 另行完成，不丢。无待办时行为不变。
+    if (!hasPendingAction('searchDeepLink')) {
+      void getSearchSetting().then((info) => {
+        searchInfo.current.temp_source = info.temp_source
+        searchInfo.current.source = info.source
+        searchInfo.current.searchType = info.type
+        setSource(info.source)
+        setSourceType(info.type)
+        headerBarRef.current?.setText(searchState.searchText)
+        void listRef.current?.loadList(
+          searchState.searchText,
+          searchInfo.current.source,
+          searchInfo.current.searchType,
+        )
+      })
+    }
 
     const handleTypeChange = (type: SearchType) => {
       setSelectedList(null)
@@ -158,6 +164,13 @@ export default () => {
   useEffect(() => {
     const handleNavChange = async(id: string) => {
       if (id === 'nav_search') {
+        // 1-21③：先消费 deeplink 搜索待办——有待办时直接转发事件走 deeplink，
+        // 不加载旧词（否则旧词列表与 deeplink 列表各 load 一次）
+        const deepLink = consumePendingAction('searchDeepLink')
+        if (deepLink) {
+          global.app_event.searchDeepLink(deepLink.keyword ?? '', deepLink.source ?? '', deepLink.type ?? '')
+          return
+        }
         const info = await getSearchSetting()
         searchInfo.current.source = info.source
         searchInfo.current.searchType = info.type
@@ -180,6 +193,14 @@ export default () => {
       void InteractionManager.runAfterInteractions(() => {
         headerBarRef.current?.focus()
       })
+    }
+
+    // 1-21③：挂载时消费 deeplink 搜索待办（冷启动 deeplink 切导航时本页尚未
+    // 挂载，导航事件已错过；本 effect 声明在 searchDeepLink 监听注册 effect
+    // 之后，挂载时监听已在册，转发不会丢）
+    const deepLink = consumePendingAction('searchDeepLink')
+    if (deepLink) {
+      global.app_event.searchDeepLink(deepLink.keyword ?? '', deepLink.source ?? '', deepLink.type ?? '')
     }
 
     return () => {

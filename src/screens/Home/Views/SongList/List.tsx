@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, type ReactElement } from 'react'
 import Songlist, { type SonglistProps, type SonglistType } from './components/Songlist'
 import { clearList, getList, setList, setListInfo } from '@/core/songlist'
-import { shouldRefreshByTtl } from '@/core/refreshThrottle'
+import { shouldRefreshByTtl, markRefreshed } from '@/core/refreshThrottle'
 import songlistState, { type ListInfoItem, type Source } from '@/store/songlist/state'
 
 
@@ -38,7 +38,8 @@ export default forwardRef<ListType, { header?: ReactElement, onOpenDetail: (item
       async loadList(source, sortId, tagId) {
         const currentLoadId = ++loadIdRef.current
         // 刷新时机：冷启动后首次进入/点击必刷，之后满 1 小时才再刷（core/refreshThrottle）
-        const forceRefresh = shouldRefreshByTtl(`square|songlist|${source}|${sortId}|${tagId}`)
+        const refreshKey = `square|songlist|${source}|${sortId}|${tagId}`
+        const forceRefresh = shouldRefreshByTtl(refreshKey)
         // 歌单页列表不缓存：进入本页 / 点击顶部平台与分组按钮，都重新联网刷新第一页。
         // 已有内容时只替换列表、不切 loading；歌单里的歌曲由 SonglistDetail 负责。
         const refreshNow = () => {
@@ -49,6 +50,8 @@ export default forwardRef<ListType, { header?: ReactElement, onOpenDetail: (item
               // loadIdRef.current，守卫与自己比恒真；且 setList 先写了全局
               // 状态，切平台/排序/标签后旧结果照样上屏
               if (currentLoadId !== loadIdRef.current) return
+              // 4-16 后续：后台强制刷新成功后补记时刻（shouldRefreshByTtl 已是纯判定）
+              markRefreshed(refreshKey)
               const result = setList(info, tagId, sortId, 1)
               applyListResult(result, 1, currentLoadId)
             })
@@ -80,6 +83,8 @@ export default forwardRef<ListType, { header?: ReactElement, onOpenDetail: (item
         return getList(source, tagId, sortId, page, page === 1 && forceRefresh)
           .then((info) => {
             if (currentLoadId !== loadIdRef.current || isUnmountedRef.current) return
+            // 4-16 后续：本次是按 TTL 刷新的首屏取数，成功后补记时刻
+            if (forceRefresh) markRefreshed(refreshKey)
             const result = setList(info, tagId, sortId, page)
             applyListResult(result, page, currentLoadId)
           })

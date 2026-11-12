@@ -64,9 +64,10 @@ export default memo(({ page }: { page: WebDAVPage }) => {
   // 多选工具栏
   const selectToolbar = isSelecting ? (
     <View style={[styles.selectBar, { backgroundColor: theme['c-content-background'], borderBottomColor: theme['c-border-background'] }]}>
+      {/* S-7：文案与 toggleSelectAll 同口径按成员比较——数量比较在「选中集合跨搜索保留」时会与行为分叉（先选 10 首再搜出 5 首不同歌时文案显示「反选」、点下去却是全选）。空列表时 every 恒真，故先判 length > 0。 */}
       <TouchableOpacity onPress={toggleSelectAll} style={styles.selectBarBtn}>
         <Text color={theme['c-primary-font']}>
-          {selectedIds.size >= filteredSongs.length && filteredSongs.length > 0 ? '反选' : '全选'}
+          {filteredSongs.length > 0 && filteredSongs.every(s => selectedIds.has(s.id)) ? '反选' : '全选'}
         </Text>
       </TouchableOpacity>
       <TouchableOpacity

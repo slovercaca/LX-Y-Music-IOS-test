@@ -8,9 +8,16 @@ let isPreloading = false
 // 中-5：预加载代际——stopPreload 只翻布尔时，在途循环还活着，停了又启会叠出
 // 两条并发预加载循环重复取链。代际递增让旧循环在下一轮自退。
 let preloadGen = 0
+// 2-6：当前持有 isPreloading 的循环代际。stopPreload 只递增 preloadGen、不立即清
+// 标志（否则旧循环还在 await 时新循环即可启动、并发取链）；finally 按「持有代际」
+// 而非 preloadGen 判断是否清标志——被新一代接管时不碰，被 stop 作废且无人接管时
+// 由旧循环清掉，避免标志永久置位、预加载再也启动不了。
+let preloadingGen = -1
 
 const preloadNextMusic = async() => {
-  if (isPreloading) return
+  // 2-6：运行中的循环若已被 stopPreload 作废（持有代际落后于当前代际），允许新循环
+  // 接管；同代循环运行中才拒绝重入
+  if (isPreloading && preloadingGen === preloadGen) return
   if (!settingState.setting['player.isEnableAudioPreload']) return
 
   const currentMusicInfo = playerState.playMusicInfo.musicInfo
@@ -21,6 +28,7 @@ const preloadNextMusic = async() => {
 
   isPreloading = true
   const gen = preloadGen
+  preloadingGen = gen
   preloadLog.info('========== Preload Start ==========')
 
   try {
@@ -68,6 +76,12 @@ const preloadNextMusic = async() => {
           },
         })
 
+        // 2-6：await 返回后立即校验代际——已被 stop/新循环作废时直接退出，不再置
+        // success、不再为已作废的下一首预取歌词（此前只在循环顶部与 finally 校验）
+        if (gen !== preloadGen) {
+          preloadLog.info('Preload superseded after getMusicUrl, exit')
+          return
+        }
         success = true
         preloadLog.info(`Success! URL cached for "${currentInfo.name}" (length: ${url?.length || 0})`)
         // 预取歌词：缓存歌词，切歌后歌词立即就绪，与音频真实位置实时同步，
@@ -103,8 +117,10 @@ const preloadNextMusic = async() => {
   } catch (err: any) {
     preloadLog.error(`Unexpected error: ${err?.message || err}`)
   } finally {
-    // 被新一代接管时不碰标志，避免把新循环的运行状态误清
-    if (gen === preloadGen) isPreloading = false
+    // 2-6：只有当前持有标志的代际才清标志——被新一代接管时不碰新循环的状态；
+    // 被 stop 作废且无人接管时由旧循环清掉（原 `gen === preloadGen` 判断在
+    // stopPreload 不再清标志后会让标志永久置位，见文件头注释）
+    if (gen === preloadingGen) isPreloading = false
     preloadLog.info('========== Preload End ==========')
   }
 }
@@ -116,6 +132,8 @@ export const startPreload = () => {
 }
 
 export const stopPreload = () => {
+  // 2-6：只递增代际、不立即清 isPreloading——旧循环可能正 await getMusicUrl()，
+  // 立即清标志会让新循环马上启动、两条循环并发取链；旧循环在 await 返回后
+  // （或循环顶部）校验代际自退，finally 按持有代际清标志
   preloadGen++
-  isPreloading = false
 }

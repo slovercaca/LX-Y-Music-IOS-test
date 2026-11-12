@@ -29,7 +29,11 @@ export const showModal = async() => {
   }
   announcementActions.setShowModal(true)
   logger('调用 showAnnouncementModal')
-  showAnnouncementModal()
+  // 1-12：showOverlay 失败时复位 showModal——唯一复位路径是弹窗自身的卸载
+  // effect，弹窗没挂载时永不执行，否则本会话公告永久不再弹出
+  if (!(await showAnnouncementModal())) {
+    announcementActions.setShowModal(false)
+  }
 }
 
 export const hideModal = async(componentId: string): Promise<boolean> => {

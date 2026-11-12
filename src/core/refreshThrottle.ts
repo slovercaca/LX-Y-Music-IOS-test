@@ -9,13 +9,15 @@ export const REFRESH_TTL_MS = 60 * 60 * 1000
 
 const lastRefreshAt = new Map<string, number>()
 
-/** 该键是否应当刷新（返回 true 时同时记录刷新时刻） */
+/**
+ * 该键是否应当刷新（纯判定，不记时刻）。
+ *
+ * 4-16：此前返回 true 时即记时刻，请求失败也占掉 1 小时 TTL。改为请求成功后
+ * 由调用方调 markRefreshed 补记；失败不占 TTL，下次点击可再试。
+ */
 export const shouldRefreshByTtl = (key: string, ttlMs: number = REFRESH_TTL_MS): boolean => {
-  const now = Date.now()
   const last = lastRefreshAt.get(key)
-  if (last != null && now - last < ttlMs) return false
-  lastRefreshAt.set(key, now)
-  return true
+  return last == null || Date.now() - last >= ttlMs
 }
 
 /** 手动刷新 / 首次取数后补记时刻，避免紧接着的点击又触发一次刷新 */

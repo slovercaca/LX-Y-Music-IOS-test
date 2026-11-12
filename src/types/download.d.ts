@@ -5,6 +5,8 @@ declare namespace LX {
       musicInfo: LX.Music.MusicInfo
       /** 实际下载到的音质（请求音质不支持时会降级，例如 hires → flac）；旧任务无此字段 */
       actualQuality?: LX.Quality
+      /** 实际取链成功的平台（失败策略换源成功时与 musicInfo.source 不同）；未换源时不写 */
+      actualSource?: LX.OnlineSource
       quality: LX.Quality
       status: 'waiting' | 'downloading' | 'paused' | 'completed' | 'error'
       progress: {

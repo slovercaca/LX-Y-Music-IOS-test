@@ -25,8 +25,10 @@ export const scanAudioFiles = async(dirPath: string) => {
   const files = await readDir(dirPath)
   console.log(`[扫描音频] 找到 ${files.length} 个文件`)
 
+  // 4-5：去掉前导点号，与 fs.ios.ts 的 extname（不带点）口径对齐——
+  // 此前 includes 恒 false（本文件 iOS 下不加载、scanAudioFiles 亦无调用方，纯卫生）
   const supportedAudioExts = [
-    '.mp3', '.m4a', '.flac', '.wav', '.ogg', '.aac', '.wma', '.m4b', '.mp4', '.opus',
+    'mp3', 'm4a', 'flac', 'wav', 'ogg', 'aac', 'wma', 'm4b', 'mp4', 'opus',
   ]
 
   const audioFiles = files

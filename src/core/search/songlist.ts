@@ -74,6 +74,8 @@ export const search = async(
       // 2026-10-05 fix（P1-9）：过期请求的 catch 不清空当前结果
       if (key != listInfo.key) throw err
       if (listInfo.list.length && page == 1) clearListInfo(sourceId)
+      // 2-13：同音乐侧，翻页失败回退 key 使加载更多重试能真正发请求
+      listInfo.key = page > 1 ? `${page - 1}__${sourceId}__${text}` : null
       throw err
     })
   }

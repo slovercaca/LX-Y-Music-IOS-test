@@ -25,6 +25,12 @@ let pendingOperations: ListOperation[] = []
 export function loadOperationQueue(): Promise<void> {
   if (loadPromise && !loadFailed) return loadPromise
   if (loadFailed) loadPromise = null
+  // 3-5：新建加载器时同步复位 loadFailed——此前复位只在加载成功后
+  // 才执行，双并发调用（同步的 whenOperationQueueReady 与用户编辑
+  // 触发的 logOperation 重试）都会走到新建分支，两个加载器并行，
+  // 后完成的 `operationQueue = [...]` 赋值会丢掉先完成的合并结果。
+  // 加载失败时 catch 里会重新置 true，语义不变。
+  loadFailed = false
   loadPromise = (async() => {
     try {
       const storedQueue = await getData<ListOperation[]>(STORAGE_KEY)
@@ -78,14 +84,6 @@ export async function logOperation(operation: ListOperation): Promise<void> {
  */
 export function getOperationQueue(): ListOperation[] {
   return [...operationQueue]
-}
-
-/**
- * Clear operation queue
- */
-export async function clearOperationQueue(): Promise<void> {
-  operationQueue = []
-  await saveData(STORAGE_KEY, [])
 }
 
 /**

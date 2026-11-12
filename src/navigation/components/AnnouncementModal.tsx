@@ -16,13 +16,11 @@ import { designRadius, designSpacing, designTypography } from '@/theme/DesignTok
 
 const VideoPlayer = ({ url }: { url: string }) => {
   const videoRef = useRef<VideoRef>(null)
-  const pausedRef = useRef(true)
 
   useEffect(() => {
     const video = videoRef.current
     return () => {
-      // 组件卸载时暂停并重置视频
-      pausedRef.current = true
+      // 组件卸载时重置进度（原生播放器随卸载销毁，无需显式暂停）
       video?.seek(0)
     }
   }, [])
@@ -34,7 +32,10 @@ const VideoPlayer = ({ url }: { url: string }) => {
         source={{ uri: url }}
         style={styles.markdownVideo}
         resizeMode="contain"
-        paused={pausedRef.current}
+        // 1-11：去掉恒为 true 的 pausedRef 门控——ref 从不触发重渲染，
+        // paused 恒 true 导致视频永远播不起来；改为不暂停（自动播放，
+        // 用户可用原生 controls 暂停），只修「播不起来」这一半
+        paused={false}
         controls={true}
       />
     </View>
@@ -107,12 +108,24 @@ const parseInlineMarkdown = (text: string, theme: any): React.ReactNode[] => {
 
 const CodeBlock = ({ code, theme }: { code: string, theme: any }) => {
   const [copied, setCopied] = useState(false)
+  // 1-11：2s 复位定时器 ref 化 + 卸载清理
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
+    }
+  }, [])
 
   const handleCopy = useCallback(() => {
     Clipboard.setString(code)
     setCopied(true)
     toast('已复制')
-    setTimeout(() => { setCopied(false) }, 2000)
+    if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
+    resetTimerRef.current = setTimeout(() => {
+      resetTimerRef.current = null
+      setCopied(false)
+    }, 2000)
   }, [code])
 
   return (
@@ -221,6 +234,9 @@ const AnnouncementModal = ({ componentId }: { componentId: string }) => {
   const theme = useTheme()
   const { announcementInfo } = useAnnouncementInfo()
   const [isVisible, setIsVisible] = useState(true)
+  // 1-11：已关闭标志——handleClose 成功后 setIsVisible(false) 会触发下方
+  // effect 再调一次 dismissOverlay；标志位防二次调用与重复点关闭
+  const closedRef = useRef(false)
 
   useEffect(() => {
     return () => {
@@ -236,6 +252,9 @@ const AnnouncementModal = ({ componentId }: { componentId: string }) => {
   }, [announcementInfo])
 
   const handleClose = async() => {
+    // 1-11：关闭中/已关闭时直接返回，防重复点关闭与 effect 双重 dismiss
+    if (closedRef.current) return
+    closedRef.current = true
     // 先保存 ID，再摘除 RNN overlay。dismiss 成功后整个 overlay（连同本组件）一起卸载，
     // 本组件无需再渲染 null。旧实现先 setIsVisible(false)（渲染 null）再延迟 dismiss——
     // 一旦 dismiss 静默失败，透明 overlay 会残留并拦截全屏触摸（整页点不动的“假死”）。
@@ -244,6 +263,8 @@ const AnnouncementModal = ({ componentId }: { componentId: string }) => {
     if (!dismissed) {
       // 失败兜底：短暂延迟后直接重试 dismiss；期间本组件保持渲染（弹窗可见可交互），
       // 不会产生「null 内容 + 活跃 overlay」的隐形拦截层。
+      // 1-11：失败时放行标志，允许用户再次点关闭
+      closedRef.current = false
       setTimeout(() => {
         Navigation.dismissOverlay(componentId).catch(() => {})
       }, 100)
@@ -271,6 +292,9 @@ const AnnouncementModal = ({ componentId }: { componentId: string }) => {
   // 防御：overlay 已挂载但无内容可渲染（公告信息缺失等）时，透明 overlay 会拦截全屏触摸。
   // 立刻自摘 overlay，绝不让「null 内容 + 活跃 overlay」共存。
   useEffect(() => {
+    // 1-11：handleClose 已成功关闭时跳过——否则 setIsVisible(false) 会让
+    // 本 effect 再调一次 dismissOverlay（双重关闭）
+    if (closedRef.current) return
     if (!announcementInfo || !isVisible) {
       Navigation.dismissOverlay(componentId).catch(() => {})
     }

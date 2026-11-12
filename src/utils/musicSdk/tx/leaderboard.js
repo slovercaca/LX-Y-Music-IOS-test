@@ -137,6 +137,9 @@ export default {
   filterData(rawList) {
     // console.log(rawList)
     return rawList.map((item) => {
+      // 4-20：单条缺 file 时跳过（无 file 则无音质信息与 media_mid、无法播放），
+      // 不让裸取抛错拖垮整榜
+      if (!item?.file) return null
       let types = []
       let _types = {}
       if (item.file.size_128mp3) {
@@ -214,7 +217,7 @@ export default {
         _types,
         typeUrl: {},
       }
-    })
+    }).filter(Boolean)
   },
   getPeriods(bangid) {
     return this.getData(this.periodUrl).then(({ body: html }) => {

@@ -203,13 +203,14 @@ export async function pushHomeScreen() {
 }
 
 export function pushPlayDetailScreen(componentId: string) {
-  if (!startPush(COMPONENT_IDS.playDetail)) return
   // 未载入任何歌曲时不打开播放详情页，避免空状态导致卡死
   if (!playerState.playMusicInfo.musicInfo) {
-    endPush(COMPONENT_IDS.playDetail)
     return
   }
   requestAnimationFrame(() => {
+    // 1-10：锁获取移入 rAF 回调，与真正的 Navigation.push 同拍——此前同步加锁
+    // + 800ms 兜底，JS 线程阻塞超 800ms 时锁先释放、push 脱离锁保护
+    if (!startPush(COMPONENT_IDS.playDetail)) return
     const theme = themeState.theme
     const componentBackgroundColor = getPushBackgroundColor(theme)
 
@@ -253,10 +254,11 @@ export function pushPlayDetailScreen(componentId: string) {
 }
 
 export function pushSonglistDetailScreen(componentId: string, info: ListInfoItem) {
-  if (!startPush(COMPONENT_IDS.songlistDetail)) return
   const theme = themeState.theme
 
   requestAnimationFrame(() => {
+    // 1-10：锁获取移入 rAF 回调，与真正的 Navigation.push 同拍（同 pushPlayDetailScreen）
+    if (!startPush(COMPONENT_IDS.songlistDetail)) return
     void guardPush(Navigation.push(componentId, {
       component: {
         name: SONGLIST_DETAIL_SCREEN,
@@ -302,7 +304,6 @@ export function pushSonglistDetailScreen(componentId: string, info: ListInfoItem
   })
 }
 export function pushCommentScreen(componentId: string) {
-  if (!startPush(COMPONENT_IDS.comment)) return
   /*
     Navigation.setDefaultOptions({
       topBar: {
@@ -336,6 +337,8 @@ export function pushCommentScreen(componentId: string) {
     })
   */
   requestAnimationFrame(() => {
+    // 1-10：锁获取移入 rAF 回调，与真正的 Navigation.push 同拍（同 pushPlayDetailScreen）
+    if (!startPush(COMPONENT_IDS.comment)) return
     const theme = themeState.theme
 
     void guardPush(Navigation.push(componentId, {

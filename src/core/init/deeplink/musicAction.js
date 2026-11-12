@@ -1,6 +1,5 @@
 import { decodeName, toNewMusicInfo } from '@/utils'
 import { dataVerify, qualityFilter } from './utils'
-import playerState from '@/store/player/state'
 import { LIST_IDS } from '@/config/constant'
 import { playNext } from '@/core/player/player'
 import { getOtherSource } from '@/core/music/utils'
@@ -156,9 +155,9 @@ const handlePlayMusic = ({ data: _musicInfo }) => {
     musicInfo._types[type.type] = { size: type.size }
   }
   musicInfo = toNewMusicInfo(musicInfo)
-  const isPlaying = !!playerState.playMusicInfo.musicInfo
   addTempPlayList([{ listId: LIST_IDS.PLAY_LATER, musicInfo, isTop: true }])
-  if (isPlaying) playNext()
+  // 1-21：空播态也起播（playNext 优先消费 tempPlayList[0]）；须真机验证
+  playNext()
 }
 
 const verifyInfo = (info) => {
@@ -209,12 +208,12 @@ const handleSearchPlayMusic = async({ paths, data }) => {
   if (musicList.length) {
     console.log('find music:', musicList)
     const musicInfo = musicList[0]
-    const isPlaying = !!playerState.playMusicInfo.musicInfo
     if (info.playLater) {
       addTempPlayList([{ listId: LIST_IDS.PLAY_LATER, musicInfo }])
     } else {
       addTempPlayList([{ listId: LIST_IDS.PLAY_LATER, musicInfo, isTop: true }])
-      if (isPlaying) playNext()
+      // 1-21：空播态也起播（playNext 优先消费 tempPlayList[0]）；须真机验证
+      playNext()
     }
   } else {
     console.log('msuic not found:', info)

@@ -21,6 +21,16 @@ export default ({
   // 中：请求序号——切歌/刷新交叠时，旧歌的迟到结果不得覆写新歌的
   // 列表与分页游标（此前全无守卫，旧评论整表覆盖、page 被倒退）
   const requestSeqRef = useRef(0)
+  // 5-8：首屏加载的两层 300ms 定时器 ref 化 + 卸载清理（回调本身有 seq 守卫，
+  // 属防御性清理；新请求到达时旧定时器一并清掉，避免过期回调抢跑）
+  const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const statusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    return () => {
+      if (showTimerRef.current) clearTimeout(showTimerRef.current)
+      if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
+    }
+  }, [])
   const listInfo = useRef({
     page: 1,
     total: 0,
@@ -109,10 +119,16 @@ export default ({
       onUpdateTotal(total)
       let isEnd = maxPage === 1
       if (listInfo.current.isEnd != isEnd) listInfo.current.isEnd = isEnd
-      setTimeout(() => {
+      if (showTimerRef.current) clearTimeout(showTimerRef.current)
+      if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
+      showTimerRef.current = setTimeout(() => {
+        showTimerRef.current = null
         if (seq !== requestSeqRef.current) return
         listRef.current?.setList(filterList(comments))
-        setTimeout(updateStatus, 300)
+        statusTimerRef.current = setTimeout(() => {
+          statusTimerRef.current = null
+          updateStatus()
+        }, 300)
       }, 300)
     }).catch(() => {
       if (seq !== requestSeqRef.current) return // 过期请求的失败不拨新歌的状态机

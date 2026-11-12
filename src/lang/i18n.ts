@@ -36,7 +36,8 @@ const hookTools = {
     if (i >= 0) this.hooks.splice(i, 1)
   },
   update(locale: Parameters<Hook>[0]) {
-    for (const hook of this.hooks) hook(locale)
+    // 1-22③：遍历前快照——回调里增删 hook 不影响本次遍历
+    for (const hook of this.hooks.slice()) hook(locale)
   },
 }
 

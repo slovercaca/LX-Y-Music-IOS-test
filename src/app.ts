@@ -33,6 +33,13 @@ if (__DEV__) {
    * @param {'log' | 'warn' | 'error'} type
    * @param {any[]} args
    */
+  // 1-1：Error 实例默认 JSON.stringify 为 {}，replacer 保留 name/message/stack
+  const errorReplacer = (_key: string, value: unknown) => {
+    if (value instanceof Error) {
+      return { name: value.name, message: value.message, stack: value.stack }
+    }
+    return value
+  }
   const remoteLog = (type: 'log' | 'warn' | 'error', ...args: unknown[]) => {
     try {
       const payload = {
@@ -40,7 +47,7 @@ if (__DEV__) {
         payload: args,
       }
 
-      originalLog(`${PREFIX}${JSON.stringify(payload)}${SUFFIX}`)
+      originalLog(`${PREFIX}${JSON.stringify(payload, errorReplacer)}${SUFFIX}`)
     } catch (e) {
       originalLog('Logger Patch Error:', e)
       if (type === 'warn') {
@@ -63,10 +70,15 @@ if (__DEV__) {
   const globalWithErrorUtils = global as typeof global & {
     ErrorUtils?: {
       setGlobalHandler: (handler: (error: Error, isFatal: boolean) => void) => void
+      getGlobalHandler?: () => (error: Error, isFatal: boolean) => void
     }
   }
+  // 1-1：覆写前保存原处理器（RN 默认 dev 处理），诊断后透传
+  const prevHandler = globalWithErrorUtils.ErrorUtils?.getGlobalHandler?.()
   globalWithErrorUtils.ErrorUtils?.setGlobalHandler((error, isFatal) => {
     console.error('###FATAL_DIAGNOSTIC###', isFatal, error?.stack ?? error?.message ?? error)
+    // 1-1：透传原处理器——此前直接覆写，RN 默认 dev 处理（红屏）被吞掉
+    prevHandler?.(error, isFatal)
   })
 }
 // --- END: CONSOLE LOG PATCH (v2) ---

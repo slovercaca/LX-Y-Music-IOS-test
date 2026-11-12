@@ -31,6 +31,9 @@ export default class Event {
       // 2026-10-05 fix（P0-2）：快照+异常隔离——单个 listener 抛错不掐断后续；
       // listener 中 off 自己不导致跳过下一个
       for (const listener of snapshot) {
+        // 1-14：派发前校验监听器仍在册——emit 与派发之间 off 掉的不再幽灵回调
+        // （只跳过已 off 的，不改变快照防迟订阅的语义）
+        if (!this.listeners.get(eventName)?.includes(listener)) continue
         try {
           listener(...args)
         } catch (err) {

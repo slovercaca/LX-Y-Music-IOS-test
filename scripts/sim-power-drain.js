@@ -521,10 +521,10 @@ const pausedInvariants = (files) => {
   // ④ 消费点：TabBar 按全局 Home 判定；PlayerBar 按所属屏幕 componentId 判定。
   // 2026-10-02 起 paused 还必须含「App 前台」门（见文件末尾「后台不可见即停」），
   // 故这里只要求门控变量存在且一路透传到 paused，具体公式由那段契约断言。
-  if (!/useHomeCovered\(\)/.test(files.tabbar) || !/paused=\{glassPaused\}/.test(files.tabbar)) {
+  if (!/useHomeCovered\(\)/.test(files.tabbar) || !/paused=\{[^}]*glassPaused[^}]*\}/.test(files.tabbar)) {
     reasons.push('ModernTabBar 未接 paused={glassPaused}（Tab 栏玻璃被覆盖时仍逐帧渲染）')
   }
-  if (!/useScreenCovered\(componentId\)/.test(files.playerbar) || !/paused=\{glassPaused\}/.test(files.playerbar)) {
+  if (!/useScreenCovered\(componentId\)/.test(files.playerbar) || !/paused=\{[^}]*glassPaused[^}]*\}/.test(files.playerbar)) {
     reasons.push('PlayerBar 未接 paused={glassPaused}（迷你条玻璃被覆盖时仍逐帧渲染）')
   }
   // ⑤ 覆盖判定 hook 本体
@@ -562,7 +562,7 @@ const runPausedCounterExamples = () => {
   }), '未透传 paused')
   // P5 消费点脱钩
   check('P5 TabBar 抹掉 paused', readGlass({
-    tabbar: read(GLASS_FILES.tabbar).replace(/paused=\{glassPaused\}/g, 'removedX={glassPaused}'),
+    tabbar: read(GLASS_FILES.tabbar).replace(/paused=\{[^}]*glassPaused[^}]*\}/g, 'removedX={glassPaused}'),
   }), 'ModernTabBar 未接')
   check('P6 PlayingIcon 恢复无条件动画', readGlass({
     playingIcon: read(GLASS_FILES.playingIcon).replace('const active = isPlay && !homeCovered', 'const active = isPlay'),
@@ -785,7 +785,7 @@ const backgroundInvariants = (files) => {
   if (!/const glassPaused\s*=\s*homeCovered\s*\|\|\s*!appActive/.test(files.tabbar)) {
     reasons.push('ModernTabBar 玻璃未按 App 前台门控（paused 必须是 homeCovered || !appActive）')
   }
-  if (!/paused=\{glassPaused\}/.test(files.tabbar)) {
+  if (!/paused=\{[^}]*glassPaused[^}]*\}/.test(files.tabbar)) {
     reasons.push('ModernTabBar 未把带前台门的 glassPaused 传给 LiquidGlass')
   }
 
@@ -796,7 +796,7 @@ const backgroundInvariants = (files) => {
   if (!/const glassPaused\s*=\s*screenCovered\s*\|\|\s*!appActive/.test(files.playerbar)) {
     reasons.push('PlayerBar 玻璃未按 App 前台门控（paused 必须是 screenCovered || !appActive）')
   }
-  if (!/paused=\{glassPaused\}/.test(files.playerbar)) {
+  if (!/paused=\{[^}]*glassPaused[^}]*\}/.test(files.playerbar)) {
     reasons.push('PlayerBar 未把带前台门的 glassPaused 传给 LiquidGlass')
   }
   // playerComponent 走 useMemo：依赖漏掉 glassPaused 会让 paused 永远停在旧值

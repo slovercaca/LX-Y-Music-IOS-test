@@ -2,6 +2,7 @@ import { forwardRef, useImperativeHandle, useMemo, useState, type ComponentType 
 
 import Basic from './settings/Basic'
 import Player from './settings/Player'
+import FailureStrategy from './settings/FailureStrategy'
 import Search from './settings/Search'
 import List from './settings/List'
 import Download from './settings/Download'
@@ -17,6 +18,7 @@ export const SETTING_SCREENS = [
   'theme',
   'platform',
   'player',
+  'failure_strategy',
   'search',
   'list',
   'download',
@@ -32,6 +34,7 @@ export const SETTING_COMPONENTS: Record<SettingScreenIds, ComponentType> = {
   theme: ThemeScreen,
   platform: PlatformScreen,
   player: Player,
+  failure_strategy: FailureStrategy,
   search: Search,
   list: List,
   download: Download,
@@ -67,6 +70,8 @@ const Main = forwardRef<MainType, {}>((props, ref) => {
         return <PlatformScreen />
       case 'player':
         return <Player />
+      case 'failure_strategy':
+        return <FailureStrategy />
       case 'search':
         return <Search />
       case 'list':

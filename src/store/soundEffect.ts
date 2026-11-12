@@ -25,19 +25,23 @@ const savePresetList = async<T>(key: string, list: T[]) => {
   return list
 }
 
-export const getUserEQPresetList = async() => {
-  // eslint-disable-next-line require-atomic-updates
-  userEqPresetList = await getCachedList<LX.SoundEffect.EQPreset>(soundEffectEQPresetListKey, userEqPresetList)
-  return [...userEqPresetList]
-}
-
 // 低：预设写操作串行化——并发保存时各自读缓存→改→落盘，后落盘者会被
 // 旧快照覆盖（H1 修复存取键后才实际显现）。全部写操作排队执行。
+// 1-18(d)：冷读也排队——首次冷读与保存并发时，旧磁盘数据可在保存后
+// 回写覆盖新缓存，后续保存会丢预设
 let presetOpChain: Promise<unknown> = Promise.resolve()
 const runSerial = <T>(fn: () => Promise<T>): Promise<T> => {
   const result = presetOpChain.then(fn, fn)
   presetOpChain = result.catch(() => {})
   return result
+}
+
+export const getUserEQPresetList = async() => {
+  return runSerial(async() => {
+    // eslint-disable-next-line require-atomic-updates
+    userEqPresetList = await getCachedList<LX.SoundEffect.EQPreset>(soundEffectEQPresetListKey, userEqPresetList)
+    return [...userEqPresetList]
+  })
 }
 
 const saveUserEQPresetImpl = async(preset: Omit<LX.SoundEffect.EQPreset, 'id'>) => {
@@ -63,9 +67,12 @@ const removeUserEQPresetImpl = async(id: string) => {
 }
 
 export const getUserConvolutionPresetList = async() => {
-  // eslint-disable-next-line require-atomic-updates
-  userConvolutionPresetList = await getCachedList<LX.SoundEffect.ConvolutionPreset>(soundEffectConvolutionPresetListKey, userConvolutionPresetList)
-  return [...userConvolutionPresetList]
+  // 1-18(d)：冷读走 runSerial，与 EQ 预设同理
+  return runSerial(async() => {
+    // eslint-disable-next-line require-atomic-updates
+    userConvolutionPresetList = await getCachedList<LX.SoundEffect.ConvolutionPreset>(soundEffectConvolutionPresetListKey, userConvolutionPresetList)
+    return [...userConvolutionPresetList]
+  })
 }
 
 const saveUserConvolutionPresetImpl = async(preset: Omit<LX.SoundEffect.ConvolutionPreset, 'id'>) => {

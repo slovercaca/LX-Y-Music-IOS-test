@@ -85,7 +85,7 @@ After updating the vendored sources from upstream, re-run:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/embed-liquid-glass-shaders.ps1
 ```
 
-(source checkout expected at `D:\lgtk-tmp` — adjust `$src` inside the script)
+(source checkout expected at `ios/Vendor/LiquidGlassKit-upstream` — or pass `-Src <path>` to the script)
 
 ## iOS 26.2+ root-view capture: layer.render + exclusion roots (vendored rework)
 

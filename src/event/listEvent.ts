@@ -91,7 +91,8 @@ export class ListEvent extends Event {
     const allListIds = [LIST_IDS.DEFAULT, LIST_IDS.LOVE, ...userLists.map((l) => l.id)]
     if (changedIds.includes(LIST_IDS.TEMP)) allListIds.push(LIST_IDS.TEMP)
     await saveListMusics([
-      ...allListIds.map((id) => ({ id, musics: allMusicList.get(id) as LX.List.ListMusics })),
+      // 1-15③：防御——正常流程下恒命中，缺失时按空列表计而不写 undefined
+      ...allListIds.map((id) => ({ id, musics: (allMusicList.get(id) ?? []) as LX.List.ListMusics })),
     ])
     global.app_event.myListMusicUpdate(changedIds)
     this.emit('list_data_overwrite', listData, isRemote)
@@ -151,6 +152,8 @@ export class ListEvent extends Event {
    * @param isRemote 是否属于远程操作
    */
   async list_update(lists: LX.List.UserListInfo[], isRemote: boolean = false) {
+    // 1-15①：与 list_create/list_data_overwrite 对齐，数值型 id 先转字符串
+    fixListIdType(lists)
     userListsUpdate(lists)
     await updateUserList(userLists)
     this.emit('list_update', lists, isRemote)
@@ -167,6 +170,9 @@ export class ListEvent extends Event {
    * @param isRemote 是否属于远程操作
    */
   async list_update_position(position: number, ids: string[], isRemote: boolean = false) {
+    // 1-15②：数值型 id 会被下游 Map.get（严格相等）静默跳过，先统一转字符串
+    // （fixListIdType 只针对列表对象数组，不适用 string[] 参数）
+    ids = ids.map(String)
     userListsUpdatePosition(position, ids)
     await updateUserList(userLists)
     this.emit('list_update_position', position, ids, isRemote)

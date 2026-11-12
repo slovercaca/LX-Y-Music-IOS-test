@@ -32,7 +32,7 @@ export const getMusicUrlWithQuality = async({
   musicInfo: LX.Music.MusicInfoOnline
   quality?: LX.Quality
   isRefresh: boolean
-}): Promise<{ url: string, quality: LX.Quality }> =>
+}): Promise<{ url: string, quality: LX.Quality, musicInfo: LX.Music.MusicInfoOnline }> =>
   resolveOnlineMusicUrl({ musicInfo, quality, isRefresh })
 
 // 「本地与下载」专用链路：不走自定义源管理，本地文件优先 + 内置平台直连回退
@@ -230,7 +230,8 @@ export const getPicPath = async({
   onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
 }): Promise<string> => {
   if ('progress' in musicInfo) {
-    return localPlay.getPicUrl({ target: getTaskTarget(musicInfo), isRefresh })
+    // 2-9(b)：下载任务分支也传 offlineOnly——离线时封面只读本地
+    return localPlay.getPicUrl({ target: getTaskTarget(musicInfo), isRefresh, offlineOnly: settingState.setting['player.offlineMode'] === true })
   } else if (musicInfo.source == 'local') {
     if ('webdav' in musicInfo.meta && (musicInfo.meta as any).webdav) {
       return getLocalPicUrl({ musicInfo, isRefresh, listId, onToggleSource })
@@ -243,6 +244,8 @@ export const getPicPath = async({
         picUrl: (musicInfo.meta as any).picUrl ?? null,
       },
       isRefresh,
+      // 2-9(b)：本地源分支也传 offlineOnly——离线时封面只读本地
+      offlineOnly: settingState.setting['player.offlineMode'] === true,
     })
   } else if (musicInfo.source == 'qs') {
     // 2026-11-12：离线模式下 qs 封面也只读本地 picture/ 缓存，不再跨平台联网匹配
@@ -264,11 +267,13 @@ export const getPicPath = async({
   } else {
     // 2026-10-22 封面缓存全局化：本地 picture/ 有缓存先用缓存（不限离线模式），
     // 不再出现「本地有缓存但控件仍去加载在线地址」
+    // 2-9(c)：手动刷新（isRefresh）时跳过本地缓存命中、走在线刷新——此前本地有缓存
+    // 就直接返回，刷新恒无效；离线时仍返回本地缓存（无缓存才返回空），离线刷新不清空封面
     const localPic = await findLocalCachedPic(musicInfo as LX.Music.MusicInfo)
-    if (localPic) return localPic
+    if (localPic && !isRefresh) return localPic
     if (settingState.setting['player.offlineMode'] === true) {
       // 离线模式没有本地封面时返回空，不尝试在线获取
-      return ''
+      return localPic ?? ''
     }
     const url = await getOnlinePicUrl({ musicInfo, isRefresh, listId, onToggleSource })
     // 歌词/封面缓存策略（2026-11-12）：在线拿到的封面在封面缓存开启时落盘
@@ -292,7 +297,8 @@ export const getLyricInfo = async({
   onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
 }): Promise<LX.Player.LyricInfo> => {
   if ('progress' in musicInfo) {
-    return localPlay.getLyricInfo({ target: getTaskTarget(musicInfo), isRefresh })
+    // 2-9(b)：下载任务分支也传 offlineOnly——离线时歌词只读本地
+    return localPlay.getLyricInfo({ target: getTaskTarget(musicInfo), isRefresh, offlineOnly: settingState.setting['player.offlineMode'] === true })
   } else if (musicInfo.source == 'local') {
     if ('webdav' in musicInfo.meta && (musicInfo.meta as any).webdav) {
       return getLocalLyricInfo({ musicInfo, isRefresh, onToggleSource })
@@ -305,6 +311,8 @@ export const getLyricInfo = async({
         picUrl: (musicInfo.meta as any).picUrl ?? null,
       },
       isRefresh,
+      // 2-9(b)：本地源分支也传 offlineOnly——离线时歌词只读本地
+      offlineOnly: settingState.setting['player.offlineMode'] === true,
     })
   } else if (musicInfo.source == 'qs') {
     // 2026-11-12：离线模式下 qs 歌词也只读本地（匹配到的已下载文件的内嵌/同名 lrc），

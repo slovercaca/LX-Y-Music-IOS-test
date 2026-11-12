@@ -39,7 +39,7 @@ const state: InitState = {
   maxPages: {},
 }
 
-export const maxPages: Partial<Record<LX.OnlineSource, number>> = {}
+// 1-18(e)：模块级死导出 maxPages 已删除（全仓无导入方；state 内的 maxPages 字段是活的，保留）
 for (const source of music.sources) {
   if (!music[source.id as LX.OnlineSource]?.songList?.search) continue
   state.sources.push(source.id as LX.OnlineSource)
@@ -52,7 +52,6 @@ for (const source of music.sources) {
     tagId: '',
     sortId: '',
   }
-  maxPages[source.id as LX.OnlineSource] = 0
 }
 state.sources.push('all')
 

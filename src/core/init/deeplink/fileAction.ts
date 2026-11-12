@@ -3,7 +3,6 @@ import { handleImportList } from '@/screens/Home/Views/Setting/settings/Backup/a
 import { handleImportLocalFile } from '@/screens/Home/Views/Setting/settings/Basic/UserApiEditModal/action'
 import { type FileType } from '@/utils/fs'
 import { confirmDialog } from '@/utils/tools'
-import playerState from '@/store/player/state'
 import { addTempPlayList } from '@/core/player/tempPlayList'
 import { LIST_IDS } from '@/config/constant'
 import { playNext } from '@/core/player/player'
@@ -24,13 +23,14 @@ export const handleFileLXMCAction = async(file: FileType) => {
 
 export const handleFileMusicAction = async(file: FileType) => {
   const info = await readMetadata(file.path)
-  const isPlaying = !!playerState.playMusicInfo.musicInfo
   const musicInfo = info
     ? buildLocalMusicInfo(file.path, info)
     : buildLocalMusicInfoByFilePath(file)
   console.log(musicInfo)
   addTempPlayList([{ listId: LIST_IDS.PLAY_LATER, musicInfo, isTop: true }])
-  if (isPlaying) void playNext()
+  // 1-21：空播态也起播——playNext 优先消费 tempPlayList[0]（刚置顶的这首），
+  // 不依赖当前是否在播；冷启动 deeplink 下播放器就绪情况须真机验证
+  void playNext()
 }
 
 export const handleFileJSAction = async(file: FileType) => {

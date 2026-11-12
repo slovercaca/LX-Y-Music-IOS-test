@@ -18,6 +18,12 @@ export default memo(() => {
   const [isVisible, setIsVisible] = useState(false)
   const [activeTasks, setActiveTasks] = useState<Map<string, DownloadTask>>(new Map())
   const scaleAnim = useRef(new Animated.Value(0)).current
+  // 5-3：收起动画实例——结束回调查 finished（被打断则不清空），新任务到达时取消在途收起
+  const collapseAnimRef = useRef<Animated.CompositeAnimation | null>(null)
+  // 5-3：isVisible 的 ref 镜像——监听 effect 不再依赖 isVisible，避免每次翻转
+  // 解绑重绑 4 个监听（原依赖 [isVisible, scaleAnim]）
+  const isVisibleRef = useRef(isVisible)
+  isVisibleRef.current = isVisible
 
   const { totalProgress, isCompleted, hasError, pendingCount } = useMemo(() => {
     if (activeTasks.size === 0) return { totalProgress: 0, isCompleted: true, hasError: false, pendingCount: 0 }
@@ -48,7 +54,12 @@ export default memo(() => {
 
   useEffect(() => {
     const handleTaskAdd = (task: LX.Download.DownloadTask) => {
-      if (!isVisible) {
+      // 5-3：收起动画在途时新任务到达——先取消收起（stop 会触发结束回调，
+      // finished=false 故不清空），再重播出现动画把被收起一半的球恢复到满尺寸
+      const wasCollapsing = collapseAnimRef.current != null
+      collapseAnimRef.current?.stop()
+      collapseAnimRef.current = null
+      if (!isVisibleRef.current || wasCollapsing) {
         setIsVisible(true)
         Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true }).start()
       }
@@ -102,7 +113,7 @@ export default memo(() => {
       global.app_event.off('download_status_update', handleStatusUpdate)
       global.app_event.off('download_list_changed', handleListChanged)
     }
-  }, [isVisible, scaleAnim])
+  }, [scaleAnim])
 
   useEffect(() => {
     if (isVisible && isCompleted && !hasError && activeTasks.size > 0) {
@@ -117,17 +128,28 @@ export default memo(() => {
   useEffect(() => {
     if (!isVisible || !isCompleted || activeTasks.size === 0) return
     const timer = setTimeout(() => {
-      Animated.timing(scaleAnim, {
+      // 5-3：保存收起动画实例，结束回调查 finished——新任务到达打断收起时
+      // 不清空任务，否则 300ms 窗口内到达的新任务会被误删且球不再出现
+      const anim = Animated.timing(scaleAnim, {
         toValue: 0,
         duration: 300,
         easing: Easing.inOut(Easing.ease),
         useNativeDriver: true,
-      }).start(() => {
+      })
+      collapseAnimRef.current = anim
+      anim.start(({ finished }) => {
+        collapseAnimRef.current = null
+        if (!finished) return
         setIsVisible(false)
         setActiveTasks(new Map())
       })
     }, 4000)
-    return () => { clearTimeout(timer) }
+    return () => {
+      clearTimeout(timer)
+      // 5-3：effect 重跑/卸载时停掉在途收起（回调 finished=false，不清空）
+      collapseAnimRef.current?.stop()
+      collapseAnimRef.current = null
+    }
   }, [isVisible, isCompleted, activeTasks.size, scaleAnim])
 
 

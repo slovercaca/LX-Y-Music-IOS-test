@@ -34,14 +34,20 @@ const supplementQuality = async(list: LX.Music.MusicInfoOnline[], source: string
       })
       if (needsSupplement.length === 0) return
 
-      const promises = needsSupplement.map(async item => {
-        const songId = item.meta?.songId || (item.meta as any)?.songId
-        if (!songId) return Promise.resolve(null)
-        const result = wyGetMusicQualityInfo(songId)
-        return result.requestObj.promise.catch(() => null)
-      })
-
-      const results = await Promise.all(promises)
+      // 2-14(b)：wy 音质补充加并发上限——此前对全部需补歌曲 Promise.all，一页 30 首即
+      // 30 个并发详情请求，易触发限流；分批执行，每批 5 个（results 顺序与
+      // needsSupplement 保持一致，下方按下标回填）
+      const results: any[] = []
+      for (let i = 0; i < needsSupplement.length; i += 5) {
+        const batch = needsSupplement.slice(i, i + 5)
+        const batchResults = await Promise.all(batch.map(async item => {
+          const songId = item.meta?.songId || (item.meta as any)?.songId
+          if (!songId) return Promise.resolve(null)
+          const result = wyGetMusicQualityInfo(songId)
+          return result.requestObj.promise.catch(() => null)
+        }))
+        results.push(...batchResults)
+      }
       results.forEach((info: any, idx: number) => {
         if (!info) return
         const item = needsSupplement[idx]
@@ -116,7 +122,9 @@ export const search = async(
     listInfo.key = key
     let task = []
     for (const source of searchMusicState.sources) {
-      if (source == 'all') continue
+      // 2-14(a)：聚合翻页跳过已达 maxPages 的音源（照抄歌单聚合 songlist.ts 的写法；
+      // 数据由 setLists 每轮写 state.maxPages）——此前已翻完的音源每翻一页仍被请求一次
+      if (source == 'all' || (page > 1 && page > searchMusicState.maxPages[source]!)) continue
 
       log.info('[Search Music] 检查源 "' + source + '":')
       log.info('  - musicSdk[' + source + '] 存在: ' + (!!musicSdk[source]))
@@ -231,6 +239,10 @@ export const search = async(
       // 2026-10-05 fix（P1-9）：过期请求的 catch 不清空当前结果
       if (key != listInfo.key) throw err
       if (listInfo.list.length && page == 1) clearListInfo(sourceId)
+      // 2-13：翻页失败后回退 key——此前 key 停在下一页，handleLoadMore 重试命中缓存
+      // 守卫、直接返回旧列表且不发请求；page>1 回退上一页，page==1 置 null
+      //（第 1 页失败时列表恒为空：有列表已在上行清空）
+      listInfo.key = page > 1 ? `${page - 1}__${text}` : null
       throw err
     })
   }

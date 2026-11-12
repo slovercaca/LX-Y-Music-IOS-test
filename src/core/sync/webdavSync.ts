@@ -9,7 +9,7 @@ import settingState from '@/store/setting/state'
 import { webDAVLog } from '@/core/webdavMusic/logger'
 import { friendlyWebDAVError } from '@/core/webdavMusic/client'
 import { debounce } from '@/utils/common'
-import { getOperationQueue, clearOperationQueue, clearOperationQueueSnapshot, loadOperationQueue, whenOperationQueueReady } from './opQueue'
+import { getOperationQueue, clearOperationQueueSnapshot, loadOperationQueue, whenOperationQueueReady } from './opQueue'
 import { applyListOperation } from '@/utils/listManage'
 import { overwriteUserApis } from '@/core/userApi.ts'
 import { getPlayHistory, savePlayHistory } from '@/utils/data'
@@ -165,13 +165,15 @@ async function uploadUserApis(userApisData?: any, forcedLastModified?: number): 
   return file.lastModified
 }
 
-async function uploadLists(listsData: LX.List.ListDataFull): Promise<number> {
+async function uploadLists(listsData: LX.List.ListDataFull, forcedLastModified?: number): Promise<number> {
   const { playHistory, downloadTasks } = pendingExtraData ?? await getAllDataForSync()
   pendingExtraData = null
   const extra: Record<string, unknown> = {}
   if (settingState.setting['sync.webdav.syncPlayHistory']) extra.playHistory = playHistory
   if (settingState.setting['sync.webdav.syncDownloadTasks']) extra.downloadTasks = downloadTasks
-  const file = wrapSyncFile(listsData, extra)
+  // 3-7(a)：与 uploadSettings/uploadUserApis 对齐，接受强制时间戳，
+  // 调用方传 monotonicTimestamp(remoteTimestamp) 防时钟回拨翻转
+  const file = wrapSyncFile(listsData, extra, forcedLastModified)
   await webdav.uploadFile(remoteListsPath(), JSON.stringify(file))
   updateSetting({ 'sync.webdav.lastSyncTimeLists': file.lastModified })
   return file.lastModified
@@ -512,8 +514,9 @@ async function runGuarded(label: string, task: () => Promise<void>): Promise<boo
  * 前置检查（弹窗前调用，与旧版顺序一致：先判"同步中/未配置"，再弹确认框）。
  * runGuarded 内会再查一次：用户在确认框停留期间自动同步可能已启动，
  * 第二次检查能正确拦下。
+ * 3-12(2)：导出供同步页 handler 在 startProgress 之前先检查，进度条不再误闪。
  */
-function checkSyncReady(): boolean {
+export function checkSyncReady(): boolean {
   if (isSyncing) {
     toast('正在同步中，请稍后...')
     return false
@@ -742,6 +745,40 @@ void loadOperationQueue().catch(() => {
   // P2（2026-10-06）：启动加载失败不阻断主流程，已有日志
 })
 
+// M-4：失败重试退避状态——3-6 把失败返回改成 false 后，debouncedSync
+// 对任何 false 都立即重调度，持续失败时每约 3 秒全量重试一次、弹一次
+// toast，无退避、无上限。失败改走指数退避：30s → 2min → 10min，
+// 三档用尽后不再自动调度，只保留脏标志、等下次变更再触发。
+// 模块级常驻状态（与 listsChanged/debouncedSync 同生命周期，App 退出
+// 即随 JS 运行时消失，无需卸载清理）。
+const SYNC_RETRY_DELAYS = [30_000, 120_000, 600_000]
+let syncRetryCount = 0
+let syncRetryTimer: NodeJS.Timeout | null = null
+
+const clearSyncRetryTimer = (): void => {
+  if (syncRetryTimer) {
+    clearTimeout(syncRetryTimer)
+    syncRetryTimer = null
+  }
+}
+
+const scheduleSyncRetry = (): void => {
+  syncRetryCount++
+  // 三档延迟用尽后不再自动调度；脏标志保留在调用方（不清理），
+  // 下次 markListsChanged/markSettingsChanged 会重新触发同步。
+  if (syncRetryCount > SYNC_RETRY_DELAYS.length) return
+  // 先清旧定时器：新变更已触发的同步若再次失败，会重新调度；
+  // 不清则新旧两个定时器并存、重试翻倍。
+  clearSyncRetryTimer()
+  const delay = SYNC_RETRY_DELAYS[syncRetryCount - 1]
+  syncRetryTimer = setTimeout(() => {
+    syncRetryTimer = null
+    // 走正常防抖路径再跑一次（3 秒后执行；届时脏标志若已清则为空跑，
+    // 与 debounce 互不干扰——debounce 本身就是可重复重调的尾随防抖）。
+    debouncedSync()
+  }, delay)
+}
+
 const debouncedSync = debounce(() => {
   if (!settingState.setting['sync.webdav.enable']) return
   // 歌单同步需要 syncLists 开；设置/插件同步有各自独立开关，
@@ -752,14 +789,32 @@ const debouncedSync = debounce(() => {
   if (needLists || needSettings || needApis) {
     const lSeq = listsChangeSeq
     const sSeq = settingsChangeSeq
-    void triggerWebDAVSync(false).then(ran => {
+    // M-4：三态返回——仅 'not-run'（在途）立即重调度；'failed'
+    // 保留脏标志但走指数退避（见 scheduleSyncRetry），不再每 3 秒重试；
+    // 'not-configured'（F1）只留标志、不重调度，否则开开关未填地址时
+    // 每 3 秒空转一轮无界自循环（填好地址后经 mark 重新触发）。
+    void triggerWebDAVSync(false).then(result => {
       // 全量修复：同步根本没跑（正有手动/自动同步在跑、isSyncing）
       // 时不能清标志——清了这次变更就静默丢失了。没跑成时保留
       // 标志、再调度一次防抖，等上一轮结束后再跑。
-      if (!ran) {
+      if (result === 'not-run') {
         debouncedSync()
         return
       }
+      // F1：未配置时只留脏标志、不重调度。注意：这里必须显式 return，
+      // 否则会落入下面的成功分支把脏标志清掉。
+      if (result === 'not-configured') {
+        return
+      }
+      if (result === 'failed') {
+        // M-4：跑了但失败——保留脏标志（3-6 核心目标），退避后重试；
+        // 三档用尽后只留标志、等下次变更再触发（见 scheduleSyncRetry）。
+        scheduleSyncRetry()
+        return
+      }
+      // 成功：连续失败计数清零、清掉待命的退避定时器（若有）。
+      syncRetryCount = 0
+      clearSyncRetryTimer()
       // 同步期间又产生了新变更（序号变了）则保留标志，等下一轮防抖带上
       if (listsChangeSeq === lSeq) listsChanged = false
       if (settingsChangeSeq === sSeq) settingsChanged = false
@@ -773,6 +828,12 @@ export const markListsChanged = (): void => {
   if (!settingState.setting['sync.webdav.enable']) return
   listsChanged = true
   listsChangeSeq++
+  // F2：重试预算耗尽后（count > 延迟档数），新变更到来时重置计数，
+  // 使新一轮失败系列重新获得完整退避预算；否则耗尽后每次失败系列
+  // 只有 1 次尝试、0 次重试，直到某次自动同步成功。mark 只来自真实
+  // 变更（列表/下载/设置），重试机制本身不产生 mark，不会自循环；
+  // 待命定时器若有残留，scheduleSyncRetry 设新定时器前会先清掉。
+  if (syncRetryCount > SYNC_RETRY_DELAYS.length) syncRetryCount = 0
   debouncedSync()
 }
 
@@ -787,6 +848,9 @@ export const markSettingsChanged = (): void => {
   if (settingState.setting['sync.webdav.syncSettings'] === false && settingState.setting['sync.webdav.syncUserApis'] === false) return
   settingsChanged = true
   settingsChangeSeq++
+  // F2：与 markListsChanged 同款——预算耗尽后新变更重置计数，
+  // 新一轮失败系列重新获得完整退避预算（见该处注释）。
+  if (syncRetryCount > SYNC_RETRY_DELAYS.length) syncRetryCount = 0
   debouncedSync()
 }
 
@@ -809,9 +873,17 @@ async function resolveFirstSync(remoteData: ListsSyncFile): Promise<'done' | 'ca
   if (userChoice === true) {
     webDAVLog.info('[Sync] User chose to upload local state during first sync.')
     // 低：选本地覆盖时也合并播放历史/下载任务——此前整包冲掉云端独有部分
-    pendingExtraData = await buildMergedExtraData(remoteData)
-    const { lists: currentLocalLists } = await getAllDataForSync()
-    await uploadLists(currentLocalLists)
+    // 3-7(b)：getAllDataForSync 抛错时 pendingExtraData 必须清 null，
+    // 否则陈旧的 playHistory/downloadTasks 会被下一次无关上传合并
+    //（照抄冲突分支的清理；uploadLists 成功时内部已清，finally 再清是 no-op）
+    try {
+      pendingExtraData = await buildMergedExtraData(remoteData)
+      const { lists: currentLocalLists } = await getAllDataForSync()
+      // 3-7(a)：时间戳单调递增，防时钟回拨导致下轮被旧文件滚回
+      await uploadLists(currentLocalLists, monotonicTimestamp(remoteData.lastModified))
+    } finally {
+      pendingExtraData = null
+    }
     await clearOperationQueueSnapshot(opsAtStart)
     toast('本地歌单已上传覆盖云端！')
     return 'done'
@@ -829,17 +901,30 @@ async function resolveFirstSync(remoteData: ListsSyncFile): Promise<'done' | 'ca
   return 'cancelled'
 }
 
-export async function triggerWebDAVSync(isManual = false): Promise<boolean> {
+/**
+ * M-4：同步执行结果——'ok' 跑完且成功；'failed' 跑了但失败
+ * （catch 内已 toast）；'not-run' 根本没跑（正有同步在途）；
+ * 'not-configured' 根本没跑（未配置，F1：与在途分开——未配置时
+ * debouncedSync 不重调度，只留脏标志；填好地址后经 mark 重新触发）。
+ * debouncedSync 据此区分「在途立即重调度」与「失败退避重试」；
+ * 手动调用方（启动 init/sync、同步页 handleSyncNow）均忽略返回值。
+ */
+export type WebDAVSyncResult = 'ok' | 'failed' | 'not-run' | 'not-configured'
+
+export async function triggerWebDAVSync(isManual = false): Promise<WebDAVSyncResult> {
   if (isSyncing) {
     if (isManual) toast('正在同步中，请稍后...')
-    return false
+    return 'not-run'
   }
   if (!isSyncConfigured()) {
     if (isManual) toast('请先启用并配置 WebDAV 同步')
-    return false
+    return 'not-configured'
   }
 
   isSyncing = true
+  // 3-6：跟踪真实完成状态——此前 catch 后无条件 return true，
+  // debouncedSync 误清脏标志、失败后不再自动重调度
+  let succeeded = true
   if (isManual) toast('开始同步歌单...')
 
   // 全量修复：设置/音源自动同步的错误不再内层吞掉。
@@ -941,9 +1026,15 @@ export async function triggerWebDAVSync(isManual = false): Promise<boolean> {
               webDAVLog.info('[Sync] Conflict resolved by user: Force pushing local state.')
               const opsAtChoice = getOperationQueue()
               // 低：强制本地覆盖时也合并播放历史/下载任务，不整包冲掉云端独有部分
-              pendingExtraData = await buildMergedExtraData(remoteData)
-              const { lists: currentLocalLists } = await getAllDataForSync()
-              await uploadLists(currentLocalLists)
+              // 3-7(b)：同首次同步分支，getAllDataForSync 抛错时清 pendingExtraData
+              try {
+                pendingExtraData = await buildMergedExtraData(remoteData)
+                const { lists: currentLocalLists } = await getAllDataForSync()
+                // 3-7(a)：时间戳单调递增，防时钟回拨导致下轮被旧文件滚回
+                await uploadLists(currentLocalLists, monotonicTimestamp(remoteData.lastModified))
+              } finally {
+                pendingExtraData = null
+              }
               await clearOperationQueueSnapshot(opsAtChoice)
               toast('已强制使用本地歌单覆盖云端！')
             } else if (userChoice === false) {
@@ -960,24 +1051,33 @@ export async function triggerWebDAVSync(isManual = false): Promise<boolean> {
             }
           } else {
             webDAVLog.info('[Sync] Merge successful or only remote changes detected.')
-            await overwriteListFull(mergedData)
-            if (hasLocalChanges) {
-              await uploadLists(mergedData)
-              await applyMergedExtraData(remoteData)
-              if (isManual) toast('歌单合并同步成功！')
-            } else {
-              await applyRemoteExtraData(remoteData)
-              updateSetting({ 'sync.webdav.lastSyncTimeLists': remoteTimestamp })
-              if (isManual) toast('歌单已从云端同步！')
+            try {
+              await overwriteListFull(mergedData)
+              if (hasLocalChanges) {
+                // 3-7(a)：时间戳单调递增，防时钟回拨导致下轮被旧文件滚回
+                await uploadLists(mergedData, monotonicTimestamp(remoteTimestamp))
+                await applyMergedExtraData(remoteData)
+                if (isManual) toast('歌单合并同步成功！')
+              } else {
+                await applyRemoteExtraData(remoteData)
+                updateSetting({ 'sync.webdav.lastSyncTimeLists': remoteTimestamp })
+                if (isManual) toast('歌单已从云端同步！')
+              }
+              // 高：只清被重放的 localOpQueue——同步期间新入队的操作保留
+              await clearOperationQueueSnapshot(localOpQueue)
+            } finally {
+              // 3-7(b) 后续：overwriteListFull 抛错时 pendingExtraData 也要清——
+              // 否则陈旧的 playHistory/downloadTasks 会被下一次无关上传合并
+              //（uploadLists 成功时已在 :170 清过，此处再清无害）
+              pendingExtraData = null
             }
-            // 高：只清被重放的 localOpQueue——同步期间新入队的操作保留
-            await clearOperationQueueSnapshot(localOpQueue)
           }
         } else if (hasLocalChanges) {
           webDAVLog.info('[Sync] Local has unsynced changes. Uploading.')
           const opsAtStart = getOperationQueue()
           const { lists: currentLocalLists } = await getAllDataForSync()
-          await uploadLists(currentLocalLists)
+          // 3-7(a)：时间戳单调递增，防时钟回拨导致下轮被旧文件滚回
+          await uploadLists(currentLocalLists, monotonicTimestamp(remoteTimestamp))
           await clearOperationQueueSnapshot(opsAtStart)
           if (isManual) toast('本地歌单已上传！')
         } else if (isManual) {
@@ -994,11 +1094,16 @@ export async function triggerWebDAVSync(isManual = false): Promise<boolean> {
       await runSettingsAndApisSync()
     })
   } catch (error: any) {
+    // 3-6：跟踪失败——debouncedSync 保留脏标志；M-4：失败走退避重试，
+    // 不再立即重调度（见 scheduleSyncRetry）。
+    succeeded = false
     webDAVLog.error(`[Sync] Sync failed: ${describeWebDAVError(error)}`)
     // P2（2026-10-06）：error.message 可能为 undefined，避免 toast 显示"同步失败: undefined"
     toast(`同步失败：${friendlyWebDAVError(error)}`, 'long')
   } finally {
     isSyncing = false
   }
-  return true
+  // M-4：返回值仍由 succeeded 变量映射出三态（不要改成无条件返回常量；
+  // 契约脚本 scripts/sim-gemini-round2-contract.js 的 3-6 锚点依赖该行形态）。
+  return succeeded ? 'ok' : 'failed'
 }

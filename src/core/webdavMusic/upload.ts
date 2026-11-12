@@ -132,18 +132,6 @@ const putViaNative = async(
   }
 }
 
-/** 获取远端文件大小（断点续传用）。不存在返回 0，异常返回 -1 */
-const getRemoteFileSize = async(remotePath: string): Promise<number> => {
-  try {
-    const stat: any = await getStat(remotePath)
-    if (!stat) return 0
-    const size = Number(stat.size)
-    return Number.isFinite(size) && size >= 0 ? size : 0
-  } catch {
-    return 0
-  }
-}
-
 /**
  * 上传后校验远端文件大小：PROPFIND 取远端 size，与本地比对。
  * 全量修复：stat 失败或不返回大小时不再静默放行/误报失败二选一——
@@ -384,7 +372,7 @@ export interface PutFileOptions {
   /** 进度回调。info.heartbeat=true 为心跳重报（字节未前进，不算真实进度）；
    * info.noRealProgress=true 表示已切到降级通道、该通道全程无真实字节进度 */
   onProgress?: (loaded: number, total: number, info?: { heartbeat?: boolean, noRealProgress?: boolean }) => void
-  /** 用户已明确选择「覆盖」远端同名文件时为 true：禁用按大小断点续传，从头传（W1） */
+  /** 保留字段：跨会话续传已停用（3-3），当前无实际作用，调用方仍可传 */
   forceFresh?: boolean
   /** 传输方式说明（如降级到无实时进度的通道时通知 UI 如实展示，W6） */
   onPhaseNote?: (note: string) => void
@@ -410,7 +398,7 @@ export interface PutFileOptions {
  * 不计为失败。
  */
 const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void> => {
-  const { remotePath, localPath, size, onProgress, onAbortHandle, forceFresh, onPhaseNote } = options
+  const { remotePath, localPath, size, onProgress, onAbortHandle, onPhaseNote } = options
   // 注意：contentType 不再使用（webdav 库自动处理）；保留在接口中以兼容调用方
   const report = (loaded: number, total: number, info?: { heartbeat?: boolean, noRealProgress?: boolean }) => {
     try {
@@ -464,30 +452,22 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
         if (!ok) throw new Error('上传后校验失败：服务器文件大小与本地不一致')
       }
 
-      // 读取分块/断点续传设置
-      // W1：用户明确选了「覆盖」时禁用续传——只凭远端大小续传/判完整，可能把
-      // 同大小不同内容当成功、或把新文件尾巴拼到旧文件头上生成损坏文件
-      const resumeEnabled = !forceFresh && settingState.setting['webdav.uploadResume'] !== false
+      // 读取分块设置（跨会话断点续传已停用，见下）
       const chunkedEnabled = settingState.setting['webdav.uploadChunked'] !== false
       const chunkSizeMB = Number(settingState.setting['webdav.uploadChunkSizeMB'] ?? 5)
       const chunkSize = Math.max(1, Math.min(100, chunkSizeMB)) * 1024 * 1024
 
-      // 断点续传检查（高危修复）：此前只凭远端大小就①拼尾巴续传
+      // 断点续传（高危修复，沿用）：此前只凭远端大小就①拼尾巴续传
       // ②>= 本地直接报成功——远端同名异内容时拼出「旧头+新尾」混合文件
       // 且总大小恰对、verifyRemoteSize 只比大小也放行，用户拿到损坏
       // 歌曲还显示成功；同名异内容整文件则假成功、错文件留在服务器。
       // 无法验证远端残片/现存文件与本地的内容同一性时，一律从 0 重传/
       // 覆盖。代价：uploadResume 的跨会话续传停用（同一会话内分块不受
       // 影响）；换取上传结果可信。
+      // 3-3：入口已先删远端文件（DELETE-before-PUT），此处的续传预检
+      // PROPFIND 注定返回 0、两个 remoteSize > 0 分支永不可达，
+      // startOffset 恒为 0——删掉这次死检查，每次原生上传省一次往返。
       let startOffset = 0
-      if (resumeEnabled) {
-        const remoteSize = await getRemoteFileSize(remotePath)
-        if (remoteSize > 0 && remoteSize < actualSize) {
-          webDAVLog.warn('[upload] 远端存在残片，无法验证同一性，从头重传', { remotePath, remoteSize, actualSize })
-        } else if (remoteSize >= actualSize && remoteSize > 0) {
-          webDAVLog.warn('[upload] 远端已存在同名文件，无法验证内容同一性，从头覆盖', { remotePath, remoteSize, actualSize })
-        }
-      }
 
       // 分块上传：文件大于块大小且启用分块时
       if (chunkedEnabled && actualSize > chunkSize) {
@@ -592,12 +572,22 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
 
   // abort 支持：webdav 库的 putFileContents 不支持中断，用标志位模拟
   //（实际无法中断原生请求，但可阻止后续流程）
+  // 3-2：abort 信号同时进 race——旧代码只置标志，race 里只有 PUT 与
+  // 600–1800 秒超时，取消/暂停要等超时才结算；现在 abort 立即 reject。
   let abortRequested = false
+  let abortReject: ((error: Error) => void) | null = null
+  const abortPromise = new Promise<never>((_, reject) => { abortReject = reject })
+  // 3-2：挂一个空 catch——abort 若在 race 开始前触发（删除期间取消），
+  // 二次检查会直接抛错、abortPromise 永远进不了 race，未处理的
+  // rejection 会刷一条警告；这里先接住，race 仍能正常收到它。
+  abortPromise.catch(() => {})
   try {
     onAbortHandle?.({
       abort: () => {
         abortRequested = true
-        // webdav 库无中断 API，只能标记，等待 put 完成或超时
+        // webdav 库无中断 API，只能标记 + 让 race 立即结算，
+        // 底层 PUT 本身仍在后台跑完（下次重传会先 DELETE 再写）
+        abortReject?.(new UploadAbortedError())
       },
     })
   } catch {
@@ -611,6 +601,10 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
   // 用 webdav 库上传（JS 层，无原生桥接崩溃风险）
   const client = getClient()
   await deleteRemoteFileOrAbort(remotePath)
+
+  // 3-2：二次检查——删除期间取消时不再启动 PUT（上面的检查在删除之前，
+  // 删完到 PUT 之间此前无检查）
+  if (abortRequested) throw new UploadAbortedError()
 
   // 心跳保活：webdav 库无进度回调，上传期间每 10s 重复上报最后真实进度（0），
   // 只作存活信号，不伪造百分比（W6）。
@@ -642,6 +636,8 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
         new Promise<never>((_, reject) => {
           fallbackTimer = setTimeout(() => reject(new Error(`上传超时（${Math.round(fallbackTimeout / 1000)}秒无响应）：${remotePath}`)), fallbackTimeout)
         }),
+        // 3-2：abort 进 race，取消/暂停即时结算，不再等 600–1800 秒超时
+        abortPromise,
       ])
     } finally {
       if (fallbackTimer) clearTimeout(fallbackTimer)

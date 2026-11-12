@@ -1,4 +1,5 @@
 import { getPicUrl as getLocalPlayPicUrl } from '@/core/music/localPlay'
+import settingState from '@/store/setting/state'
 
 /**
  * 汽水(qs) 封面跨平台匹配。
@@ -12,6 +13,21 @@ import { getPicUrl as getLocalPlayPicUrl } from '@/core/music/localPlay'
  */
 const qsCoverCache = new Map<string, string>()
 const qsCoverInflight = new Map<string, Promise<string>>()
+
+// 2-12(a)：qs 封面内存缓存加容量上限（与 coverUrl 同口径：超 200 删最旧一半）
+const MAX_QS_COVER_CACHE_SIZE = 200
+const setQsCoverCache = (key: string, url: string) => {
+  if (qsCoverCache.size > MAX_QS_COVER_CACHE_SIZE) {
+    const keys = [...qsCoverCache.keys()]
+    for (let i = 0; i < Math.ceil(keys.length / 2); i++) qsCoverCache.delete(keys[i])
+  }
+  qsCoverCache.set(key, url)
+}
+
+// 2-12(c)：缓存键补 albumName/songId（照抄 coverUrl 的 keyOf）——此前仅「歌名|歌手」，
+// 同名同歌手多版本共用第一个缓存封面、串图
+const keyOf = (song: LX.Music.MusicInfoOnline): string =>
+  `${song.name}|${song.singer}|${song.albumName ?? song.meta?.albumName ?? ''}|${song.meta?.songId ?? song.id ?? ''}`
 
 // 并发上限：列表逐行触发封面匹配时，若不限制会瞬间并发数十个跨平台搜索，
 // 集中唤醒射频并抢占 CPU/电量（尤其在播放中打开汽水歌单时）。串行化以削峰。
@@ -37,7 +53,7 @@ const runWithLimit = async(fn: () => Promise<string>): Promise<string> => {
 }
 
 export const getCachedQsCover = (song: LX.Music.MusicInfoOnline): string => {
-  return qsCoverCache.get(`${song.name}|${song.singer}`) ?? ''
+  return qsCoverCache.get(keyOf(song)) ?? ''
 }
 
 const withTimeout = async(promise: Promise<string>, ms: number, fallback: string): Promise<string> => {
@@ -51,7 +67,7 @@ const withTimeout = async(promise: Promise<string>, ms: number, fallback: string
 }
 
 export const fetchQsCover = async(song: LX.Music.MusicInfoOnline): Promise<string> => {
-  const key = `${song.name}|${song.singer}`
+  const key = keyOf(song)
   const cached = qsCoverCache.get(key)
   if (cached) return Promise.resolve(cached)
   const inflight = qsCoverInflight.get(key)
@@ -65,13 +81,16 @@ export const fetchQsCover = async(song: LX.Music.MusicInfoOnline): Promise<strin
     withTimeout(
       getLocalPlayPicUrl({
         target: { name: song.name, singer: song.singer, filePath: '', picUrl: null },
+        // 2-9(b) 后续：离线时只读本地 picture/ 缓存，不走跨平台在线匹配——
+        // 否则离线模式下 qs 歌单列表封面仍会联网
+        offlineOnly: settingState.setting['player.offlineMode'] === true,
       }),
       12000,
       '',
     ),
   )
     .then((url) => {
-      if (url) qsCoverCache.set(key, url)
+      if (url) setQsCoverCache(key, url)
       return url
     })
     .catch(() => '')

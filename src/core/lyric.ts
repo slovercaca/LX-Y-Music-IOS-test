@@ -85,6 +85,8 @@ export const setPlaybackRate = async(playbackRate: number) => {
   if (playerState.isPlay) {
     setTimeout(() => {
       void getReliableLyricPosition().then((position) => {
+        // 4-17 后续：与 play() 同款守卫——await 期间用户可能已暂停
+        if (!playerState.isPlay) return
         handlePlay(position * 1000)
       })
     })
@@ -111,6 +113,8 @@ export const toggleRoma = async(isShowLyricRoma: boolean) => {
 
 export const play = () => {
   void getReliableLyricPosition().then((position) => {
+    // 4-17：await 期间用户可能已暂停——此时不再 handlePlay，避免歌词与暂停态短暂不一致
+    if (!playerState.isPlay) return
     handlePlay(position * 1000)
   })
 }

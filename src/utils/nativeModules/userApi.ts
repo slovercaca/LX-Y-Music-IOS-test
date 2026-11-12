@@ -84,7 +84,15 @@ export const onScriptAction = (handler: (event: ActionsEvent) => void): (() => v
   if (!UserApiModule) return () => {}
   const eventEmitter = new NativeEventEmitter(UserApiModule)
   const eventListener = eventEmitter.addListener('api-action', (event) => {
-    if (event.data) event.data = JSON.parse(event.data as string)
+    // 4-13：data 先校验是字符串再 JSON.parse，解析失败丢弃该事件（此前裸
+    // JSON.parse，非字符串/非法 JSON 会抛错打断事件处理）
+    if (typeof event.data === 'string') {
+      try {
+        event.data = JSON.parse(event.data)
+      } catch {
+        return
+      }
+    }
     if (event.action == 'init') {
       if (event.data.info) event.data.info = { ...loadScriptInfo, ...event.data.info }
       else event.data.info = { ...loadScriptInfo }

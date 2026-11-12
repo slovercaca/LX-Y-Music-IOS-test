@@ -28,6 +28,11 @@ export default () => {
   selectedListRef.current = selectedList
   const songlistInfo = useRef<SonglistInfo>({ source: 'kw', sortId: '5', tagId: '' })
   const [headerKey, setHeaderKey] = useState(Date.now())
+  // 5-4：首挂载标记——首屏加载由设置读取 effect 统一发，selectedList effect
+  // 首挂载时跳过（否则首屏固定发两份 getList）
+  const isFirstSelectedListEffectRef = useRef(true)
+  // 5-4：HeaderBar 首次挂载标记——首挂载时不触发恢复（设置 effect 会调 setSource）
+  const isFirstHeaderKeyRef = useRef(true)
   const loadList = useCallback(() => {
     listRef.current?.loadList(songlistInfo.current.source, songlistInfo.current.sortId, songlistInfo.current.tagId)
   }, [])
@@ -65,6 +70,10 @@ export default () => {
       songlistInfo.current.tagId = info.tagId
       headerBarRef.current?.setSource(info.source, info.sortId, info.tagName, info.tagId)
       loadList()
+    }).catch(() => {
+      // 5-4：设置读取失败时仍用默认参数加载，避免首屏空白（首挂载的
+      // selectedList effect 已不再兜底发请求）
+      loadList()
     })
     // 中：headerKey 只作 HeaderBar 的 key、不进依赖——此前它一变（从详情
     // 返回时）本 effect 与下面的 effect 各调一次 loadList，双份请求，
@@ -72,11 +81,32 @@ export default () => {
   }, [loadList])
 
   useEffect(() => {
-    if (!selectedList) {
+    // 5-4：首挂载时跳过——首屏加载只由上面的设置读取 effect 发一份 getList；
+    // 从详情返回时（非首挂载）重载列表并刷新 HeaderBar。标记在首跑即消费，
+    // 不受 selectedList 当前值影响（退出恢复场景首跑时 selectedList 也可能非空）
+    const isFirst = isFirstSelectedListEffectRef.current
+    isFirstSelectedListEffectRef.current = false
+    if (!selectedList && !isFirst) {
       setHeaderKey(Date.now())
       loadList()
     }
   }, [selectedList, loadList])
+
+  // 5-4：HeaderBar 重挂载（key 变化）后恢复高亮——此时 ref 已指向新实例，
+  // 用 songlistInfo.current 的实际值恢复平台/分类/标签高亮；否则返回后
+  // 三行全部停在默认值（kw/空/空），与实际列表脱节
+  useEffect(() => {
+    if (isFirstHeaderKeyRef.current) {
+      isFirstHeaderKeyRef.current = false
+      return
+    }
+    headerBarRef.current?.setSource(
+      songlistInfo.current.source,
+      songlistInfo.current.sortId,
+      '',
+      songlistInfo.current.tagId,
+    )
+  }, [headerKey])
 
 
   const handleSortChange: HeaderBarProps['onSortChange'] = (id) => {
@@ -124,6 +154,8 @@ export default () => {
 
   useEffect(() => {
     const handleOpenImport = () => {
+      // 1-21：经事件打开时也消费 pendingAction，避免它滞留到下次挂载时误触发
+      consumePendingAction('songlistImport')
       (headerBarRef.current as any)?.setSource(
         songlistInfo.current.source,
         songlistInfo.current.sortId,
@@ -134,12 +166,22 @@ export default () => {
     }
     global.app_event.on('openSonglistImport', handleOpenImport)
 
+    // 1-21：deeplink 切到本页时经导航事件消费 pendingAction，不再靠 100ms
+    // 定时事件（deeplink/index.ts 已去掉定时；已在目标页时 deeplink 直接发事件）
+    const handleNavChange = (id: string) => {
+      if (id === 'nav_songlist' && consumePendingAction('songlistImport')) {
+        handleOpenImport()
+      }
+    }
+    global.state_event.on('navActiveIdUpdated', handleNavChange)
+
     if (consumePendingAction('songlistImport')) {
       setTimeout(() => { handleOpenImport() }, 300)
     }
 
     return () => {
       global.app_event.off('openSonglistImport', handleOpenImport)
+      global.state_event.off('navActiveIdUpdated', handleNavChange)
     }
   }, [])
 

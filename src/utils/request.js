@@ -99,6 +99,14 @@ const handleDeflateRaw = (data) =>
 
 const regx = /(?:\d\w)+/g
 
+// 4-8：从 URL 取主机名（不用 new URL()，见 Hermes origin 判定误判教训；
+// 不用 url.includes 宽松匹配——查询串里含域名也会误命中）
+const getUrlHost = (u) => {
+  const m = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/([^/?#:]+)/.exec(u)
+  return m ? m[1].toLowerCase() : ''
+}
+const isHostOrSubdomain = (host, domain) => host === domain || host.endsWith(`.${domain}`)
+
 const handleRequestData = async(
   url,
   { method = 'get', headers = {}, format: _format = 'json', cache = 'no-store', params, ...options },
@@ -110,11 +118,16 @@ const handleRequestData = async(
     },
     headers,
   )
-  if (url.includes('music.163.com')) {
-    headers.cookie = settingState.setting['common.wy_cookie']
-  } else if (url.includes('y.qq.com')) {
-    headers.cookie = settingState.setting['common.tx_cookie']
-    console.log('[TX] req:', options.method || 'get', url.substring(0, 80))
+  // 4-8：调用方已传 Cookie 时不覆盖（网易歌单详情会传单歌单 MUSIC_U token，
+  // 此前会被全局 Cookie 无条件覆盖）；域名精确判定，本域与子域才注入
+  if (headers.cookie == null && headers.Cookie == null) {
+    const host = getUrlHost(url)
+    if (isHostOrSubdomain(host, 'music.163.com')) {
+      headers.cookie = settingState.setting['common.wy_cookie']
+    } else if (isHostOrSubdomain(host, 'y.qq.com')) {
+      headers.cookie = settingState.setting['common.tx_cookie']
+      console.log('[TX] req:', options.method || 'get', url.substring(0, 80))
+    }
   }
   options.cache = cache
 
@@ -157,7 +170,11 @@ const handleRequestData = async(
       headers['Content-Type'] = 'application/json'
     }
   }
-  if (headers['Content-Type'] === 'application/json' && options.body) {
+  // 4-7：Content-Type 带 charset（如 application/json; charset=utf-8）时也要
+  // stringify——严格相等会跳过，RN fetch 对 plain object 调 toString 发出
+  // "[object Object]"，汽水歌单 POST 必败
+  const contentType = headers['Content-Type']
+  if (typeof contentType === 'string' && contentType.startsWith('application/json') && options.body) {
     options.body = JSON.stringify(options.body)
   }
   if (headers[bHh]) {

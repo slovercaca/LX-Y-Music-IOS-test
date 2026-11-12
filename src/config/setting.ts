@@ -17,7 +17,7 @@ const arraysEqual = (a: any[], b: any[]): boolean => {
   return true
 }
 
-const DEEP_KEYS = ['common.navStatus', 'common.navOrder', 'common.sectionExpandedStatus', 'search.enabledSources', 'common.navFlatOrder', 'common.discoveryPlatformOrder', 'list.myListVisibility']
+const DEEP_KEYS = ['common.navStatus', 'common.navOrder', 'common.sectionExpandedStatus', 'search.enabledSources', 'common.navFlatOrder', 'common.discoveryPlatformOrder', 'list.myListVisibility', 'failureStrategy.order', 'failureStrategy.stepEnabled', 'failureStrategy.platformPriority']
 
 const mergeSetting = (
   originSetting: LX.AppSetting,
@@ -42,9 +42,16 @@ const mergeSetting = (
       if (!isPrimitive && !DEEP_KEYS.includes(key as string)) {
         shouldSkip = true
       } else if (DEEP_KEYS.includes(key as string)) {
-        if (Array.isArray(targetValue) && Array.isArray(originSettingCopy[key])) {
+        // 1-19：按基线类型校验——数组基线遇非数组目标、字典基线遇非字典
+        // 或原始类型目标时直接跳过该键，不覆写。损坏的存储/WebDAV 导入
+        // 数据不得把数组键写成对象，否则下游 .map/.filter 即崩
+        // （kindOf 区分 array/object/null 与各原始类型）
+        const kindOf = (v: any) => Array.isArray(v) ? 'array' : v === null ? 'null' : typeof v
+        if (kindOf(targetValue) !== kindOf(originSettingCopy[key])) {
+          shouldSkip = true
+        } else if (Array.isArray(targetValue)) {
           if (arraysEqual(targetValue, originSettingCopy[key])) shouldSkip = true
-        } else if (typeof targetValue === 'object' && typeof originSettingCopy[key] === 'object' && targetValue !== null && originSettingCopy[key] !== null) {
+        } else if (typeof targetValue === 'object' && targetValue !== null) {
           if (JSON.stringify(targetValue) === JSON.stringify(originSettingCopy[key])) shouldSkip = true
         } else if (targetValue === originSettingCopy[key]) {
           shouldSkip = true
@@ -100,14 +107,19 @@ export const updateSetting = (setting?: Partial<LX.AppSetting> | null, isInit: b
   return result
 }
 
-export const initSetting = async() => {
+export const initSetting = async(isExpired?: () => boolean) => {
   let setting: Partial<LX.AppSetting> | null = await getData(storageDataPrefix.setting)
 
+  // M-1(a)：迁移来源是唯一副本——迁移分支里旧键会被 removeData 删掉，
+  // 若文末保存再被过期门控跳过，迁移结果永久丢失（旧键已删、新键未存）。
+  // 迁移分支的保存不受过期门控（见文末保存条件）。
+  let migratedFromOld = false
   // try migrate setting before v1
   if (!setting) {
     const config = await getData<{ setting?: any }>(storageDataPrefixOld.setting)
     if (config != null) {
       setting = migrateSetting(config)
+      migratedFromOld = true
       try {
         await migrateListData()
         await migrateMetaData()
@@ -177,7 +189,13 @@ export const initSetting = async() => {
     }
   }
 
-  void saveData(storageDataPrefix.setting, updatedSetting.setting)
+  // 1-4：超时后晚到的真实设置直接丢弃、不落盘（否则覆盖回退期间可能
+  // 已写入的默认值）；正常路径下 await 写盘，保证写盘顺序
+  // M-1(a)：迁移分支除外——旧键已删，迁移结果是唯一副本，必须落盘；
+  // 此时覆盖回退期间写入的默认值是恢复而非丢失
+  if (!isExpired?.() || migratedFromOld) {
+    await saveData(storageDataPrefix.setting, updatedSetting.setting)
+  }
 
   return updatedSetting
 }

@@ -287,6 +287,12 @@ static NSDictionary *LXGenerateRSAKeyPair(NSError **error) {
   }
 
   SecKeyRef publicKey = SecKeyCopyPublicKey(privateKey);
+  // 6-14(d): publicKey 为 NULL 时直接中止，不传给 SecKeyCopyExternalRepresentation
+  if (publicKey == NULL) {
+    if (error != NULL && cfError != NULL) *error = CFBridgingRelease(cfError);
+    CFRelease(privateKey);
+    return nil;
+  }
   NSData *publicKeyData = (__bridge_transfer NSData *)SecKeyCopyExternalRepresentation(publicKey, &cfError);
   if (publicKeyData == nil) {
     if (error != NULL && cfError != NULL) *error = CFBridgingRelease(cfError);
@@ -512,14 +518,24 @@ static UIImage *LXBlurredBackgroundImage(UIImage *inputImage, CGFloat radius) {
   if (imageRef == NULL || CGImageGetWidth(imageRef) * CGImageGetHeight(imageRef) == 0) return inputImage;
 
   // 转成 32 位带 alpha 位图，vImage 只接受这种格式
+  // M-5: convertedImage 必须声明在函数作用域——6-3 原先声明在 if 块内，
+  // ARC 在块结束即释放，而 imageRef 的后续使用点（vImage 缓冲尺寸、
+  // CGDataProviderCopyData、CGImageGetColorSpace/BitmapInfo）全在块结束之后
+  // （UAF）。声明在 if 之前、块内只赋值，强持有覆盖到函数返回。
+  UIImage *convertedImage = nil;
   if (CGImageGetBitsPerPixel(imageRef) != 32 || !((CGImageGetBitmapInfo(imageRef) & kCGBitmapAlphaInfoMask))) {
     UIGraphicsImageRendererFormat *const rendererFormat = [UIGraphicsImageRendererFormat defaultFormat];
     rendererFormat.scale = inputImage.scale;
     UIGraphicsImageRenderer *const renderer = [[UIGraphicsImageRenderer alloc] initWithSize:inputImage.size
                                                                                     format:rendererFormat];
-    imageRef = [renderer imageWithActions:^(UIGraphicsImageRendererContext *_Nonnull context) {
-                 [inputImage drawAtPoint:CGPointZero];
-               }].CGImage;
+    // 6-3: 强持有渲染出的临时 UIImage 再取 .CGImage——链式取 CGImage 时临时对象在
+    // 表达式结束即释放，imageRef 会悬空（后续 CGImageGetWidth/Height/BytesPerRow 与
+    // CGDataProviderCopyData 仍在使用）；convertedImage 声明在函数作用域（见上），
+    // 强引用存活到函数返回即覆盖全部使用点
+    convertedImage = [renderer imageWithActions:^(UIGraphicsImageRendererContext *_Nonnull context) {
+      [inputImage drawAtPoint:CGPointZero];
+    }];
+    imageRef = convertedImage.CGImage;
     if (imageRef == NULL) return inputImage;
   }
 
@@ -907,11 +923,18 @@ static void LXApplyNowPlayingArtwork(UIImage *image, NSUInteger requestId) {
 
   dispatch_async(dispatch_get_main_queue(), ^{
     if (requestId != LXNowPlayingArtworkRequestId) return;
-    NSMutableDictionary *info = LXNowPlayingMutableInfo();
-    MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithBoundsSize:image.size requestHandler:^UIImage * _Nonnull(CGSize size) {
-      return image;
-    }];
-    info[MPMediaItemPropertyArtwork] = artwork;
+    // S-13: block 内写共享缓存须持 LXLyricLock——调用方 LXSetNowPlayingArtwork
+    // 的锁只覆盖同步派发段，block 执行时锁早已释放；与 8.3Hz 歌词时钟的持锁写
+    // 存在真实竞态（NSMutableDictionary 非线程安全）。requestId 校验留在锁外；
+    // artwork 仅为局部对象创建，无共享状态副作用，随写缓存一并包在锁内以保持
+    // 原语句顺序、改动最小；其余 dispatch_after 回调自带锁或只读，无须改动。
+    @synchronized (LXLyricLock()) {
+      NSMutableDictionary *info = LXNowPlayingMutableInfo();
+      MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc] initWithBoundsSize:image.size requestHandler:^UIImage * _Nonnull(CGSize size) {
+        return image;
+      }];
+      info[MPMediaItemPropertyArtwork] = artwork;
+    }
     // iOS 已知行为：同一播放会话中 nowPlayingInfo 已发布过「无封面」版本后，
     // 仅追加 artwork 再发布不一定能刷新锁屏/控制中心封面（表现为要暂停再播放
     // 才出现封面）。同一 runloop 里「置空 + 立即重设」会被系统合并成一次更新，
@@ -1008,7 +1031,11 @@ static NSNumber *LXDefaultNowPlayingRate(void) {
 }
 
 static NSNumber *LXCurrentNowPlayingRate(void) {
-  NSNumber *rate = [LXNowPlayingInfoCache[MPNowPlayingInfoPropertyPlaybackRate] isKindOfClass:[NSNumber class]] ? LXNowPlayingInfoCache[MPNowPlayingInfoPropertyPlaybackRate] : nil;
+  // 6-1: 缓存读持锁（歌词时钟队列可能同时写缓存；@synchronized 可重入，锁内调用方亦安全）
+  NSNumber *rate = nil;
+  @synchronized (LXLyricLock()) {
+    rate = [LXNowPlayingInfoCache[MPNowPlayingInfoPropertyPlaybackRate] isKindOfClass:[NSNumber class]] ? LXNowPlayingInfoCache[MPNowPlayingInfoPropertyPlaybackRate] : nil;
+  }
   return rate ?: LXDefaultNowPlayingRate();
 }
 
@@ -1064,9 +1091,13 @@ static void LXSetNowPlayingPlaybackState(MPNowPlayingPlaybackState state, NSDict
   // 空字典发布给 MPNowPlayingInfoCenter：iOS 27 Beta 7 会把它识别成“未在播放”，
   // 且后续补写元数据不一定重新显示控制中心媒体卡片。先缓存状态，等
   // LXSetNowPlayingInfo 写入有效标题后再统一发布。
-  NSString *existingTitle = [LXNowPlayingInfoCache[MPMediaItemPropertyTitle] isKindOfClass:[NSString class]]
-    ? LXNowPlayingInfoCache[MPMediaItemPropertyTitle]
-    : nil;
+  // 6-1: existingTitle 持锁读（锁外读与歌词时钟队列的写竞态）
+  NSString *existingTitle = nil;
+  @synchronized (LXLyricLock()) {
+    existingTitle = [LXNowPlayingInfoCache[MPMediaItemPropertyTitle] isKindOfClass:[NSString class]]
+      ? LXNowPlayingInfoCache[MPMediaItemPropertyTitle]
+      : nil;
+  }
   if (existingTitle.length == 0) return;
 
   @synchronized (LXLyricLock()) {
@@ -1138,7 +1169,10 @@ static void LXHandleTrackPlayerLifecycleNotification(NSNotification *notificatio
     return;
   }
 
-  if (LXNowPlayingInfoCache.count == 0) return;
+  // 6-1: .count 持锁读（沿用 784 行的快照范式）
+  unsigned long lxInfoCount = 0;
+  @synchronized (LXLyricLock()) { lxInfoCount = LXNowPlayingInfoCache.count; }
+  if (lxInfoCount == 0) return;
 
   // "seeked"：AVPlayer seek completion（引擎真正到达落点，非请求目标）——同一重锚语义
   if ([event isEqualToString:@"seek"] || [event isEqualToString:@"seeked"]) {
@@ -1159,8 +1193,13 @@ static void LXHandleTrackPlayerLifecycleNotification(NSNotification *notificatio
       LXReanchorNowPlayingLyric(position.doubleValue * 1000.0, 0, 0);
     }
     NSNumber *rate = [userInfo[@"rate"] isKindOfClass:[NSNumber class]] ? userInfo[@"rate"] : nil;
-    if (rate != nil && LXNowPlayingInfoCache.count > 0) {
-      LXNowPlayingInfoCache[MPNowPlayingInfoPropertyPlaybackRate] = rate;
+    if (rate != nil) {
+      // 6-1: 判空 + 写缓存放同一临界区内（此前锁外直接写是最实在的竞态点）
+      @synchronized (LXLyricLock()) {
+        if (LXNowPlayingInfoCache.count > 0) {
+          LXNowPlayingInfoCache[MPNowPlayingInfoPropertyPlaybackRate] = rate;
+        }
+      }
     }
     // 时钟冻结判定：非播放态（加载/缓冲/暂停等）冻结外推，歌词与音频一同
     // 停走——音频微缓冲会反复发生，外推持续超前正是"同步一句停一会"的根因
@@ -1177,7 +1216,10 @@ static void LXHandleTrackPlayerLifecycleNotification(NSNotification *notificatio
 // 原生在中断当拍就把卡片置成 Paused（只动显示态，不碰真实播放），第一次按下即 play。
 static void LXHandleNowPlayingInterruptionBegan(void) {
   if (LXNowPlayingState != MPNowPlayingPlaybackStatePlaying) return;
-  if (LXNowPlayingInfoCache.count == 0) return;
+  // 6-1: .count 持锁读（沿用 784 行的快照范式）
+  unsigned long lxInfoCount = 0;
+  @synchronized (LXLyricLock()) { lxInfoCount = LXNowPlayingInfoCache.count; }
+  if (lxInfoCount == 0) return;
   // playbackRate 必须显式写 0：系统同时按 info 里的速率外推进度，缺省会沿用旧的正速率
   LXSetNowPlayingPlaybackState(MPNowPlayingPlaybackStatePaused, @{ @"playbackRate": @0 });
 }
@@ -1196,7 +1238,10 @@ static void LXRegisterTrackPlayerLifecycleObserver(void) {
       // 补一次步进 + 重绘，保证第一眼就是正确行。
       LXRememberScreenBrightness();
       LXUpdateNowPlayingLyricTimerVisibility();
-      if (LXNowPlayingInfoCache.count == 0) return;
+      // 6-1: .count 持锁读（沿用 784 行的快照范式）
+      unsigned long lxInfoCount = 0;
+      @synchronized (LXLyricLock()) { lxInfoCount = LXNowPlayingInfoCache.count; }
+      if (lxInfoCount == 0) return;
       // iOS 27 Beta 7 可能在应用切换/控制中心展开后丢弃当前媒体会话；
       // 重新激活音频会话并重新提交缓存，可让 iPad 控制中心/锁屏恢复歌曲信息和播放按钮。
       [[AVAudioSession sharedInstance] setActive:YES error:nil];
@@ -2419,6 +2464,16 @@ public:
       _channels[channel].hopInput.assign(_hopSize, 0);
       _channels[channel].outputQueue.assign(_hopSize, 0);
     }
+    // 6-6: 实时线程 scratch 缓冲预分配——processHop/shiftSpectrum 每 hop 复用，
+    // 不再每 hop 每声道分配 6 个 4096 浮点 vector（+ magnitudes/peaks 各 1 个）
+    _scratchWindowedInput.assign(_blockSize, 0);
+    _scratchSpectrumReal.assign(_blockSize, 0);
+    _scratchSpectrumImag.assign(_blockSize, 0);
+    _scratchShiftedReal.assign(_blockSize, 0);
+    _scratchShiftedImag.assign(_blockSize, 0);
+    _scratchTimeDomain.assign(_blockSize, 0);
+    _scratchMagnitudes.assign(_blockSize / 2 + 1, 0);
+    _scratchPeaks.reserve(_blockSize / 2 + 1);
     _isReady = true;
   }
 
@@ -2475,17 +2530,18 @@ private:
     vDSP_fft_zip(_fftSetup, &split, 1, _log2n, direction);
   }
 
-  std::vector<float> computeMagnitudes(const std::vector<float> &real, const std::vector<float> &imag, NSUInteger count) {
-    std::vector<float> magnitudes(count, 0);
+  // 6-6: 结果写入预分配的 out，不再每 hop 返回新 vector（唯一调用方 shiftSpectrum）
+  void computeMagnitudes(const std::vector<float> &real, const std::vector<float> &imag, NSUInteger count, std::vector<float> &out) {
+    if (out.size() != count) out.resize(count);
     for (NSUInteger index = 0; index < count; index++) {
-      magnitudes[index] = real[index] * real[index] + imag[index] * imag[index];
+      out[index] = real[index] * real[index] + imag[index] * imag[index];
     }
-    return magnitudes;
   }
 
-  std::vector<NSUInteger> findPeaks(const std::vector<float> &magnitudes) {
-    std::vector<NSUInteger> peaks;
-    if (magnitudes.size() <= 4) return peaks;
+  // 6-6: 结果写入预分配的 out（构造时已 reserve 上限，稳态不再分配；唯一调用方 shiftSpectrum）
+  void findPeaks(const std::vector<float> &magnitudes, std::vector<NSUInteger> &out) {
+    out.clear();
+    if (magnitudes.size() <= 4) return;
 
     NSUInteger index = 2;
     NSUInteger end = (NSUInteger)magnitudes.size() - 2;
@@ -2499,10 +2555,9 @@ private:
         index += 1;
         continue;
       }
-      peaks.push_back(index);
+      out.push_back(index);
       index += 2;
     }
-    return peaks;
   }
 
   void completeSpectrum(std::vector<float> &real, std::vector<float> &imag) {
@@ -2518,8 +2573,11 @@ private:
     NSUInteger halfCount = _blockSize / 2;
     if (halfCount <= 2) return;
 
-    std::vector<float> magnitudes = computeMagnitudes(real, imag, halfCount + 1);
-    std::vector<NSUInteger> peaks = findPeaks(magnitudes);
+    // 6-6: magnitudes/peaks 复用成员 scratch，不再每 hop 分配；其余循环体不变
+    computeMagnitudes(real, imag, halfCount + 1, _scratchMagnitudes);
+    findPeaks(_scratchMagnitudes, _scratchPeaks);
+    const std::vector<float> &magnitudes = _scratchMagnitudes;
+    const std::vector<NSUInteger> &peaks = _scratchPeaks;
 
     for (NSUInteger peakIndex = 0; peakIndex < peaks.size(); peakIndex++) {
       NSInteger currentPeak = (NSInteger)peaks[peakIndex];
@@ -2559,20 +2617,27 @@ private:
       std::copy(state.inputBuffer.begin() + _hopSize, state.inputBuffer.end(), state.inputBuffer.begin());
       std::copy(state.hopInput.begin(), state.hopInput.end(), state.inputBuffer.begin() + (_blockSize - _hopSize));
 
-      std::vector<float> windowedInput = state.inputBuffer;
+      // 6-6: 6 个 4096 浮点缓冲复用成员 scratch——逐声道顺序处理，上一声道用完下一声道
+      // 才复用；同尺寸赋值不重新分配，shiftedReal/shiftedImag 仍需每 hop 清零（shiftSpectrum 是 += 累加）
+      std::vector<float> &windowedInput = _scratchWindowedInput;
+      windowedInput = state.inputBuffer;
       applyWindow(windowedInput);
 
-      std::vector<float> spectrumReal = windowedInput;
-      std::vector<float> spectrumImag(_blockSize, 0);
+      std::vector<float> &spectrumReal = _scratchSpectrumReal;
+      spectrumReal = windowedInput;
+      std::vector<float> &spectrumImag = _scratchSpectrumImag;
+      std::fill(spectrumImag.begin(), spectrumImag.end(), 0.0f);
       performFFT(spectrumReal, spectrumImag, FFTDirection(FFT_FORWARD));
 
-      std::vector<float> shiftedReal(_blockSize, 0);
-      std::vector<float> shiftedImag(_blockSize, 0);
+      std::vector<float> &shiftedReal = _scratchShiftedReal;
+      std::vector<float> &shiftedImag = _scratchShiftedImag;
+      std::fill(shiftedReal.begin(), shiftedReal.end(), 0.0f);
+      std::fill(shiftedImag.begin(), shiftedImag.end(), 0.0f);
       shiftSpectrum(spectrumReal, spectrumImag, shiftedReal, shiftedImag, pitchFactor);
       completeSpectrum(shiftedReal, shiftedImag);
 
       performFFT(shiftedReal, shiftedImag, FFTDirection(FFT_INVERSE));
-      std::vector<float> timeDomain(_blockSize, 0);
+      std::vector<float> &timeDomain = _scratchTimeDomain;
       for (NSUInteger index = 0; index < _blockSize; index++) timeDomain[index] = shiftedReal[index] / (float)_blockSize;
       applyWindow(timeDomain);
 
@@ -2593,6 +2658,15 @@ private:
   FFTSetup _fftSetup = NULL;
   vDSP_Length _log2n = 0;
   std::vector<float> _hannWindow;
+  // 6-6: 每 hop 复用的 scratch 缓冲（构造时预分配，实时线程不再分配；逐声道顺序复用）
+  std::vector<float> _scratchWindowedInput;
+  std::vector<float> _scratchSpectrumReal;
+  std::vector<float> _scratchSpectrumImag;
+  std::vector<float> _scratchShiftedReal;
+  std::vector<float> _scratchShiftedImag;
+  std::vector<float> _scratchTimeDomain;
+  std::vector<float> _scratchMagnitudes;
+  std::vector<NSUInteger> _scratchPeaks;
   std::vector<LXRealtimePhaseVocoderChannelState> _channels;
   NSUInteger _hopFill = 0;
   NSUInteger _outputReadIndex = 0;
@@ -2748,534 +2822,6 @@ private:
   bool _isReady = false;
 };
 
-@interface LXStreamingConvolutionEngine : NSObject
-- (instancetype)initWithAssetURL:(NSURL *)assetURL
-                       sampleRate:(double)sampleRate
-                    inputChannels:(NSUInteger)inputChannels
-                   outputChannels:(NSUInteger)outputChannels
-                          dryGain:(float)dryGain
-                          wetGain:(float)wetGain;
-- (void)updateDryGain:(float)dryGain wetGain:(float)wetGain;
-- (void)processPCMChannels:(float *const *)channels frameCount:(NSUInteger)frameCount activeChannels:(NSUInteger)activeChannels;
-@end
-
-@interface LXStreamingPhaseVocoderPitchShifter : NSObject
-- (instancetype)initWithChannelCount:(NSUInteger)channelCount;
-- (void)processPCMChannels:(float *const *)channels frameCount:(NSUInteger)frameCount activeChannels:(NSUInteger)activeChannels pitchFactor:(float)pitchFactor;
-@end
-
-@interface LXStreamingSpatialPannerEngine : NSObject
-- (instancetype)initWithSampleRate:(double)sampleRate soundR:(float)soundR speed:(float)speed;
-- (void)updateSoundR:(float)soundR speed:(float)speed;
-- (void)processPCMChannels:(float *const *)channels frameCount:(NSUInteger)frameCount activeChannels:(NSUInteger)activeChannels;
-@end
-
-@implementation LXStreamingConvolutionEngine {
-  NSUInteger _blockSize;
-  NSUInteger _fftSize;
-  NSUInteger _partitionCount;
-  NSUInteger _inputChannels;
-  NSUInteger _outputChannels;
-  vDSP_Length _log2n;
-  FFTSetup _fftSetup;
-  std::vector<std::vector<std::vector<float>>> _filterReal;
-  std::vector<std::vector<std::vector<float>>> _filterImag;
-  std::vector<std::vector<std::vector<float>>> _historyReal;
-  std::vector<std::vector<std::vector<float>>> _historyImag;
-  std::vector<std::vector<float>> _overlaps;
-  std::vector<std::vector<float>> _inputBuffer;
-  std::vector<std::vector<float>> _outputQueue;
-  NSUInteger _inputFill;
-  NSUInteger _outputReadIndex;
-  float _dryGain;
-  float _wetGain;
-}
-
-+ (std::vector<std::pair<NSUInteger, NSUInteger>>)routeMappingWithIRChannelCount:(NSUInteger)irChannelCount inputChannels:(NSUInteger)inputChannels outputChannels:(NSUInteger)outputChannels {
-  if (inputChannels >= 2 && outputChannels >= 2 && irChannelCount >= 4) {
-    return {
-      { 0 * inputChannels + 0, 0 },
-      { 0 * inputChannels + 1, 2 },
-      { 1 * inputChannels + 0, 1 },
-      { 1 * inputChannels + 1, 3 },
-    };
-  }
-  if (outputChannels >= 2 && irChannelCount >= 2 && inputChannels == 1) {
-    return { { 0, 0 }, { 1, 1 } };
-  }
-  if (inputChannels >= 2 && outputChannels >= 2 && irChannelCount >= 2) {
-    return {
-      { 0 * inputChannels + 0, 0 },
-      { 1 * inputChannels + 1, 1 },
-    };
-  }
-  if (inputChannels >= 2 && outputChannels >= 2) {
-    return {
-      { 0 * inputChannels + 0, 0 },
-      { 1 * inputChannels + 1, 0 },
-    };
-  }
-  return { { 0, 0 } };
-}
-
-+ (void)performFFTWithSetup:(FFTSetup)setup log2n:(vDSP_Length)log2n real:(std::vector<float> &)real imag:(std::vector<float> &)imag direction:(FFTDirection)direction {
-  DSPSplitComplex split = {
-    .realp = real.data(),
-    .imagp = imag.data(),
-  };
-  vDSP_fft_zip(setup, &split, 1, log2n, direction);
-}
-
-- (instancetype)initWithAssetURL:(NSURL *)assetURL
-                       sampleRate:(double)sampleRate
-                    inputChannels:(NSUInteger)inputChannels
-                   outputChannels:(NSUInteger)outputChannels
-                          dryGain:(float)dryGain
-                          wetGain:(float)wetGain {
-  self = [super init];
-  if (self == nil) return nil;
-
-  LXImpulseResponseData impulse = LXLoadImpulseResponse(assetURL, sampleRate);
-  if (impulse.channels.empty()) return nil;
-
-  _blockSize = 512;
-  _fftSize = _blockSize * 2;
-  _inputChannels = MAX((NSUInteger)1, inputChannels);
-  _outputChannels = MAX((NSUInteger)1, outputChannels);
-  _dryGain = dryGain;
-  _wetGain = wetGain;
-  _inputFill = 0;
-  _outputReadIndex = 0;
-
-  size_t impulseLength = 0;
-  for (const auto &channel : impulse.channels) impulseLength = std::max(impulseLength, channel.size());
-  _partitionCount = MAX((NSUInteger)1, (NSUInteger)ceil((double)impulseLength / (double)_blockSize));
-
-  NSUInteger log2Value = (NSUInteger)llround(log2((double)_fftSize));
-  if (((NSUInteger)1 << log2Value) != _fftSize) return nil;
-  _log2n = (vDSP_Length)log2Value;
-  _fftSetup = vDSP_create_fftsetup(_log2n, FFTRadix(kFFTRadix2));
-  if (_fftSetup == NULL) return nil;
-
-  NSUInteger routeCount = _inputChannels * _outputChannels;
-  _filterReal.assign(routeCount, std::vector<std::vector<float>>(_partitionCount, std::vector<float>(_fftSize, 0)));
-  _filterImag.assign(routeCount, std::vector<std::vector<float>>(_partitionCount, std::vector<float>(_fftSize, 0)));
-  _historyReal.assign(_inputChannels, std::vector<std::vector<float>>(_partitionCount, std::vector<float>(_fftSize, 0)));
-  _historyImag.assign(_inputChannels, std::vector<std::vector<float>>(_partitionCount, std::vector<float>(_fftSize, 0)));
-  _overlaps.assign(_outputChannels, std::vector<float>(_blockSize, 0));
-  _inputBuffer.assign(_inputChannels, std::vector<float>(_blockSize, 0));
-  _outputQueue.assign(_outputChannels, std::vector<float>());
-
-  auto routeMapping = [LXStreamingConvolutionEngine routeMappingWithIRChannelCount:impulse.channels.size() inputChannels:_inputChannels outputChannels:_outputChannels];
-  for (const auto &route : routeMapping) {
-    const auto &impulseChannel = impulse.channels[std::min((size_t)route.second, impulse.channels.size() - 1)];
-    for (NSUInteger partition = 0; partition < _partitionCount; partition++) {
-      NSUInteger start = partition * _blockSize;
-      NSUInteger end = MIN(start + _blockSize, (NSUInteger)impulseChannel.size());
-      std::vector<float> real(_fftSize, 0);
-      if (start < end) std::copy(impulseChannel.begin() + start, impulseChannel.begin() + end, real.begin());
-      std::vector<float> imag(_fftSize, 0);
-      [LXStreamingConvolutionEngine performFFTWithSetup:_fftSetup log2n:_log2n real:real imag:imag direction:FFTDirection(FFT_FORWARD)];
-      _filterReal[route.first][partition] = std::move(real);
-      _filterImag[route.first][partition] = std::move(imag);
-    }
-  }
-
-  return self;
-}
-
-- (void)dealloc {
-  if (_fftSetup != NULL) vDSP_destroy_fftsetup(_fftSetup);
-}
-
-- (void)updateDryGain:(float)dryGain wetGain:(float)wetGain {
-  _dryGain = dryGain;
-  _wetGain = wetGain;
-}
-
-- (void)processBufferedBlock {
-  std::vector<std::vector<float>> wetOutputs(_outputChannels, std::vector<float>(_blockSize, 0));
-
-  for (NSUInteger inputChannel = 0; inputChannel < _inputChannels; inputChannel++) {
-    std::vector<float> real(_fftSize, 0);
-    std::copy(_inputBuffer[inputChannel].begin(), _inputBuffer[inputChannel].end(), real.begin());
-    std::vector<float> imag(_fftSize, 0);
-    [LXStreamingConvolutionEngine performFFTWithSetup:_fftSetup log2n:_log2n real:real imag:imag direction:FFTDirection(FFT_FORWARD)];
-    _historyReal[inputChannel].insert(_historyReal[inputChannel].begin(), real);
-    _historyImag[inputChannel].insert(_historyImag[inputChannel].begin(), imag);
-    if (_historyReal[inputChannel].size() > _partitionCount) {
-      _historyReal[inputChannel].pop_back();
-      _historyImag[inputChannel].pop_back();
-    }
-  }
-
-  for (NSUInteger outputChannel = 0; outputChannel < _outputChannels; outputChannel++) {
-    std::vector<float> sumReal(_fftSize, 0);
-    std::vector<float> sumImag(_fftSize, 0);
-
-    for (NSUInteger inputChannel = 0; inputChannel < _inputChannels; inputChannel++) {
-      NSUInteger routeIndex = outputChannel * _inputChannels + inputChannel;
-      for (NSUInteger partition = 0; partition < _partitionCount; partition++) {
-        const auto &inputReal = _historyReal[inputChannel][partition];
-        const auto &inputImag = _historyImag[inputChannel][partition];
-        const auto &filterReal = _filterReal[routeIndex][partition];
-        const auto &filterImag = _filterImag[routeIndex][partition];
-        for (NSUInteger index = 0; index < _fftSize; index++) {
-          float real = filterReal[index] * inputReal[index] - filterImag[index] * inputImag[index];
-          float imag = filterReal[index] * inputImag[index] + filterImag[index] * inputReal[index];
-          sumReal[index] += real;
-          sumImag[index] += imag;
-        }
-      }
-    }
-
-    [LXStreamingConvolutionEngine performFFTWithSetup:_fftSetup log2n:_log2n real:sumReal imag:sumImag direction:FFTDirection(FFT_INVERSE)];
-    float scale = 1.0f / (float)_fftSize;
-    for (NSUInteger index = 0; index < _fftSize; index++) sumReal[index] *= scale;
-
-    for (NSUInteger index = 0; index < _blockSize; index++) {
-      wetOutputs[outputChannel][index] = sumReal[index] + _overlaps[outputChannel][index];
-    }
-    _overlaps[outputChannel].assign(sumReal.begin() + _blockSize, sumReal.end());
-  }
-
-  _outputQueue.assign(_outputChannels, std::vector<float>(_blockSize, 0));
-  _outputReadIndex = 0;
-  for (NSUInteger outputChannel = 0; outputChannel < _outputChannels; outputChannel++) {
-    for (NSUInteger index = 0; index < _blockSize; index++) {
-      float dry = outputChannel < _inputBuffer.size() ? _inputBuffer[outputChannel][index] * _dryGain : 0;
-      float wet = wetOutputs[outputChannel][index] * _wetGain;
-      _outputQueue[outputChannel][index] = dry + wet;
-    }
-  }
-}
-
-- (void)processPCMChannels:(float *const *)channels frameCount:(NSUInteger)frameCount activeChannels:(NSUInteger)activeChannels {
-  NSUInteger usedChannels = MIN(activeChannels, _inputChannels);
-  if (usedChannels == 0 || channels == NULL) return;
-
-  for (NSUInteger frame = 0; frame < frameCount; frame++) {
-    for (NSUInteger channel = 0; channel < usedChannels; channel++) {
-      _inputBuffer[channel][_inputFill] = channels[channel][frame];
-    }
-    _inputFill += 1;
-    if (_inputFill >= _blockSize) {
-      [self processBufferedBlock];
-      _inputFill = 0;
-    }
-
-    if (!_outputQueue.empty() && _outputReadIndex < _outputQueue[0].size()) {
-      for (NSUInteger channel = 0; channel < usedChannels; channel++) {
-        channels[channel][frame] = channel < _outputChannels ? _outputQueue[channel][_outputReadIndex] : 0;
-      }
-      _outputReadIndex += 1;
-      if (_outputReadIndex >= _outputQueue[0].size()) {
-        _outputQueue.assign(_outputChannels, std::vector<float>());
-        _outputReadIndex = 0;
-      }
-    } else {
-      for (NSUInteger channel = 0; channel < usedChannels; channel++) channels[channel][frame] = 0;
-    }
-  }
-}
-@end
-
-struct LXStreamingPannerDelayLine {
-  std::vector<float> buffer;
-  NSUInteger writeIndex = 0;
-
-  LXStreamingPannerDelayLine() : buffer(1, 0), writeIndex(0) {}
-  explicit LXStreamingPannerDelayLine(NSUInteger size) : buffer(MAX(size, (NSUInteger)1), 0), writeIndex(0) {}
-
-  float pushAndRead(float input, NSUInteger delaySamples) {
-    NSUInteger bufferCount = (NSUInteger)buffer.size();
-    NSUInteger clampedDelay = MIN(delaySamples, bufferCount > 0 ? bufferCount - 1 : 0);
-    buffer[writeIndex] = input;
-    NSUInteger readIndex = (writeIndex + bufferCount - clampedDelay) % bufferCount;
-    float output = buffer[readIndex];
-    writeIndex += 1;
-    if (writeIndex >= bufferCount) writeIndex = 0;
-    return output;
-  }
-};
-
-@implementation LXStreamingSpatialPannerEngine {
-  double _sampleRate;
-  double _processedSamples;
-  NSUInteger _maxDelaySamples;
-  LXStreamingPannerDelayLine _leftDelay;
-  LXStreamingPannerDelayLine _rightDelay;
-  float _soundR;
-  float _speed;
-}
-
-- (instancetype)initWithSampleRate:(double)sampleRate soundR:(float)soundR speed:(float)speed {
-  self = [super init];
-  if (self == nil) return nil;
-  _sampleRate = sampleRate;
-  _processedSamples = 0;
-  _maxDelaySamples = MAX((NSUInteger)llround(sampleRate * 0.00075), (NSUInteger)1);
-  _leftDelay = LXStreamingPannerDelayLine(_maxDelaySamples + 2);
-  _rightDelay = LXStreamingPannerDelayLine(_maxDelaySamples + 2);
-  [self updateSoundR:soundR speed:speed];
-  return self;
-}
-
-- (void)updateSoundR:(float)soundR speed:(float)speed {
-  _soundR = fmaxf(0.1f, fminf(soundR / 10.0f, 3.0f));
-  _speed = fmaxf(1.0f, fminf(speed, 50.0f));
-}
-
-- (void)processPCMChannels:(float *const *)channels frameCount:(NSUInteger)frameCount activeChannels:(NSUInteger)activeChannels {
-  if (channels == NULL || activeChannels < 2 || _sampleRate <= 0) return;
-
-  for (NSUInteger frame = 0; frame < frameCount; frame++) {
-    double phaseStep = (M_PI / 180.0) / (MAX((double)_speed * 0.01, 0.1) * _sampleRate);
-    float angle = (float)(_processedSamples * phaseStep);
-    float x = sinf(angle) * _soundR;
-    float y = cosf(angle) * _soundR;
-    float z = cosf(angle) * _soundR;
-    float attenuation = 1.0f;
-    float normalizedX = fmaxf(-1.0f, fminf(1.0f, x / fmaxf(_soundR, 0.0001f)));
-    float leftGain = attenuation * sqrtf(0.5f * (1.0f - normalizedX));
-    float rightGain = attenuation * sqrtf(0.5f * (1.0f + normalizedX));
-    float backFactor = z > 0 ? fmaxf(0.72f, 1.0f - 0.12f * z) : 1.0f;
-    float sidePreserve = 0.28f * attenuation;
-    NSUInteger itdSamples = (NSUInteger)llroundf(fabsf(normalizedX) * (float)_maxDelaySamples);
-
-    float inputLeft = channels[0][frame];
-    float inputRight = channels[1][frame];
-    float mid = 0.5f * (inputLeft + inputRight);
-    float side = 0.5f * (inputLeft - inputRight);
-
-    float delayedLeft = _leftDelay.pushAndRead(mid * leftGain * backFactor, normalizedX > 0 ? itdSamples : 0);
-    float delayedRight = _rightDelay.pushAndRead(mid * rightGain * backFactor, normalizedX < 0 ? itdSamples : 0);
-
-    channels[0][frame] = fmaxf(fminf(delayedLeft + side * sidePreserve, 1.0f), -1.0f);
-    channels[1][frame] = fmaxf(fminf(delayedRight - side * sidePreserve, 1.0f), -1.0f);
-    _processedSamples += 1.0;
-  }
-}
-@end
-
-struct LXPhaseVocoderChannelState {
-  std::vector<float> inputBuffer;
-  std::vector<float> outputBuffer;
-  std::vector<float> hopInput;
-  std::vector<float> outputQueue;
-};
-
-@implementation LXStreamingPhaseVocoderPitchShifter {
-  NSUInteger _blockSize;
-  NSUInteger _hopSize;
-  float _overlapCount;
-  NSUInteger _channelCount;
-  FFTSetup _fftSetup;
-  vDSP_Length _log2n;
-  std::vector<float> _hannWindow;
-  std::vector<LXPhaseVocoderChannelState> _channels;
-  NSUInteger _hopFill;
-  NSUInteger _outputReadIndex;
-  NSUInteger _timeCursor;
-}
-
-- (instancetype)initWithChannelCount:(NSUInteger)channelCount {
-  self = [super init];
-  if (self == nil) return nil;
-
-  _blockSize = 4096;
-  _hopSize = 128;
-  _overlapCount = (float)(_blockSize / _hopSize);
-  _channelCount = MAX((NSUInteger)1, channelCount);
-
-  NSUInteger log2Value = (NSUInteger)llround(log2((double)_blockSize));
-  if (((NSUInteger)1 << log2Value) != _blockSize) return nil;
-  _log2n = (vDSP_Length)log2Value;
-  _fftSetup = vDSP_create_fftsetup(_log2n, FFTRadix(kFFTRadix2));
-  if (_fftSetup == NULL) return nil;
-
-  _hannWindow.resize(_blockSize);
-  for (NSUInteger index = 0; index < _blockSize; index++) {
-    _hannWindow[index] = (float)(0.8 * (1.0 - cos(2.0 * M_PI * (double)index / (double)_blockSize)));
-  }
-
-  _channels.resize(_channelCount);
-  for (NSUInteger channel = 0; channel < _channelCount; channel++) {
-    _channels[channel].inputBuffer.assign(_blockSize, 0);
-    _channels[channel].outputBuffer.assign(_blockSize, 0);
-    _channels[channel].hopInput.assign(_hopSize, 0);
-    _channels[channel].outputQueue.assign(_hopSize, 0);
-  }
-
-  _hopFill = 0;
-  _outputReadIndex = 0;
-  _timeCursor = 0;
-  return self;
-}
-
-- (void)dealloc {
-  if (_fftSetup != NULL) vDSP_destroy_fftsetup(_fftSetup);
-}
-
-- (void)applyWindow:(std::vector<float> &)values {
-  for (NSUInteger index = 0; index < MIN(values.size(), _hannWindow.size()); index++) {
-    values[index] *= _hannWindow[index];
-  }
-}
-
-- (void)performFFTWithReal:(std::vector<float> &)real imag:(std::vector<float> &)imag direction:(FFTDirection)direction {
-  DSPSplitComplex split = {
-    .realp = real.data(),
-    .imagp = imag.data(),
-  };
-  vDSP_fft_zip(_fftSetup, &split, 1, _log2n, direction);
-}
-
-- (std::vector<float>)computeMagnitudesWithReal:(const std::vector<float> &)real imag:(const std::vector<float> &)imag count:(NSUInteger)count {
-  std::vector<float> magnitudes(count, 0);
-  for (NSUInteger index = 0; index < count; index++) {
-    magnitudes[index] = real[index] * real[index] + imag[index] * imag[index];
-  }
-  return magnitudes;
-}
-
-- (std::vector<NSUInteger>)findPeaksInMagnitudes:(const std::vector<float> &)magnitudes {
-  std::vector<NSUInteger> peaks;
-  if (magnitudes.size() <= 4) return peaks;
-
-  NSUInteger index = 2;
-  NSUInteger end = (NSUInteger)magnitudes.size() - 2;
-  while (index < end) {
-    float magnitude = magnitudes[index];
-    if (magnitudes[index - 1] >= magnitude || magnitudes[index - 2] >= magnitude) {
-      index += 1;
-      continue;
-    }
-    if (magnitudes[index + 1] >= magnitude || magnitudes[index + 2] >= magnitude) {
-      index += 1;
-      continue;
-    }
-    peaks.push_back(index);
-    index += 2;
-  }
-  return peaks;
-}
-
-- (void)completeSpectrumWithReal:(std::vector<float> &)real imag:(std::vector<float> &)imag {
-  NSUInteger half = _blockSize / 2;
-  if (half <= 1) return;
-  for (NSUInteger index = 1; index < half; index++) {
-    real[_blockSize - index] = real[index];
-    imag[_blockSize - index] = -imag[index];
-  }
-}
-
-- (void)shiftSpectrumWithReal:(const std::vector<float> &)real
-                         imag:(const std::vector<float> &)imag
-                     outReal:(std::vector<float> &)shiftedReal
-                     outImag:(std::vector<float> &)shiftedImag
-                 pitchFactor:(float)pitchFactor {
-  NSUInteger halfCount = _blockSize / 2;
-  if (halfCount <= 2) return;
-
-  std::vector<float> magnitudes = [self computeMagnitudesWithReal:real imag:imag count:halfCount + 1];
-  std::vector<NSUInteger> peaks = [self findPeaksInMagnitudes:magnitudes];
-
-  for (NSUInteger peakIndex = 0; peakIndex < peaks.size(); peakIndex++) {
-    NSInteger currentPeak = (NSInteger)peaks[peakIndex];
-    NSInteger shiftedPeak = (NSInteger)llround((double)currentPeak * pitchFactor);
-    if (shiftedPeak > (NSInteger)halfCount) break;
-
-    NSInteger startIndex = peakIndex > 0
-      ? currentPeak - (NSInteger)floor((double)(currentPeak - (NSInteger)peaks[peakIndex - 1]) / 2.0)
-      : 0;
-    NSInteger endIndex = peakIndex < peaks.size() - 1
-      ? currentPeak + (NSInteger)ceil((double)((NSInteger)peaks[peakIndex + 1] - currentPeak) / 2.0)
-      : (NSInteger)halfCount + 1;
-
-    for (NSInteger offset = startIndex - currentPeak; offset < endIndex - currentPeak; offset++) {
-      NSInteger binIndex = currentPeak + offset;
-      NSInteger shiftedIndex = shiftedPeak + offset;
-      if (shiftedIndex < 0 || shiftedIndex > (NSInteger)halfCount || binIndex < 0 || binIndex > (NSInteger)halfCount) continue;
-
-      float omegaDelta = 2.0f * (float)M_PI * (float)(shiftedIndex - binIndex) / (float)_blockSize;
-      float phase = omegaDelta * (float)_timeCursor;
-      float phaseShiftReal = cosf(phase);
-      float phaseShiftImag = sinf(phase);
-      float valueReal = real[(NSUInteger)binIndex];
-      float valueImag = imag[(NSUInteger)binIndex];
-
-      float shiftedValueReal = valueReal * phaseShiftReal - valueImag * phaseShiftImag;
-      float shiftedValueImag = valueReal * phaseShiftImag + valueImag * phaseShiftReal;
-      shiftedReal[(NSUInteger)shiftedIndex] += shiftedValueReal;
-      shiftedImag[(NSUInteger)shiftedIndex] += shiftedValueImag;
-    }
-  }
-}
-
-- (void)processHopWithPitchFactor:(float)pitchFactor usedChannels:(NSUInteger)usedChannels {
-  for (NSUInteger channel = 0; channel < usedChannels; channel++) {
-    LXPhaseVocoderChannelState &state = _channels[channel];
-    std::copy(state.inputBuffer.begin() + _hopSize, state.inputBuffer.end(), state.inputBuffer.begin());
-    std::copy(state.hopInput.begin(), state.hopInput.end(), state.inputBuffer.begin() + (_blockSize - _hopSize));
-
-    std::vector<float> windowedInput = state.inputBuffer;
-    [self applyWindow:windowedInput];
-
-    std::vector<float> spectrumReal = windowedInput;
-    std::vector<float> spectrumImag(_blockSize, 0);
-    [self performFFTWithReal:spectrumReal imag:spectrumImag direction:FFTDirection(FFT_FORWARD)];
-
-    std::vector<float> shiftedReal(_blockSize, 0);
-    std::vector<float> shiftedImag(_blockSize, 0);
-    [self shiftSpectrumWithReal:spectrumReal imag:spectrumImag outReal:shiftedReal outImag:shiftedImag pitchFactor:pitchFactor];
-    [self completeSpectrumWithReal:shiftedReal imag:shiftedImag];
-
-    [self performFFTWithReal:shiftedReal imag:shiftedImag direction:FFTDirection(FFT_INVERSE)];
-    std::vector<float> timeDomain(_blockSize, 0);
-    for (NSUInteger index = 0; index < _blockSize; index++) timeDomain[index] = shiftedReal[index] / (float)_blockSize;
-    [self applyWindow:timeDomain];
-
-    for (NSUInteger index = 0; index < _blockSize; index++) {
-      state.outputBuffer[index] += timeDomain[index] / _overlapCount;
-    }
-
-    std::copy(state.outputBuffer.begin(), state.outputBuffer.begin() + _hopSize, state.outputQueue.begin());
-    std::copy(state.outputBuffer.begin() + _hopSize, state.outputBuffer.end(), state.outputBuffer.begin());
-    std::fill(state.outputBuffer.begin() + (_blockSize - _hopSize), state.outputBuffer.end(), 0.0f);
-  }
-}
-
-- (void)processPCMChannels:(float *const *)channels frameCount:(NSUInteger)frameCount activeChannels:(NSUInteger)activeChannels pitchFactor:(float)pitchFactor {
-  NSUInteger usedChannels = MIN(activeChannels, _channelCount);
-  if (!channels || usedChannels == 0) return;
-  if (fabsf(pitchFactor - 1.0f) < 0.01f) return;
-
-  for (NSUInteger frame = 0; frame < frameCount; frame++) {
-    for (NSUInteger channel = 0; channel < usedChannels; channel++) {
-      _channels[channel].hopInput[_hopFill] = channels[channel][frame];
-    }
-    _hopFill += 1;
-
-    if (_outputReadIndex < _hopSize) {
-      for (NSUInteger channel = 0; channel < usedChannels; channel++) {
-        channels[channel][frame] = _channels[channel].outputQueue[_outputReadIndex];
-      }
-      _outputReadIndex += 1;
-    } else {
-      for (NSUInteger channel = 0; channel < usedChannels; channel++) channels[channel][frame] = 0;
-    }
-
-    if (_hopFill >= _hopSize) {
-      [self processHopWithPitchFactor:pitchFactor usedChannels:usedChannels];
-      _hopFill = 0;
-      _outputReadIndex = 0;
-      _timeCursor += _hopSize;
-    }
-  }
-}
-@end
-
 static AVAudioUnitReverbPreset LXSoundEffectReverbPresetForFileName(NSString *fileName) {
   if ([fileName isEqualToString:@"filter-telephone.wav"]) return AVAudioUnitReverbPresetSmallRoom;
   if ([fileName isEqualToString:@"s2_r4_bd.wav"]) return AVAudioUnitReverbPresetCathedral;
@@ -3423,7 +2969,9 @@ RCT_REMAP_METHOD(updateEqualizerConfig, updateEqualizerConfig:(NSDictionary *)co
 @property (nonatomic, assign) BOOL seekRequested;
 @property (nonatomic, assign) BOOL seekInProgress;
 #if LX_HAS_LIBFLAC
-@property (nonatomic, assign) FLAC__StreamDecoder *decoder;
+// 6-13: decoder 改 atomic——写在 decoderQueue（创建/置 NULL），读在桥线程 seekTo（判空）；
+// atomic 消除跨队列 data race（残留 TOCTOU 无害：判空只决定是否 reject，重启路径内部已 dispatch_sync 串行化）
+@property (atomic, assign) FLAC__StreamDecoder *decoder;
 #endif
 @end
 
@@ -4587,8 +4135,8 @@ RCT_REMAP_METHOD(resume, resumeStreamWithResolver:(RCTPromiseResolveBlock)resolv
 }
 
 RCT_REMAP_METHOD(pause, pauseStreamWithResolver:(RCTPromiseResolveBlock)resolve rejecter:(RCTPromiseRejectBlock)reject) {
-  NSError *sessionError = nil;
-  [self prepareAudioSession:&sessionError];
+  // 6-13: pause 不激活音频会话（原 prepareAudioSession 调用是复制粘贴残留；
+  // 中断已停用会话后 pause 再激活会抢音频焦点；resume/openStream/中断恢复的调用是正当的，不动）
   dispatch_sync(self.renderQueue, ^{
     self.lastKnownPosition = [self currentPlaybackPositionLocked];
     self.manualPause = YES;

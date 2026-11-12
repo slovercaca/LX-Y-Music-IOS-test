@@ -12,7 +12,9 @@ const defaultHeaders = {
 const handleRequestData = async({
   method = 'get',
   headers = {},
-  format: _format = 'json',
+  // 1-6④：format 此前被解构丢弃，一律 JSON.parse；现在保留并透传，
+  // 非 json 格式（text 等）不再被意外解析为对象
+  format = 'json',
   credentials = 'omit',
   cache = 'default',
   ...options
@@ -62,6 +64,7 @@ const handleRequestData = async({
     method,
     credentials,
     cache,
+    format,
     headers: Object.assign({}, defaultHeaders, headers),
   }
 }
@@ -114,12 +117,14 @@ export const fetchData = (url, { timeout = 13_000, ...options } = {}) => {
               resp.body = buffer
               return resp
             })
-          } else {
+          }
+          // 1-6④：只有 format 为 json（默认）时才解析；text 等其他格式保留原文
+          if (options.format === 'json') {
             try {
               resp.body = JSON.parse(resp.body)
             } catch {}
-            return resp
           }
+          return resp
         })
         .catch((err) => {
           // console.log(err, err.code, err.message)

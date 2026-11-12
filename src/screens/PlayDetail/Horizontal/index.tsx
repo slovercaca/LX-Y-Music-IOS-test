@@ -1,12 +1,9 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import { View, AppState, Dimensions, Platform, PixelRatio } from 'react-native'
 import { screenkeepAwake, screenUnkeepAwake, getCutoutLeftPx } from '@/utils/nativeModules/utils'
-import StatusBar from '@/components/common/StatusBar'
 import MoreBtn from './MoreBtn'
 import Header from './components/Header'
-import { setComponentId } from '@/core/common'
 import { COMPONENT_IDS } from '@/config/constant'
-import PageContent from '@/components/PageContent'
 import commonState, { type InitState as CommonState } from '@/store/common/state'
 
 import Pic from './Pic'
@@ -52,7 +49,11 @@ export default memo(({ componentId }: { componentId: string }) => {
   const cutoutLeft = isLandscapeStretch ? 0 : rawCutoutLeft
 
   useEffect(() => {
-    setComponentId(COMPONENT_IDS.playDetail, componentId)
+    // 1-9：不再重复注册 componentId——外层 PlayDetail/index.tsx 已用同一 id
+    // 注册过（setComponentId 现按 id 去重，重复注册本就无效）。横屏卸载时
+    // 也不调 removeComponentId：旋转回竖屏时外层仍挂载、其 effect 不重跑，
+    // 删了记录会让 hasVisible/isPlayDetailCovered 全错位；记录的生命周期
+    // 由导航 pop 事件（handleScreenPopped）统一管理。
     screenkeepAwake()
     // 低-33：componentIds 是 {name} 数组，此前按对象读 .comment 恒 undefined——
     // 横屏打开评论页后常亮判断全错位（竖屏 VerticalNew 用的是 find 写法）
@@ -89,9 +90,11 @@ export default memo(({ componentId }: { componentId: string }) => {
     }
   }, [componentId])
 
+  // 5-7：去掉内层 PageContent + StatusBar——外层 PlayDetail/index.tsx 已有
+  // 同款（且带 backgroundFadeIn），内层无 backgroundFadeIn，删了无行为损失；
+  // 之前是双层背景图 + 双次 useBlurredPic 计算 + 双次 contentReady RAF 门控
   return (
-    <PageContent>
-      <StatusBar />
+    <>
       <View style={{ ...styles.container, paddingTop: statusBarHeight }}>
         <View style={{ ...styles.left, width: `${layout.leftRatio * 100}%`, marginLeft: cutoutLeft }}>
           <Header componentId={componentId} />
@@ -110,7 +113,7 @@ export default memo(({ componentId }: { componentId: string }) => {
         </View>
       </View>
       <PlayerPlaylist ref={playlistRef} />
-    </PageContent>
+    </>
   )
 })
 

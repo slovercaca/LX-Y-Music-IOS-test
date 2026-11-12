@@ -183,6 +183,31 @@ declare global {
       'download.writeMetadata': boolean
       'download.writeAlias': boolean
       'download.quality': LX.Quality
+      /**
+       * 同时下载数量（下载队列 worker 数，1-6）
+       */
+      'download.concurrency': number
+
+      /**
+       * 失败策略总开关（下载/播放取链失败时是否按策略自动重试）
+       */
+      'failureStrategy.enabled': boolean
+      /**
+       * 失败策略执行顺序（用户可排序）
+       */
+      'failureStrategy.order': Array<'platform' | 'quality' | 'source'>
+      /**
+       * 各策略步骤是否启用
+       */
+      'failureStrategy.stepEnabled': Record<'platform' | 'quality' | 'source', boolean>
+      /**
+       * 切换平台重试时的平台优先级（仅 5 个可搜索平台）
+       */
+      'failureStrategy.platformPriority': LX.OnlineSource[]
+      /**
+       * 换音质重试的方向：往下降 / 往上升
+       */
+      'failureStrategy.qualityDirection': 'down' | 'up'
 
       /**
        * 是否启用同步
@@ -335,7 +360,6 @@ declare global {
       'player.startupAutoPlay': boolean
       'playDetail.isCoverSpin': boolean
       'playDetail.style.miniLyricAlign': string
-      'webdav.uploadResume': boolean
       'webdav.uploadChunked': boolean
       'webdav.uploadChunkSizeMB': number
       'webdav.uploadStallTimeoutSec': number

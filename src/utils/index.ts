@@ -225,17 +225,21 @@ export const fixNewMusicInfoQuality = (musicInfo: LX.Music.MusicInfo) => {
   return musicInfo
 }
 
-export const filterMusicList = <T extends LX.Music.MusicInfo>(list: T[]): T[] => {
+export const filterMusicList = <T extends LX.Music.MusicInfo>(list: Array<T | null | undefined>): T[] => {
   const ids = new Set<string>()
-  return list.filter((s) => {
-    if (!s.id || ids.has(s.id) || !s.name) return false
+  return list.filter((s): s is T => {
+    // 1-20③：toNewMusicInfo 缺 songmid/source 时返回 null，残缺项直接过滤——
+    // 此前直接读 s.id，一条残缺旧歌就让迁移抛错退出
+    if (!s || !s.id || ids.has(s.id) || !s.name) return false
     if (s.singer == null) s.singer = ''
     ids.add(s.id)
     return true
   })
 }
 
-export const deduplicationList = <T extends LX.Music.MusicInfo>(list: T[]): T[] => {
+// 2-14(c) 后续：约束放宽为 { id: string }——函数本体只读 s.id，歌单条目
+// ListInfoItem 也可直接用，不必再经 unknown 中转；原 MusicInfo 调用方不受影响
+export const deduplicationList = <T extends { id: string }>(list: T[]): T[] => {
   const ids = new Set<string>()
   return list.filter((s) => {
     if (ids.has(s.id)) return false

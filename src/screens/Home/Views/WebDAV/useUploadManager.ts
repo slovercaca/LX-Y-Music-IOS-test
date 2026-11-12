@@ -520,6 +520,14 @@ export function useUploadManager(deps: UploadManagerDeps) {
           if (progressed) item.lastProgressAt = now
           if (!progressed) return
           // 阶段判断
+          // 3-4：原生 100% 后失败降级时，降级入口上报 0 进度
+          //（noRealProgress），此时 phase 仍为 waiting，下面的分支全不
+          // 命中、会永久卡死在 waiting，且看门狗的降级硬顶分支要求
+          // !isWaitingResponse、也被绕过；收到降级报告时先把
+          // waiting/stalled 恢复为 uploading。心跳保活机制不动。
+          if (info?.noRealProgress && (item.phase === 'waiting' || item.phase === 'stalled')) {
+            item.phase = 'uploading'
+          }
           if (loaded >= total && total > 0) {
             item.phase = 'waiting'  // 已发送 100%，等待服务器响应
           } else if (item.phase === 'preparing' || item.phase === 'queued') {

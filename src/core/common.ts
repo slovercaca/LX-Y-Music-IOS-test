@@ -17,8 +17,20 @@ import { showPactModal as handleShowPactModal } from '@/navigation'
 /**
  * 初始化设置
  */
-export const initSetting = async() => {
-  const setting = (await initAppSetting()).setting
+export const initSetting = async(isExpired?: () => boolean) => {
+  const setting = (await initAppSetting(isExpired)).setting
+  // 1-4：超时回退后晚到的真实设置直接丢弃，不切换运行时状态——
+  // initTheme/initI18n/initPlayer 已按默认值跑完，半路切换会状态交错
+  if (isExpired?.()) {
+    // M-1(b)：静默采纳真实设置进 store——settingActions.initSetting 只换
+    // store 状态，不广播、不触发同步、不落盘（store/setting/action.ts:7）。
+    // 不采纳时 store 整会话停留在默认值，随后任何一次 updateSetting（如每
+    // 换歌触发的 handleUpdatePic 写 theme.lastDynamicBgPic）都会把默认值
+    // 整表写盘、覆盖磁盘真实设置。残留窗口仅剩「超时时刻到晚到结果返回
+    // 之间」的自动写设置，极窄、可接受。
+    settingActions.initSetting(setting)
+    return setting
+  }
   settingActions.updateSetting(setting)
   return setting
 }
@@ -28,13 +40,16 @@ export const initSetting = async() => {
  * @param setting 新设置
  */
 export const updateSetting = (setting: Partial<LX.AppSetting>) => {
-  settingActions.updateSetting(setting)
+  const updatedKeys = settingActions.updateSetting(setting)
+  // 1-16：无实际变更时不触发 WebDAV 同步（store 层已短路广播与写盘）
+  if (!updatedKeys.length) return
   // WebDAV 设置自动同步（2026-10-06）：用户改设置后 3 秒防抖触发上传。
   // 排除同步元数据键自身（lastSyncTime*/lastSync*Hash），否则上传成功后
   // 更新时间戳又会触发新一轮同步，自循环。
   // 懒加载 webdavSync 防循环依赖（webdavSync 反向 import 了 core/common）。
-  const keys = Object.keys(setting)
-  const isSyncMetaOnly = keys.length > 0 && keys.every(k =>
+  // 按实际变更键判断——入参里没变的值不算，避免「真键未变 + 元数据键变了」
+  // 也误触发同步。
+  const isSyncMetaOnly = updatedKeys.every(k =>
     k === 'sync.webdav.lastSyncTimeSettings' ||
     k === 'sync.webdav.lastSyncSettingsHash' ||
     k === 'sync.webdav.lastSyncTimeUserApis' ||

@@ -93,12 +93,30 @@ const isStaleMusicInfo = (curMusicInfo: LX.Music.MusicInfo | LX.Download.ListIte
 }
 
 let cancelDelayRetry: (() => void) | null = null
+// M-3：setMusicUrl 代际令牌——同歌两轮取链的 gettingUrlId 与 musicInfo 引用完全相同，
+// 仅凭它们无法区分新旧轮；旧轮的 .finally 会清掉新轮刚置好的 gettingUrlId 与看门狗
+//（429 延迟重试窗口内重击同歌时确定性复现）。与 preload.ts 的 gen 同款范式。
+// 令牌只在 setMusicUrl 守卫通过后递增；getMusicPlayUrl/delayRetry 在同步入口处
+// 捕获当前代际（三个调用点均在代际有效时同步调入，捕获值即所属轮次），不改函数
+// 签名——失败策略契约脚本锚定了递归调用的逐字文本，签名一改契约即误报。
+let setMusicUrlGen = 0
 const delayRetry = async(musicInfo: LX.Music.MusicInfo | LX.Download.ListItem, isRefresh = false, quality?: LX.Quality): Promise<PlayUrlInfo | null> => {
+  // M-3：同步入口捕获代际——唯一调用点是 getMusicPlayUrl 的 catch（已验代际才调入），
+  // 捕获值即本轮代际
+  const gen = setMusicUrlGen
   // if (cancelDelayRetry) cancelDelayRetry()
   return new Promise<PlayUrlInfo | null>((resolve, reject) => {
     const time = getRandom(2, 6)
     setStatusText(global.i18n.t('player__getting_url_delay_retry', { time }))
     const tiemout = setTimeout(() => {
+      // M-3：定时器触发时再验代际——已换代时不发起重试请求（否则会在新轮完成后
+      // 重新 arm 20s 看门狗，而旧轮 finally 已加代际守卫不再清它，看门狗泄漏会在
+      // 20 秒后把正在播的歌切掉）；正常路径下新轮入口已取消本定时器，此处只是防御
+      if (gen !== setMusicUrlGen) {
+        if (cancelDelayRetry === myCancel) cancelDelayRetry = null
+        resolve(null)
+        return
+      }
       getMusicPlayUrl(musicInfo, isRefresh, true, quality).then((result) => {
         // 低-13：只清属于本轮的句柄——新一轮重试已接管时，旧回调无条件置 null
         // 会把新句柄吞掉，暂停时再也取消不了新重试
@@ -118,6 +136,9 @@ const delayRetry = async(musicInfo: LX.Music.MusicInfo | LX.Download.ListItem, i
   })
 }
 const getMusicPlayUrl = async(musicInfo: LX.Music.MusicInfo | LX.Download.ListItem, isRefresh = false, isRetryed = false, quality?: LX.Quality): Promise<PlayUrlInfo | null> => {
+  // M-3：同步入口捕获代际——三个调用点（setMusicUrl 入口、delayRetry 定时器、
+  // 本函数递归重试）均在代际有效时同步调入，捕获值即所属轮次
+  const gen = setMusicUrlGen
   // this.musicInfo.url = await getMusicPlayUrl(targetSong, type)
   setStatusText(global.i18n.t('player__getting_url'))
   addLoadTimeout()
@@ -150,9 +171,18 @@ const getMusicPlayUrl = async(musicInfo: LX.Music.MusicInfo | LX.Download.ListIt
       isStaleMusicInfo(musicInfo) ||
       err.message == requestMsg.cancelRequest) return null
 
+    // M-3：已换代的旧轮不再发起延迟重试/递归重试——新轮已接管取链，旧轮重试的
+    // 结果注定被丢弃；且旧轮重试会在新轮完成后重新 arm 20s 看门狗，而旧轮 finally
+    //（已加代际守卫）不再清它，看门狗泄漏会在 20 秒后把正在播的歌切掉
+    if (gen !== setMusicUrlGen) return null
+
     if (err.message == requestMsg.tooManyRequests && !isRetryed) return delayRetry(musicInfo, isRefresh, quality)
 
-    if (!isRetryed) return getMusicPlayUrl(musicInfo, isRefresh, true, quality)
+    // 失败策略（2026-11-12）：在线歌曲不再原样重试一次——取链层的策略引擎已按
+    // 用户排序跑过平台/音质/音源各步，再整条重跑一遍等于策略翻倍；非在线路径
+    //（local/qs/下载项）不走策略引擎，保留一次重试。
+    const isOnlineSong = !('progress' in musicInfo) && musicInfo.source !== 'local' && musicInfo.source !== 'qs'
+    if (!isRetryed && !isOnlineSong) return getMusicPlayUrl(musicInfo, isRefresh, true, quality)
 
     throw err
   })
@@ -170,23 +200,32 @@ const getMusicPlayUrl = async(musicInfo: LX.Music.MusicInfo | LX.Download.ListIt
 // 所以按 createGettingUrlId()（id + 切源 id）绑定：只有同一首歌才吃这个恢复位置，
 // 其它歌一律从 0 开始（该全局值也会在这次加载完成时被清掉，不跨歌残留）。
 let pendingRestoreSeek: { key: string, time: number } | null = null
-export const setMusicUrl = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem, isRefresh?: boolean, quality?: LX.Quality) => {
+export const setMusicUrl = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem, isRefresh?: boolean, quality?: LX.Quality, resumeTime?: number) => {
   // addLoadTimeout()
   if (!isRefresh && !isStaleMusicInfo(musicInfo) && !playerState.isPlay) return
   // E1 修复：进入新的取链流程时，先清除上一次失败遗留的 5s 兜底切歌定时器。
   // 否则：A 失败→用户手动重试 A→旧定时器 5s 后把正在播的 A 切到 B。
   clearDelayNextTimeout()
   if (cancelDelayRetry) cancelDelayRetry()
+  // M-3：守卫通过后才递增代际——被守卫挡回的调用不得使在途取链失效；
+  // 不同歌的 setMusicUrl 递增令牌是期望行为（旧歌取链本就过期）
+  const myGen = ++setMusicUrlGen
   global.lx.gettingUrlId = createGettingUrlId(musicInfo)
   // 非 refresh = 新歌：只有「启动恢复的那首歌」携带显式恢复时间，其余一律从 0 开始
   const restoreSeek = pendingRestoreSeek
   const isRestoredMusic = !isRefresh && restoreSeek != null && restoreSeek.key === createGettingUrlId(musicInfo)
+  // 2-4A：调用方已在停播前取好的位置（resumeTime）优先于现取——停稳后 getPosition()
+  // 恒为 0，刷新重试若现取会被停播竞态归零；不传时保持原行为
   const currentTimePromise = isRefresh
-    ? getPosition().catch(() => playerState.progress.nowPlayTime)
+    ? (resumeTime != null ? Promise.resolve(resumeTime) : getPosition().catch(() => playerState.progress.nowPlayTime))
     : Promise.resolve(isRestoredMusic ? restoreSeek.time : 0)
   void getMusicPlayUrl(musicInfo, isRefresh, false, quality).then(async(result) => {
+    // M-3：旧轮结果直接丢弃——新一轮已接管取链，旧 URL 不得起播
+    if (myGen !== setMusicUrlGen) return
     if (!result) return
     const currentTime = await currentTimePromise
+    // M-3：await 期间也可能被新轮接管（isRefresh 时 getPosition 是桥调用），再验一次代际
+    if (myGen !== setMusicUrlGen) return
     // P1（2026-10-06）：await 期间用户可能已暂停/停止/切歌，加过期守卫，
     // 否则取链返回后仍 setResource 起播
     if (global.lx.isPlayedStop || isStaleMusicInfo(musicInfo)) return
@@ -197,12 +236,19 @@ export const setMusicUrl = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem
     currentStreamInfo.quality = result.quality
     setResource(musicInfo, result.url, currentTime, result.quality)
   }).catch((err: any) => {
+    // M-3：旧轮失败不报毒——不得弹错、不触发 5 秒跳歌（新轮正在播/取链）
+    if (myGen !== setMusicUrlGen) return
     setStatusText(friendlyPlayError(err))
     global.app_event.error()
-    toast(`《${musicInfo.name}》播放失败，已自动跳过`, 'short')
-    addDelayNextTimeout()
+    // 失败策略（2026-11-12）：终态与 controller 对齐——autoSkipOnError 关时
+    // 停留在错误状态、不自动跳歌（此前不查开关、恒自动跳过）。
+    if (settingState.setting['player.autoSkipOnError']) {
+      toast(`《${musicInfo.name}》播放失败，已自动跳过`, 'short')
+      addDelayNextTimeout()
+    }
   }).finally(() => {
-    if (musicInfo === playerState.playMusicInfo.musicInfo) {
+    // M-3：只有当前代际才能清 gettingUrlId 与看门狗——旧轮 finally 不得清新轮的状态
+    if (myGen === setMusicUrlGen && musicInfo === playerState.playMusicInfo.musicInfo) {
       global.lx.gettingUrlId = ''
       clearLoadTimeout()
     }
@@ -312,6 +358,9 @@ const handlePlay = async() => {
 
   if (!musicInfo) return
 
+  // 2-5：停播前清 gettingUrlId——取链在途时重击同歌会被 setMusicUrl 守卫挡回；
+  // 清掉后在途旧取链不再占位（兼有取消效果），只做这一行
+  global.lx.gettingUrlId = ''
   await setStop()
   global.app_event.pause()
 

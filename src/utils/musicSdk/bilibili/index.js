@@ -113,6 +113,9 @@ async function getBilibiliMusicUrl(musicInfo, type) {
     }
   }
 
+  // 4-23①：合集单 P 时长只存局部变量——此前原地改 musicInfo.interval，
+  // 还把 string（"mm:ss"）改成 number（秒），永久污染共享对象
+  let pageDurationSeconds = null
   if (cidRes?.data?.pages && Array.isArray(cidRes.data.pages)) {
     const pages = cidRes.data.pages
     if (pages.length > 1) {
@@ -122,8 +125,7 @@ async function getBilibiliMusicUrl(musicInfo, type) {
         log.info('[Bilibili] 当前P时长: ' + currentPage.duration + '秒')
         log.info('[Bilibili] 当前P标题: ' + currentPage.part)
         if (musicInfo && currentPage.duration) {
-          log.info('[Bilibili] 更新musicInfo.interval为单P时长')
-          musicInfo.interval = currentPage.duration
+          pageDurationSeconds = currentPage.duration
         }
       } else {
         log.warn('[Bilibili] 未找到当前cid对应的页面信息')
@@ -269,26 +271,32 @@ async function getBilibiliMusicUrl(musicInfo, type) {
     const isMcdn = url && url.includes('mcdn.bilivideo')
     if (!isMcdn && url) {
       log.info('[Bilibili] 非mcdn URL，尝试重试获取mcdn节点')
-      for (let retry = 0; retry < 2; retry++) {
+      // 4-23②：两次重试并行发起、单次超时收紧到 6s——此前串行、每次默认
+      // 15s 超时，起播最多拖慢 30s；并行后最坏只多等约 6s
+      const retryForMcdn = async() => {
         try {
           // 中：此前 await 的是请求对象而非 .promise，retryReq.body 恒 undefined、mcdn 重试永不生效
           const retryReq = await httpFetch('https://api.bilibili.com/x/player/playurl', {
             headers,
             params: { ...(bvid ? { bvid } : { aid }), cid, fnval: 16 },
+            timeout: 6000,
           }).promise
           const retryData = typeof retryReq.body === 'string' ? JSON.parse(retryReq.body) : retryReq.body
           const retryAudios = retryData?.data?.dash?.audio
           if (retryAudios && retryAudios.length > 0) {
             const retryUrl = findBestUrl(retryAudios)
-            if (retryUrl && retryUrl.includes('mcdn.bilivideo')) {
-              log.info('[Bilibili] 重试成功获得mcdn URL: ' + retryUrl.substring(0, 100))
-              url = retryUrl
-              break
-            }
+            if (retryUrl && retryUrl.includes('mcdn.bilivideo')) return retryUrl
           }
         } catch (e) {
           log.error('[Bilibili] 重试失败: ' + (e?.message || e))
         }
+        return null
+      }
+      const retryUrls = await Promise.all([retryForMcdn(), retryForMcdn()])
+      const mcdnUrl = retryUrls.find((u) => u)
+      if (mcdnUrl) {
+        log.info('[Bilibili] 重试成功获得mcdn URL: ' + mcdnUrl.substring(0, 100))
+        url = mcdnUrl
       }
     }
     if (url) {

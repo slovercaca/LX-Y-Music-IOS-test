@@ -54,6 +54,8 @@ export default forwardRef<MusicListType, { header?: ReactElement }>((props, ref)
             .then((listDetail) => {
               if (isUnmountedRef.current) return
               if (loadId !== loadIdRef.current) return
+              // 4-16 后续：后台刷新成功后补记时刻（shouldRefreshByTtl 已是纯判定）
+              markRefreshed(`boardSongs|${id}`)
               const result = setListDetail(listDetail, id, 1)
               listRef.current?.setList(result.list)
               listRef.current?.setStatus(boardState.listDetailInfo.maxPage <= 1 ? 'end' : 'idle')
@@ -70,14 +72,15 @@ export default forwardRef<MusicListType, { header?: ReactElement }>((props, ref)
           listRef.current?.setStatus('loading')
           const page = 1
           setListDetailInfo(id)
-          // 首屏直接强制联网（榜单不缓存），并记录刷新时刻，避免紧接着再点一次又刷
-          markRefreshed(`boardSongs|${id}`)
+          // 首屏直接强制联网（榜单不缓存）
           return getListDetail(id, page, page === 1)
             .then((listDetail) => {
               // 高-3：守卫必须在写 store 之前——此前先 setListDetail 覆写共享
               // store 才查 loadId，切榜后迟到的旧榜数据已把新榜整表替换
               if (isUnmountedRef.current) return
               if (loadId !== loadIdRef.current) return
+              // 4-16 后续：刷新时刻改到成功后记（此前请求前就记，失败也占掉 1 小时 TTL）
+              markRefreshed(`boardSongs|${id}`)
               const result = setListDetail(listDetail, id, page)
               requestAnimationFrame(() => {
                 listRef.current?.setList(result.list)

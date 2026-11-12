@@ -162,10 +162,12 @@ export const userListsRemove = (ids: string[]) => {
   const changedIds = []
   for (const id of ids) {
     removeUserList(id)
-    if (!allMusicList.has(id)) continue
-    removeMusicList(id)
+    // 4-14③：未加载歌单也要清位置与更新信息——此前 continue 在清理之前，
+    // 未加载歌单的位置/更新信息残留成脏数据
     void removeListPosition(id)
     void removeListUpdateInfo(id)
+    if (!allMusicList.has(id)) continue
+    removeMusicList(id)
     changedIds.push(id)
   }
   return changedIds
@@ -192,7 +194,8 @@ export const userListsUpdatePosition = (position: number, ids: string[]) => {
   }
 
   newUserLists.splice(0, newUserLists.length, ...newUserLists.filter((mInfo) => map.has(mInfo.id)))
-  newUserLists.splice(Math.min(position, newUserLists.length), 0, ...updateLists)
+  // 4-14①：下限钳位，远端同步的负数 position 不再从尾部插入错位
+  newUserLists.splice(Math.max(0, Math.min(position, newUserLists.length)), 0, ...updateLists)
   setUserLists(newUserLists)
 }
 
@@ -303,7 +306,8 @@ export const listMusicUpdatePosition = async(
   }
 
   const list = targetList.filter((mInfo) => map.has(mInfo.id))
-  arrPushByPosition(list, infos, Math.min(position, list.length))
+  // 4-14①：下限钳位（arrPushByPosition 内部直接 splice，负数会从尾部插入）
+  arrPushByPosition(list, infos, Math.max(0, Math.min(position, list.length)))
   targetList.splice(0, targetList.length, ...list)
   return [listId]
 }
@@ -334,10 +338,13 @@ export async function applyListOperation(
 
   switch (operation.action) {
     case 'list_data_overwrite':
-      return operation.data as LX.List.ListDataFull
+      // 4-14②：返回深拷贝，断开与 op 数据的共享引用——调用方后续原地变更
+      // 不再反写回操作队列里的数据
+      return JSON.parse(JSON.stringify(operation.data)) as LX.List.ListDataFull
 
     case 'list_create': {
-      let position = operation.data.position
+      // 4-14①：下限钳位，远端同步的负数 position 不再从尾部插入错位
+      let position = Math.max(0, operation.data.position)
       operation.data.listInfos.forEach(info => {
         if (userListMap.has(info.id)) return
         const newList: LX.List.UserListInfoFull = { ...info, list: [] }
@@ -374,7 +381,8 @@ export async function applyListOperation(
       })
 
       const remainingLists = Array.from(remainingMap.values())
-      remainingLists.splice(Math.min(operation.data.position, remainingLists.length), 0, ...listsToMove)
+      // 4-14①：下限钳位，远端同步的负数 position 不再从尾部插入错位
+      remainingLists.splice(Math.max(0, Math.min(operation.data.position, remainingLists.length)), 0, ...listsToMove)
       data.userList = remainingLists
       break
     }
@@ -467,7 +475,8 @@ export async function applyListOperation(
       })
 
       const remainingSongs = Array.from(map.values())
-      remainingSongs.splice(Math.min(position, remainingSongs.length), 0, ...songsToMove)
+      // 4-14①：下限钳位，远端同步的负数 position 不再从尾部插入错位
+      remainingSongs.splice(Math.max(0, Math.min(position, remainingSongs.length)), 0, ...songsToMove)
       targetList.length = 0
       targetList.push(...remainingSongs)
       break

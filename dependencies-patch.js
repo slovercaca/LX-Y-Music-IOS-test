@@ -917,7 +917,12 @@ const patchFile = async({ filePath, changes }) => {
 
   for (const { from, to } of changes) {
     if (normalizedFile.includes(to)) continue
-    if (!normalizedFile.includes(from)) continue
+    // 6-8①：锚点未命中不再静默跳过，打日志并抛错（与 patchFileByRegex 口径对齐），
+    // 避免上游漂移后整组补丁静默丢失功能；调用方 IIFE 会把失败记为 exitCode 1。
+    if (!normalizedFile.includes(from)) {
+      console.error(`Patch anchor not found in ${filePath}: ${from.slice(0, 120)}`)
+      throw new Error(`Patch anchor not found in ${filePath}`)
+    }
     normalizedFile = normalizedFile.replace(from, to)
   }
 
@@ -970,54 +975,10 @@ const ensureFileContent = async({ filePath, content }) => {
   await fs.promises.writeFile(resolvedPath, normalizedContent.replace(/\n/g, eol))
 }
 
-const patchSwiftAudioSeek = async() => {
-  const baseDir = path.join(rootPath, 'node_modules/react-native-track-player/ios/RNTrackPlayer')
-  if (!fs.existsSync(baseDir)) {
-    console.log('Skip SwiftAudio seek patch: react-native-track-player source not found')
-    return
-  }
-  const wrapperPath = await findFile(baseDir, 'AVPlayerWrapper.swift')
-  if (!wrapperPath) {
-    console.log('Skip SwiftAudio seek patch: AVPlayerWrapper.swift not found')
-    return
-  }
-
-  const relativePath = path.relative(rootPath, wrapperPath)
-  await patchFileByRegex({
-    filePath: relativePath,
-    pattern: /func seek\(to seconds: TimeInterval\) \{[\s\S]*?func seek\(by seconds: TimeInterval\) \{/,
-    replacement: `func seek(to seconds: TimeInterval) {
-        // if the player is loading then we need to defer seeking until it's ready.
-        if (avPlayer.currentItem == nil) {
-            timeToSeekToAfterLoading = seconds
-        } else {
-            let time = CMTimeMakeWithSeconds(seconds, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
-            let performSeek = { [weak self] (completion: @escaping (Bool) -> Void) in
-                guard let self = self else {
-                    completion(false)
-                    return
-                }
-                self.currentItem?.cancelPendingSeeks()
-                self.avPlayer.seek(to: time, toleranceBefore: CMTime.zero, toleranceAfter: CMTime.zero, completionHandler: completion)
-            }
-
-            performSeek { [weak self] finished in
-                guard let self = self else { return }
-                let currentTime = self.avPlayer.currentTime().seconds
-                if finished && !currentTime.isNaN && abs(currentTime - seconds) > 0.2 {
-                    performSeek { [weak self] retryFinished in
-                        guard let self = self else { return }
-                        self.delegate?.AVWrapper(seekTo: Double(seconds), didFinish: retryFinished)
-                    }
-                    return
-                }
-                self.delegate?.AVWrapper(seekTo: Double(seconds), didFinish: finished)
-            }
-        }
-    }
-    func seek(by seconds: TimeInterval) {`,
-  })
-}
+// 6-8③：patchSwiftAudioSeek 已删除——其目标 AVPlayerWrapper.swift 在
+// react-native-track-player 树内根本不存在（来自 SwiftAudioEx pod），
+// 该函数每次都走 "not found" 提前返回，是 no-op；seek 补丁真正生效
+// 的是 Podfile 的 lx_patch_swift_audio_seek（打 Pods 沙箱里的 pod 副本）。
 
 const patchTrackPlayerSoundEffectRefresh = async() => {
   const filePath = 'node_modules/react-native-track-player/ios/RNTrackPlayer/RNTrackPlayer.swift'
@@ -1121,17 +1082,17 @@ const patchTrackPlayerSoundEffectRefresh = async() => {
       await patchFile(target)
     } catch (err) {
       console.error(`Patch ${target.filePath} failed: ${err.message}`)
+      // 6-8②：任一步失败即记 exitCode 1（postinstall 失败不再静默过 CI），
+      // 其余步骤仍继续跑完（尽力而为），最终以非零码退出。
+      process.exitCode = 1
     }
   }
-  try {
-    await patchSwiftAudioSeek()
-  } catch (err) {
-    console.error(`Patch SwiftAudio seek failed: ${err.message}`)
-  }
+  // 6-8③：patchSwiftAudioSeek 已删除（见上），seek 补丁由 Podfile 侧生效。
   try {
     await patchTrackPlayerSoundEffectRefresh()
   } catch (err) {
     console.error(`Patch TrackPlayer sound effect refresh failed: ${err.message}`)
+    process.exitCode = 1
   }
   try {
     await ensureFileContent({
@@ -1140,6 +1101,7 @@ const patchTrackPlayerSoundEffectRefresh = async() => {
     })
   } catch (err) {
     console.error(`Ensure LXEqualizerAudioMix.swift failed: ${err.message}`)
+    process.exitCode = 1
   }
   try {
     await ensureFileContent({
@@ -1156,6 +1118,12 @@ const patchTrackPlayerSoundEffectRefresh = async() => {
     })
   } catch (err) {
     console.error(`Ensure shared IR bridge failed: ${err.message}`)
+    process.exitCode = 1
   }
-  console.log('\nDependencies patch finished.\n')
+  // 6-8②：失败时尾行如实报错，不再一律打印 finished。
+  if (process.exitCode) {
+    console.error('\nDependencies patch finished with errors.\n')
+  } else {
+    console.log('\nDependencies patch finished.\n')
+  }
 })()

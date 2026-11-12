@@ -6,8 +6,18 @@ import { handleSonglistAction } from './songlistAction'
 import { handleSearchAction } from './searchAction'
 import { setNavActiveId } from '@/core/common'
 import { setPendingAction } from '@/core/pendingAction'
+import commonState from '@/store/common/state'
 import { extname, stat } from '@/utils/fs'
 import { handleFileMusicAction, handleFileJSAction, handleFileLXMCAction } from './fileAction'
+
+// 1-21：单参数解码失败返回 null，调用方跳过该参数，不让整个 deeplink 失败
+const safeDecode = (value: string): string | null => {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return null
+  }
+}
 
 const handleLinkAction = async(link: string) => {
   // console.log(link)
@@ -28,27 +38,33 @@ const handleLinkAction = async(link: string) => {
     const kwMatch = /(?:^|&)keyword=/.exec(hash)
     if (kwMatch) {
       const kwStart = kwMatch.index + kwMatch[0].length
-      const kwEnd = hash.indexOf('&platform=', kwStart)
-      const kwEnd2 = hash.indexOf('&type=', kwStart)
-      const kwEnds = [kwEnd, kwEnd2].filter(e => e !== -1).sort((a, b) => a - b)
-      if (kwEnds.length > 0) {
-        params.keyword = decodeURIComponent(hash.substring(kwStart, kwEnds[0]))
-      } else {
-        params.keyword = decodeURIComponent(hash.substring(kwStart))
-      }
+      // 1-21：keyword 取到下一个 & 为止——此前只认 &platform=/&type= 两个边界，
+      // 其余参数（如 &source=）跟在 keyword 后会被吞进 keyword 值
+      const kwEnd = hash.indexOf('&', kwStart)
+      const decodedKeyword = safeDecode(kwEnd === -1 ? hash.substring(kwStart) : hash.substring(kwStart, kwEnd))
+      if (decodedKeyword != null) params.keyword = decodedKeyword
     }
     const paramRegex = /([^&=]+)=([^&]*)/g
     let match
     while ((match = paramRegex.exec(hash)) !== null) {
       if (match[1] !== 'keyword') {
-        params[match[1]] = decodeURIComponent(match[2] || '')
+        const decoded = safeDecode(match[2] || '')
+        if (decoded != null) params[match[1]] = decoded
       }
     }
   }
   // 中：params 循环里已 decodeURIComponent 过一次——此前这里再解一次，
   // 发送方只编码一次时 data 内嵌的 % 会被二次解码损坏或抛 URIError
-  if (params.data) params.data = JSON.parse(params.data)
-  params.paths = paths.map((p) => decodeURIComponent(p))
+  if (params.data) {
+    try {
+      params.data = JSON.parse(params.data)
+    } catch {
+      // 1-21：data 解析失败则跳过该参数（删除），不让整个 deeplink 失败
+      delete params.data
+    }
+  }
+  // 1-21：路径段解码失败时保留原文（丢段会错位 paths[0] 的解析）
+  params.paths = paths.map((p) => safeDecode(p) ?? p)
   console.log(params)
   switch (type) {
     case 'music':
@@ -68,13 +84,32 @@ const handleLinkAction = async(link: string) => {
       break
     case 'nav':
       if (action === 'search' || params.target === 'search') {
-        setPendingAction({ type: 'searchFocus' })
-        setNavActiveId('nav_search')
-        setTimeout(() => { global.app_event.searchDeepLink(params.keyword || '', '', params.type || '') }, 100)
+        // 1-21③：不再 100ms 盲等——keyword 经 pendingAction 由 Search 页在切入/
+        // 挂载时消费并转发明 searchDeepLink 事件（见 Search/index.tsx）；已在
+        // 搜索页时立即发事件（页面已挂载、监听在册；setNavActiveId 同值短路，
+        // 不发导航事件，pendingAction 会滞留）。聚焦由 handleSearchDeepLink
+        // 内的 300ms focus 负责，不再另设 searchFocus
+        const keyword = params.keyword || ''
+        const searchType = params.type || ''
+        if (commonState.navActiveId === 'nav_search') {
+          global.app_event.searchDeepLink(keyword, '', searchType)
+        } else {
+          setPendingAction({ type: 'searchDeepLink', data: { keyword, source: '', type: searchType } })
+          setNavActiveId('nav_search')
+        }
       } else if (action === 'songlist' || params.target === 'songlist') {
-        setPendingAction({ type: 'songlistImport' })
-        setNavActiveId('nav_songlist')
-        setTimeout(() => { global.app_event.openSonglistImport() }, 100)
+        // M-2：必须带 data: true——consumePendingAction 返回的是 data，
+        // 不带时消费侧真值检查恒假（见 SongList/Content.tsx:172/178），
+        // 「不在歌单页 / 冷启动」两路径的导入弹窗永不打开
+        setPendingAction({ type: 'songlistImport', data: true })
+        // 1-21：不再 100ms 盲等——已在歌单页时立即发事件（页面已挂载、监听在册）；
+        // 否则靠 pendingAction，页面在切入（navActiveIdUpdated）或挂载时消费
+        // （见 SongList/Content.tsx）；setNavActiveId 同值短路，已在目标页时不发导航事件
+        if (commonState.navActiveId === 'nav_songlist') {
+          global.app_event.openSonglistImport()
+        } else {
+          setNavActiveId('nav_songlist')
+        }
       } else if (action === 'setting' || params.target === 'setting') {
         setNavActiveId('nav_setting')
       }
@@ -141,7 +176,11 @@ const runLinkAction = async(link: string) => {
   // }
 }
 
+// 1-3：模块级幂等守卫——重复调用不再叠加 Linking 监听/重复消费冷启动链接
+let deeplinkInitialized = false
 export const initDeeplink = async() => {
+  if (deeplinkInitialized) return
+  deeplinkInitialized = true
   Linking.addEventListener('url', ({ url }) => {
     void runLinkAction(url)
     console.log('deeplink', url)

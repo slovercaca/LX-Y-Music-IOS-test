@@ -50,13 +50,21 @@ export default async(setting: LX.AppSetting) => {
     }
   }
 
+  // 1-5：三平台 Cookie 拉取代际计数——切换账号/清除 Cookie 时递增，
+  // 分页拉取返回时校验代际，过期结果丢弃不写回 store
+  let wyReqGen = 0
+  let txReqGen = 0
+  let kgReqGen = 0
+
   const handleWyCookieUpdate = (keys: Array<keyof LX.AppSetting>, setting: Partial<LX.AppSetting>) => {
     if (!keys.includes('common.wy_cookie')) return
     const cookie = setting['common.wy_cookie']
     if (cookie) {
       console.log('正在刷新网易云数据...')
+      const reqGen = ++wyReqGen
       wyUserApi.getUid(cookie)
         .then(async(uid: any) => {
+          if (reqGen !== wyReqGen) return null
           // 必须同步设置 UID，否则依赖 useWyUid 的「我的歌单」页面在 cookie 更新后
           // 因 uid 为空而不会触发歌单加载（iPad 常驻/预挂载场景尤其明显）。
           setWyUid(uid)
@@ -66,15 +74,22 @@ export default async(setting: LX.AppSetting) => {
             wyUserApi.getAllSubAlbumList(),
           ])
         })
-        .then(([likedIds, followedArtists, subscribedAlbums]: any[]) => {
+        .then((result: any) => {
+          if (!result || reqGen !== wyReqGen) return
+          const [likedIds, followedArtists, subscribedAlbums] = result
           setWyLikedSongs(likedIds)
           setWyFollowedArtists(followedArtists)
           setWySubscribedAlbums(subscribedAlbums)
         })
         .catch((err: any) => {
+          // S-4：已换代的旧请求失败不弹提示——用户刚换完账号就看到旧账号
+          // 的失败提示是误报噪音（写回本身已被代际守卫拦截）
+          if (reqGen !== wyReqGen) return
           toast(`网易云数据获取失败: ${err.message}`)
         })
     } else {
+      // 清除 Cookie 也递增代际，让在途旧请求晚到时被丢弃
+      wyReqGen++
       // 中：清除网易云 Cookie 后此前不清理 store——上一账号的红心/关注/
       // 收藏专辑在本会话内残留显示，要重启才恢复（tx/kg 分支都有清空）
       console.log('网易云 cookie 已清除')
@@ -90,6 +105,7 @@ export default async(setting: LX.AppSetting) => {
     const cookie = setting['common.tx_cookie']
     if (cookie) {
       console.log('正在刷新QQ音乐数据...')
+      const reqGen = ++txReqGen
       try {
         const allLikedMids: string[] = []
         let page = 1
@@ -97,6 +113,8 @@ export default async(setting: LX.AppSetting) => {
         let hasMore = true
 
         while (hasMore) {
+          // 1-5：分页中途代际已变就停拉，免得继续浪费请求
+          if (reqGen !== txReqGen) return
           const result = await txUserApi.getFavSongs(page, pageSize)
           if (result.list && result.list.length > 0) {
             allLikedMids.push(...result.list.map((song: any) => song.mid))
@@ -105,12 +123,18 @@ export default async(setting: LX.AppSetting) => {
           page++
         }
 
+        // 1-5：代际守卫——切换账号/清除 Cookie 后旧请求晚到，丢弃写回
+        if (reqGen !== txReqGen) return
         setTxLikedSongs(allLikedMids)
         console.log(`QQ音乐喜欢歌曲加载成功，共 ${allLikedMids.length} 首`)
       } catch (err: any) {
+        // S-4：已换代的旧请求失败不弹提示（见 wy 分支同款注释）
+        if (reqGen !== txReqGen) return
         toast(`QQ音乐数据获取失败: ${err.message}`)
       }
     } else {
+      // 清除 Cookie 也递增代际，让在途旧请求晚到时被丢弃
+      txReqGen++
       setTxLikedSongs([])
     }
   }
@@ -120,6 +144,7 @@ export default async(setting: LX.AppSetting) => {
     const cookie = setting['common.kg_cookie']
     if (cookie) {
       console.log('正在刷新酷狗音乐数据...')
+      const reqGen = ++kgReqGen
       try {
         const playlistsResult = await getUserPlaylists(cookie)
         if (!playlistsResult.success || !playlistsResult.data) {
@@ -130,6 +155,8 @@ export default async(setting: LX.AppSetting) => {
         const favoritesPlaylist = playlistsResult.data.createdList.find((p: any) => p.isFavorites)
         if (!favoritesPlaylist) {
           console.log('未找到酷狗"我喜欢"歌单')
+          // 1-5：代际守卫——旧请求晚到时不清空新账号的红心
+          if (reqGen !== kgReqGen) return
           setKgLikedSongs([])
           return
         }
@@ -140,6 +167,8 @@ export default async(setting: LX.AppSetting) => {
         let hasMore = true
 
         while (hasMore) {
+          // 1-5：分页中途代际已变就停拉，免得继续浪费请求
+          if (reqGen !== kgReqGen) return
           const songsResult = await getPlaylistSongs(cookie, favoritesPlaylist.id, page, pageSize)
           if (songsResult.success && songsResult.data?.list?.length) {
             for (const song of songsResult.data.list) {
@@ -155,12 +184,18 @@ export default async(setting: LX.AppSetting) => {
           }
         }
 
+        // 1-5：代际守卫——切换账号/清除 Cookie 后旧请求晚到，丢弃写回
+        if (reqGen !== kgReqGen) return
         setKgLikedSongs(allLikedIds)
         console.log(`酷狗喜欢歌曲加载成功，共 ${allLikedIds.length} 首`)
       } catch (err: any) {
+        // S-4：已换代的旧请求失败不弹提示（见 wy 分支同款注释）
+        if (reqGen !== kgReqGen) return
         toast(`酷狗数据获取失败: ${err.message}`)
       }
     } else {
+      // 清除 Cookie 也递增代际，让在途旧请求晚到时被丢弃
+      kgReqGen++
       setKgLikedSongs([])
     }
   }

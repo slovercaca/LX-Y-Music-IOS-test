@@ -269,14 +269,20 @@ export const putTimeoutForSize = (bytes: number): number => {
   const bySize = Math.ceil(bytes / 51200) * 1000
   return Math.min(1800000, Math.max(120000, bySize))
 }
-/** 带超时的 Promise 竞速：超时不取消底层请求，但能让调用方不再永久挂起 */
-const withTimeout = async<T>(promise: Promise<T>, ms: number, message: string): Promise<T> => {
+/** 带超时的 Promise 竞速：超时时先调 onTimeout（供调用方取消底层请求，如 abort PUT），再 reject，让调用方不再永久挂起 */
+const withTimeout = async<T>(promise: Promise<T>, ms: number, message: string, onTimeout?: () => void): Promise<T> => {
   let timer: ReturnType<typeof setTimeout> | null = null
   try {
     return await Promise.race([
       promise,
       new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), ms)
+        timer = setTimeout(() => {
+          // 3-1：超时即通知调用方取消底层请求——此前超时只 reject，
+          // 底层 PUT 继续占连接与 Buffer，迟到的 PUT 还可能在重试的
+          // DELETE 之后落盘。
+          try { onTimeout?.() } catch { /* 忽略 */ }
+          reject(new Error(message))
+        }, ms)
       }),
     ])
   } finally {
@@ -313,6 +319,8 @@ export const uploadFile = async(remotePath: string, content: string): Promise<vo
         client.putFileContents(remotePath, content, { overwrite: true, signal: abortController.signal } as any) as Promise<unknown>,
         putTimeout,
         `上传超时（${Math.round(putTimeout / 1000)}秒无响应）：${remotePath}`,
+        // 3-1：超时即 abort 底层 PUT，不再让它在后台继续占连接
+        () => { abortController.abort() },
       )
     } catch (error: any) {
       webDAVLog.error('uploadFile: PUT 失败', { remotePath, error: describeWebDAVError(error) })
@@ -396,6 +404,8 @@ export const uploadBinaryFile = async(
         } as any) as Promise<unknown>,
         putTimeout,
         `上传超时（${Math.round(putTimeout / 1000)}秒无响应）：${remotePath}`,
+        // 3-1：超时即 abort 底层 PUT，让下面的 signal.aborted 检查活过来
+        () => { abortController.abort() },
       )
     } catch (e: any) {
       if (abortController.signal.aborted) {

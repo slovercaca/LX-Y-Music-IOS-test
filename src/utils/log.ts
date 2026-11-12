@@ -25,12 +25,33 @@ const trimLogFile = async() => {
   } catch { /* ignore */ }
 }
 
+// 4-10：source_test.log 加上限（与主日志同口径 trim，此前只 append 无上限）
+const trimSourceTestLogFile = async() => {
+  try {
+    const info = await stat(sourceTestLogPath)
+    if (info.size > MAX_LOG_SIZE) {
+      await unlink(sourceTestLogPath)
+      await writeFile(sourceTestLogPath, '')
+    }
+  } catch { /* ignore */ }
+}
+
+// 4-10：日志写操作串行化（单队列）——此前 append 与 trim 各自 void 并发，
+// trim 的 unlink+重建可能与在途 append 竞态丢日志
+let logWriteQueue: Promise<void> = Promise.resolve()
+const runLogSerial = (job: () => Promise<void>): Promise<void> => {
+  logWriteQueue = logWriteQueue.then(job, job).catch(() => {})
+  return logWriteQueue
+}
+
 const logTools = {
   tempLog: [] as Array<{ time: string, type: 'LOG' | 'WARN' | 'ERROR', text: string }> | null,
   writeLog(msg: string) {
     console.log(msg)
-    void appendFile(logPath, '\n----lx log----\n' + msg)
-    void trimLogFile()
+    void runLogSerial(async() => {
+      await appendFile(logPath, '\n----lx log----\n' + msg)
+      await trimLogFile()
+    })
   },
   async initLogFile() {
     try {
@@ -39,7 +60,7 @@ const logTools = {
       if (!isExists) await writeFile(logPath, '')
       // 启动时强制清理：无论日志开关状态，都截断超限文件
       // 防止老版本积累的几百兆日志残留
-      await trimLogFile()
+      await runLogSerial(trimLogFile)
       if (this.tempLog?.length) {
         this.writeLog(
           this.tempLog.map((m) => `${m.time} ${m.type} ${m.text}`).join('\n----lx log----\n'),
@@ -61,7 +82,13 @@ export const getLogs = async() => {
     const info = await stat(logPath)
     if (info.size > READ_LIMIT) {
       const position = Math.max(0, info.size - READ_LIMIT)
-      return await read(logPath, READ_LIMIT, position, 'utf8')
+      // 4-10：字节偏移截断可能落在多字节字符中间——读 base64 原字节，
+      // 向前跳过续字节（0x80–0xBF）找到字符边界再解码，避免首字符乱码
+      const b64 = await read(logPath, READ_LIMIT, position, 'base64')
+      const buf = Buffer.from(b64, 'base64')
+      let start = 0
+      while (start < buf.length && start < 3 && buf[start] >= 0x80 && buf[start] < 0xC0) start++
+      return buf.subarray(start).toString('utf8')
     }
   } catch { /* ignore */ }
   return readFile(logPath)
@@ -142,7 +169,10 @@ export const sourceTestLog = {
     if (msg.startsWith('%c')) return
     const time = new Date().toLocaleString()
     console.log(`[源测试] ${msg}`)
-    void appendFile(sourceTestLogPath, `\n----lx source test log----\n${time} LOG ${msg}`)
+    void runLogSerial(async() => {
+      await appendFile(sourceTestLogPath, `\n----lx source test log----\n${time} LOG ${msg}`)
+      await trimSourceTestLogFile()
+    })
   },
 }
 

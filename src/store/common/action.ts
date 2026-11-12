@@ -22,6 +22,9 @@ export default {
     global.state_event.safeAreaBottomUpdated(size)
   },
   setComponentId(name: COMPONENT_IDS, id: string) {
+    // 1-9：按 id 去重——PlayDetail 外层与横屏内层曾用同一 id 注册两次，
+    // 且每次旋转再累积一条，重复项会让 hasVisible 恒判不可见
+    if (state.componentIds.some(item => item.id === id)) return
     state.componentIds.push({ name, id })
     global.state_event.componentIdsUpdated([...state.componentIds])
   },

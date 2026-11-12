@@ -481,7 +481,7 @@ export default () => {
           startBuffering()
           if (skipTime != null) void setCurrentTime(skipTime)
         }).catch(() => { startBuffering() })
-      }).catch(() => {})
+      }).catch(() => { startBuffering() }) // 1-7②：getPosition 失败也重 arm 看门狗——此前吞错后链路断裂，直到下个 buffering 事件才恢复（与内层 getDuration().catch 同口径）
     }, 3000)
   }
 

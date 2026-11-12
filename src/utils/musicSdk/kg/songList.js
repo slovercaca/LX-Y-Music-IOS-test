@@ -579,7 +579,9 @@ export default {
     }).promise
     let result = body.match(/var\sphpParam\s=\s({.+?});/)
     if (result) result = JSON.parse(result[1])
-    this.cache.set(chain, result)
+    // 4-21：正则未命中（result 为 null）时不写缓存——缓存 null 会让会话内
+    // 后续命中直接返回 null，调用方裸取 songcount 抛错、该歌单永久打不开
+    if (result) this.cache.set(chain, result)
     return result
   },
 
@@ -627,16 +629,17 @@ export default {
       this.getUserListDetailById(songInfo.id, page, limit),
     ])
     const list = listData?.list || []
+    // 4-21：getListInfoByChain 可能返回 null（正则未命中），各字段判空
     return {
       list,
       page,
       limit,
-      total: listData?.total ?? listInfo.songcount ?? list.length ?? 0,
+      total: listData?.total ?? listInfo?.songcount ?? list.length ?? 0,
       source: 'kg',
       info: {
-        name: listInfo.specialname,
-        img: listInfo.imgurl && listInfo.imgurl.replace('{size}', 240),
-        author: listInfo.nickname,
+        name: listInfo?.specialname ?? '',
+        img: listInfo?.imgurl && listInfo.imgurl.replace('{size}', 240),
+        author: listInfo?.nickname ?? '',
       },
     }
   },
@@ -646,16 +649,17 @@ export default {
       this.getListInfoByChain(chain),
       this.getUserListDetailByPcChain(chain),
     ])
+    // 4-21：getListInfoByChain 可能返回 null（正则未命中），各字段判空
     return {
       list: list || [],
       page: 1,
       limit: this.listDetailLimit,
-      total: listInfo.songcount ?? list.length ?? 0,
+      total: listInfo?.songcount ?? list?.length ?? 0,
       source: 'kg',
       info: {
-        name: listInfo.specialname,
-        img: listInfo.imgurl && listInfo.imgurl.replace('{size}', 240),
-        author: listInfo.nickname,
+        name: listInfo?.specialname ?? '',
+        img: listInfo?.imgurl && listInfo.imgurl.replace('{size}', 240),
+        author: listInfo?.nickname ?? '',
       },
     }
   },

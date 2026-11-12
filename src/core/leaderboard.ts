@@ -2,7 +2,7 @@ import leaderboardState, { type Board, type ListDetailInfo } from '@/store/leade
 import leaderboardActions, { LIST_LOAD_LIMIT } from '@/store/leaderboard/action'
 import { deduplicationList, toNewMusicInfo } from '@/utils'
 import musicSdk from '@/utils/musicSdk'
-import { shouldRefreshByTtl } from '@/core/refreshThrottle'
+import { shouldRefreshByTtl, markRefreshed } from '@/core/refreshThrottle'
 
 /**
  * Set leaderboard list detail info
@@ -50,6 +50,8 @@ export const getBoardsList = async(source: LX.OnlineSource, isRefresh = false) =
   if (!force && leaderboardState.boards[source]) return leaderboardState.boards[source].list
   const board = await ((musicSdk[source])?.leaderboard.getBoards() as Promise<Board>)
   setBoard(board, source)
+  // 4-16：请求成功后才记刷新时刻——失败不占 TTL，下次点击可再试
+  markRefreshed(`board|${source}`)
   return leaderboardState.boards[source]!.list
 }
 

@@ -32,7 +32,9 @@ export const popTo = async(compId: string) => Navigation.popTo(compId)
 export const showPactModal = () => {
   if (pendingOverlays.has(PACT_MODAL)) return
   pendingOverlays.add(PACT_MODAL)
-  setTimeout(() => pendingOverlays.delete(PACT_MODAL), 500)
+  // 1-12：去抖窗延长到 2000ms，覆盖重试链（3 次 × 600ms 间隔）——此前 500ms
+  // 窗口比重试链短，窗口内重复调用会并行建链
+  setTimeout(() => pendingOverlays.delete(PACT_MODAL), 2000)
   const theme = themeState.theme
 
   // overlay 展示失败必须兜底重试：协议弹窗是首次安装的「准入」弹窗，一旦静默失败
@@ -175,8 +177,10 @@ export const showSyncModeModal = (onFail?: () => void) => {
 //   })
 // }
 
-export const showAnnouncementModal = () => {
-  if (pendingOverlays.has(ANNOUNCEMENT_MODAL)) return
+export const showAnnouncementModal = async(): Promise<boolean> => {
+  // 1-12：返回是否成功展示——调用方（core/announcement.showModal）失败时
+  // 需复位 showModal 状态；去抖命中视为展示中，返回 true
+  if (pendingOverlays.has(ANNOUNCEMENT_MODAL)) return true
   pendingOverlays.add(ANNOUNCEMENT_MODAL)
   setTimeout(() => pendingOverlays.delete(ANNOUNCEMENT_MODAL), 500)
   console.log('[Announcement] showAnnouncementModal called')
@@ -184,7 +188,7 @@ export const showAnnouncementModal = () => {
   console.log('[Announcement] Theme loaded:', !!theme)
 
   try {
-    void Navigation.showOverlay({
+    await Navigation.showOverlay({
       component: {
         name: ANNOUNCEMENT_MODAL,
         options: {
@@ -205,12 +209,11 @@ export const showAnnouncementModal = () => {
           },
         },
       },
-    }).then(() => {
-      console.log('[Announcement] Overlay shown successfully')
-    }).catch((err) => {
-      console.error('[Announcement] Failed to show overlay:', err)
     })
+    console.log('[Announcement] Overlay shown successfully')
+    return true
   } catch (err) {
-    console.error('[Announcement] Exception showing overlay:', err)
+    console.error('[Announcement] Failed to show overlay:', err)
+    return false
   }
 }

@@ -43,7 +43,8 @@ const handler: LX.Sync.ClientSyncHandlerListActions<LX.Sync.Socket> = {
     socket.moduleReadys.list = true
     registerEvent(socket)
     socket.onClose(() => {
-      unregisterEvent()
+      // 3-10(c)：注销绑定 socket 身份，旧 socket 的迟到 close 不注销新监听
+      unregisterEvent(socket)
     })
   },
 }

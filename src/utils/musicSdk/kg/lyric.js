@@ -13,8 +13,12 @@ const parseLyric = (str) => {
   let tlyric
   if (trans) {
     str = str.replace(/\[language:[\w=\\/+]+\]\n/, '')
-    let json = JSON.parse(Buffer.from(trans[1], 'base64').toString())
-    for (const item of json.content) {
+    // 4-21：base64 解出的内容非法 JSON 时跳过翻译解析，不让整首歌词加载失败
+    let json = null
+    try {
+      json = JSON.parse(Buffer.from(trans[1], 'base64').toString())
+    } catch { /* ignore */ }
+    for (const item of json?.content ?? []) {
       switch (item.type) {
         case 0:
           rlyric = item.lyricContent
@@ -87,7 +91,8 @@ export default {
         requestObj.cancelHttp = tryRequestObj.cancelHttp.bind(tryRequestObj)
         return tryRequestObj.promise
       }
-      if (body.candidates.length) {
+      // 4-21：candidates 缺失时判空（无候选即返回 null，不抛错）
+      if (body.candidates?.length) {
         let info = body.candidates[0]
         return {
           id: info.id,

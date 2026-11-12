@@ -1,4 +1,4 @@
-import { memo, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import { ScrollView, StyleSheet, Switch, TextInput, TouchableOpacity, View } from 'react-native'
 import Text from '@/components/common/Text'
 import Button from '@/components/common/Button'
@@ -95,8 +95,12 @@ export default memo(({ page }: { page: UploadTabProps }) => {
   const { activeTab, selectTab, uploadTargetDir, uploadWithLyrics, setUploadWithLyrics, uploadWithCover, setUploadWithCover } = page
   const mgr = page.uploadManager
   const { items, stats, queueState, history, selectedIds, concurrency } = mgr
-  // 分块/断点续传开关
-  const resumeEnabled = useSettingValue('webdav.uploadResume')
+  // 分块上传开关
+  // S-8：「断点续传」开关已删除——自 DELETE-before-PUT（2026-10-25）起
+  // 远端残片预检永不可达，3-3 删掉最后一个消费点后该开关零逻辑消费方，
+  // 文案承诺的是不存在的行为；设置键 webdav.uploadResume 已同步删除
+  //（defaultSetting 与 app_setting.d.ts；存储残留旧键由 mergeSetting
+  // 的未知键丢弃规则自动清除，不报错）。
   const chunkedEnabled = useSettingValue('webdav.uploadChunked')
   const chunkSizeMB = useSettingValue('webdav.uploadChunkSizeMB')
   const stallTimeoutSec = useSettingValue('webdav.uploadStallTimeoutSec')
@@ -107,6 +111,13 @@ export default memo(({ page }: { page: UploadTabProps }) => {
   const [pickerExpanded, setPickerExpanded] = useState(false)
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set())
   const [multiSelect, setMultiSelect] = useState(false)
+
+  // 3-12(1)：队列被清空后退出多选态——mgr.clearAll()/deleteSelected 只清
+  // 管理器侧 selectedIds，碰不到组件本地的 multiSelect，空列表上会继续
+  // 显示「取消多选」与全选行；未清完时留在多选态，方便继续删。
+  useEffect(() => {
+    if (items.length === 0) setMultiSelect(false)
+  }, [items.length])
 
   const pendingCount = stats.queued + stats.paused + stats.failed
   const hasActive = stats.uploading > 0 || stats.queued > 0
@@ -189,27 +200,6 @@ export default memo(({ page }: { page: UploadTabProps }) => {
                 <Text size={designTypography.title2} color={theme['c-font']}>＋</Text>
               </TouchableOpacity>
             </View>
-          </View>
-        </ContentGlass>
-
-        {/* 断点续传开关 */}
-        <ContentGlass
-          style={styles.card}
-          glassStyle={styles.cardGlass}
-          fallbackBackgroundColor={theme['c-content-background']}
-        >
-          <View style={styles.rowBetween}>
-            <View style={styles.flex1}>
-              <Text size={designTypography.body} color={theme['c-font']}>断点续传</Text>
-              <Text size={designTypography.caption} color={theme['c-font-label']} style={styles.tip}>
-                上传中断后从断点继续，不用从头传
-              </Text>
-            </View>
-            <Switch
-              value={resumeEnabled !== false}
-              onValueChange={(v) => { void updateSetting({ 'webdav.uploadResume': v }) }}
-              disabled={queueState === 'uploading'}
-            />
           </View>
         </ContentGlass>
 
@@ -417,9 +407,10 @@ export default memo(({ page }: { page: UploadTabProps }) => {
             </View>
           ) : null}
 
+          {/* S-8：文案删掉「已传到服务器的部分下次可断点续传」——DELETE-before-PUT 下重新上传会先删远端文件再从 0 重传，断点续传已不存在，原括号承诺的是不存在的行为，与删开关同因。 */}
           {stats.total > 0 ? (
             <Text size={designTypography.caption} color={theme['c-font-label']} style={styles.tip}>
-              上传队列仅在本次打开 App 期间有效：中途退出 App，未完成的上传需要重新添加（已传到服务器的部分下次可断点续传）。
+              上传队列仅在本次打开 App 期间有效：中途退出 App，未完成的上传需要重新添加（下次从头传）。
             </Text>
           ) : null}
 

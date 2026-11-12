@@ -228,7 +228,13 @@ export const createEqualizerGainsRecord = (gains?: readonly number[]) => {
   return result
 }
 
-export const normalizeEqualizerGain = (gain: number) => Math.round(gain * 10) / 10
+// 2-8(a)：增益归一化加有限性校验与钳位——持久化设置被污染时 NaN/Infinity 会经
+// controller 下发原生（NaN != 0 还会误判为启用）；钳位取 UI 滑杆的实际范围 ±15
+//（SoundEffectControl.tsx 的 minGain/maxGain），而非报告所写的 ±12
+export const normalizeEqualizerGain = (gain: number) => {
+  if (!Number.isFinite(gain)) return 0
+  return Math.min(15, Math.max(-15, Math.round(gain * 10) / 10))
+}
 export const normalizeConvolutionGain = (gain: number) => Math.min(50, Math.max(0, Math.round(gain)))
 
 export const hasEnabledEqualizerGains = (gains: readonly number[]) => {

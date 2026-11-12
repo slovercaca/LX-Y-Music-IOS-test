@@ -74,6 +74,22 @@ class WebDAVUploadModule: RCTEventEmitter {
     return ["WebDAVUploadProgress"]
   }
 
+  // 6-12: bridge reload 时释放共享 URLSession，避免旧 session 与 delegate 泄漏；
+  // 须调 super.invalidate()（与上一轮 F-43 同款坑：RCTEventEmitter 自身实现了
+  // invalidate 做监听清理，覆盖不调 super 会跳过基类收尾）。
+  // 先调 super（与 AppDelegate.mm 的 F-43 形态一致），再取消 session：
+  // 随后到达的 delegate 回调面对的已是失效的 emitter，sendEvent 会被安全丢弃。
+  override func invalidate() {
+    super.invalidate()
+    sessionLock.lock()
+    let oldSession = _session
+    _session = nil
+    _delegate = nil
+    sessionLock.unlock()
+    // 注意：直接取 _session，不要走 session 计算属性（后者会在空时新建一个 session）。
+    oldSession?.invalidateAndCancel()
+  }
+
   // MARK: - 上传
 
   /// 发起上传（单字典传参，避免多参数桥接越界）

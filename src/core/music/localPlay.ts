@@ -14,10 +14,12 @@
 import musicSdk, { searchMusic } from '@/utils/musicSdk'
 import wySdk from '@/utils/musicSdk/wy'
 import bilibiliSdk from '@/utils/musicSdk/bilibili'
+import settingState from '@/store/setting/state'
 import { existsFile, readFile } from '@/utils/fs'
 import { findLyricForAudio, findPictureForAudio, findLibraryPicture, coverBaseForSong, cacheLyricToLibrary } from '@/utils/localLibrary'
 import { readPic, readLyric } from '@/utils/localMediaMetadata'
 import { buildLyricInfo } from './utils'
+import { getFailureStrategyConfig } from './failureStrategy'
 
 export interface LocalPlayTarget {
   name: string
@@ -34,15 +36,9 @@ export interface LocalPlayTarget {
 const URL_SOURCES = ['wy', 'bilibili'] as const
 // 歌词/封面可用的内置平台回退顺序：企鹅 → 网易 → 酷狗 → 酷我 → 咪咕
 const META_SOURCES = ['tx', 'wy', 'kg', 'kw', 'mg'] as const
-// 跨平台匹配优先级（数字越小越优先）：企鹅 → 网易 → 酷狗 → 酷我 → 咪咕
-const SOURCE_PRIORITY: Record<string, number> = {
-  tx: 0,
-  wy: 1,
-  kg: 2,
-  kw: 3,
-  mg: 4,
-}
-const SOURCE_PRIORITY_FALLBACK = META_SOURCES.length
+// 跨平台匹配优先级（2026-11-12）：改读用户在失败策略里设定的平台优先级
+//（见 searchCandidates；旧值写死 tx → wy → kg → kw → mg 已删除）。
+// URL_SOURCES（直连兜底）与 META_SOURCES（候选平台集合）与该优先级无关，保持不动。
 const URL_QUALITYS: LX.Quality[] = ['320k', '128k']
 
 const cleanName = (name: string): string => {
@@ -129,6 +125,13 @@ const searchCandidates = async(name: string, singer: string): Promise<SongCandid
     if (!cs) return 1
     return cs === targetSinger || cs.includes(targetSinger) || targetSinger.includes(cs) ? 0 : 2
   }
+  // 失败策略（2026-11-12）：候选平台顺序改读用户设定的优先级（取链/歌词/
+  // 封面三路共用同一候选列表，顺序一并生效）；不在优先级里的平台排最后。
+  const platformPriority = getFailureStrategyConfig().platformPriority
+  const platformRank = (source: string): number => {
+    const idx = platformPriority.indexOf(source as LX.OnlineSource)
+    return idx === -1 ? platformPriority.length : idx
+  }
   result.sort((a, b) => {
     const aMatch = (a.name || '').toLowerCase() === target ? 0 : 1
     const bMatch = (b.name || '').toLowerCase() === target ? 0 : 1
@@ -138,12 +141,10 @@ const searchCandidates = async(name: string, singer: string): Promise<SongCandid
     const aSinger = singerScore(a)
     const bSinger = singerScore(b)
     if (aSinger !== bSinger) return aSinger - bSinger
-    // 3) 匹配度相同时按平台优先级：企鹅 → 网易 → 酷狗 → 酷我 → 咪咕
+    // 3) 匹配度相同时按用户设定的平台优先级
     // 注：musicSdk.searchMusic 返回顺序由 sources 数组决定，不受 META_SOURCES 控制，
     // 因此这里必须显式按优先级排序，否则平台顺序不稳定。
-    const aPriority = SOURCE_PRIORITY[a.source] ?? SOURCE_PRIORITY_FALLBACK
-    const bPriority = SOURCE_PRIORITY[b.source] ?? SOURCE_PRIORITY_FALLBACK
-    return aPriority - bPriority
+    return platformRank(a.source) - platformRank(b.source)
   })
   return result
 }
@@ -221,10 +222,27 @@ export const getMusicUrl = async({
   isRefresh?: boolean
 }): Promise<string> => {
   // 1. 本地文件（离线可用）
-  if (!isRefresh && target.filePath) {
+  // S-6：存在性只判一次、结果复用于离线放行——离线 + isRefresh 时本地文件存在也应
+  // 直接返回本地路径（离线下没有在线可刷，本地文件是唯一出路）；此前 !isRefresh 门
+  // 跳过检查、离线拦截又不查文件，本地歌明明存在却抛「本地文件不存在」。
+  // 只在「正常返回路径」(!isRefresh) 或「离线拦截路径」需要时才做磁盘判定，
+  // 在线 + isRefresh 时不额外做 exists，不多一次磁盘 IO。
+  const isOffline = settingState.setting['player.offlineMode'] === true
+  let localFileExists = false
+  if (target.filePath && (!isRefresh || isOffline)) {
     try {
-      if (await existsFile(target.filePath)) return target.filePath
+      localFileExists = await existsFile(target.filePath)
     } catch {}
+    if (!isRefresh && localFileExists) return target.filePath
+  }
+
+  // 2-9(b)：离线模式下本地文件缺失即拦截，不联网回退——此前无条件走内置平台搜索，
+  // 与离线语义冲突；文案含「离线模式」，player 的 friendlyPlayError 会原样展示
+  if (isOffline) {
+    // S-6：文件存在时先放行（复用上方判定结果，不重复做 exists），返回格式与
+    // 正常本地路径一致（即 target.filePath 本身）
+    if (localFileExists && target.filePath) return target.filePath
+    throw new Error('离线模式：本地文件不存在，无法联网获取')
   }
 
   // 2. 内置平台直连回退
@@ -295,9 +313,12 @@ export const getLyricInfo = async({
 export const getPicUrl = async({
   target,
   isRefresh = false,
+  offlineOnly = false,
 }: {
   target: LocalPlayTarget
   isRefresh?: boolean
+  /** 离线模式专用：只读本地（内嵌/sidecar/缓存/本地 picUrl），不联网搜索 */
+  offlineOnly?: boolean
 }): Promise<string> => {
   // 1. 本地内嵌/sidecar 封面（优先本地文件，离线可用）
   if (target.filePath) {
@@ -321,7 +342,12 @@ export const getPicUrl = async({
   }
 
   // 3. meta 缓存
-  if (!isRefresh && target.picUrl) return target.picUrl
+  // 2-9(b)：离线时 meta 缓存只认本地路径（file://），在线地址不返回——与 index.ts
+  // 离线分支「无本地封面返回空」同口径
+  if (!isRefresh && target.picUrl && (!offlineOnly || target.picUrl.startsWith('file://'))) return target.picUrl
+
+  // 2-9(b)：离线时不走第 4 步在线搜索，只读本地
+  if (offlineOnly) return ''
 
   // 4. 内置平台逐平台回退（搜索结果自带 img 兜底）
   const candidates = await searchCandidates(target.name, target.singer)

@@ -447,6 +447,11 @@ export default () => {
         clearTimeout(pendingInitialScrollTimerRef.current)
         pendingInitialScrollTimerRef.current = null
       }
+      // 5-8：forceScrollTimer 补卸载清理（回调只写 ref，漏清本无危害，顺手补齐）
+      if (forceScrollTimer.current) {
+        clearTimeout(forceScrollTimer.current)
+        forceScrollTimer.current = null
+      }
     }
   }, [])
 

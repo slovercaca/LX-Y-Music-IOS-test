@@ -4,7 +4,7 @@ import initTheme from './theme'
 import initI18n from './i18n'
 import initUserApi from './userApi'
 import initPlayer from './player'
-import dataInit from './dataInit'
+import { initLocalData, initRemoteData } from './dataInit'
 import initSync from './sync'
 import initCommonState from './common'
 import { initDeeplink } from './deeplink'
@@ -51,7 +51,16 @@ export default async() => {
   bootLog('Initing...')
   commonActions.setFontSize(global.lx.fontSize)
   bootLog('Font size changed.')
-  const setting = await withTimeout(initSetting(), 'Setting', defaultSetting)
+  // 1-4：设置初始化超时后晚到的真实设置直接丢弃——过期标记经 initSetting
+  // 传进 config/setting（不落盘）与 core/common（不切换运行时状态）
+  let isSettingInitExpired = false
+  const setting = await withTimeout(
+    initSetting(() => isSettingInitExpired),
+    'Setting',
+    defaultSetting,
+    3000,
+    () => { isSettingInitExpired = true },
+  )
   bootLog('Setting inited.')
   // console.log(setting)
 
@@ -73,15 +82,29 @@ export default async() => {
   bootLog('Playback Service Registered.')
   await withTimeout(initPlayer(setting), 'Player', undefined)
   bootLog('Player inited.')
-  // 中存疑-24：两步必须串行——dataInit 把下载任务读进内存，initDownloadPath 做
+  // 1-2：轻量本地读取（歌单/不喜欢/下载任务/上次 Tab）前置到 pushHomeScreen
+  // 之前——首帧 initialPage 直接落在恢复的 Tab，不再闪烁跳变；且
+  // handlePushedHomeScreen 里的 initDeeplink 触发时 setUserList/setTasks
+  // 已完成，后到的本地数据不再覆盖 deeplink 带来的歌单变更。
+  // 3 秒兜底：本地存储异常挂起时不等下去，先推首页、剩余部分后台继续
+  // （退化为旧行为）；Cookie 拉取等网络部分仍在后台（initRemoteData）。
+  const localDataPromise = initLocalData()
+  let isLocalDataTimeout = false
+  try {
+    await withTimeout(localDataPromise, 'Local Data', undefined, 3000, () => { isLocalDataTimeout = true })
+    bootLog(isLocalDataTimeout ? 'Local data init timeout, continuing in background.' : 'Local data inited.')
+  } catch (err: any) {
+    bootLog(`Local data init failed: ${err?.stack ?? err?.message ?? err}`)
+  }
+  // 中存疑-24：两步必须串行——initLocalData 把下载任务读进内存，initDownloadPath 做
   // 路径迁移并写回。此前并发：时序不利时内存里还是旧路径的任务，后续保存会把
   // 旧路径写回磁盘、抵消本次迁移（已迁移歌曲被误判 missing）。
+  // （即使上面 3 秒兜底已放行，这里仍等本地读取真正完成再迁移，串行关系不变。）
   void (async() => {
     try {
-      await dataInit(setting)
-      bootLog('Data inited.')
-    } catch (err: any) {
-      bootLog(`Data init failed: ${err?.stack ?? err?.message ?? err}`)
+      await localDataPromise
+    } catch {
+      // 本地读取失败已在上方记录，迁移仍按磁盘现状继续
     }
     try {
       await initDownloadPath(setting)
@@ -90,6 +113,9 @@ export default async() => {
       bootLog(`Download path init failed: ${err?.stack ?? err?.message ?? err}`)
     }
   })()
+  void initRemoteData(setting).catch((err: any) => {
+    bootLog(`Remote data init failed: ${err?.stack ?? err?.message ?? err}`)
+  })
   await withTimeout(initCommonState(setting), 'Common State', undefined)
   bootLog('Common State inited.')
 

@@ -73,6 +73,17 @@ export default async(_setting: LX.AppSetting) => {
     scriptRequestMap.delete(requestKey)
     target.abort()
   }
+  // 1-6①：取消在途的自定义源请求——从等待表移除、清掉 20s 定时器、
+  // 以取消错误拒绝等待方（此前 canceleFn 为空实现，取消语义失效）。
+  // 注：SendActions 只有 request/response 两通道，无 JS→原生取消通道，
+  // 原生脚本侧的在途请求由其 20s 超时兜底，这里只能取消 JS 侧等待。
+  const cancelUserApiRequest = (requestKey: string) => {
+    const target = userApiRequestMap.get(requestKey)
+    if (!target) return
+    userApiRequestMap.delete(requestKey)
+    clearTimeout(target.timeout)
+    target.reject(new Error('request canceled'))
+  }
   const sendScriptRequest = (
     requestKey: string,
     url: string,
@@ -156,7 +167,8 @@ export default async(_setting: LX.AppSetting) => {
                   const requestKey = `request__${Math.random().toString().substring(2)}`
                   return {
                     canceleFn() {
-                      // userApiRequestCancel(requestKey)
+                      // 1-6①：补 cancel 语义——取消 JS 侧等待（清定时器 + 拒绝 promise）
+                      cancelUserApiRequest(requestKey)
                     },
                     promise: sendUserApiRequest({
                       requestKey,
@@ -182,7 +194,13 @@ export default async(_setting: LX.AppSetting) => {
                           const urlExtension = urlPath.includes('.') ? urlPath.split('.').pop() || '' : ''
 
                           try {
-                            const headResponse = await fetch(url, { method: 'HEAD' })
+                            // 1-6②：HEAD 加 10 秒超时——此前无 signal、无超时，
+                            // 挂起会阻塞整条取链；超时后走下方扩展名兜底
+                            const headController = new AbortController()
+                            const headTimeoutId = setTimeout(() => { headController.abort() }, 10_000)
+                            const headResponse = await fetch(url, { method: 'HEAD', signal: headController.signal }).finally(() => {
+                              clearTimeout(headTimeoutId)
+                            })
                             const contentLength = headResponse.headers.get('content-length')
                             const contentType = headResponse.headers.get('content-type') || ''
 
@@ -230,7 +248,8 @@ export default async(_setting: LX.AppSetting) => {
                   const requestKey = `request__${Math.random().toString().substring(2)}`
                   return {
                     canceleFn() {
-                      // userApiRequestCancel(requestKey)
+                      // 1-6①：补 cancel 语义——取消 JS 侧等待（清定时器 + 拒绝 promise）
+                      cancelUserApiRequest(requestKey)
                     },
                     promise: sendUserApiRequest({
                       requestKey,
@@ -259,7 +278,8 @@ export default async(_setting: LX.AppSetting) => {
                   const requestKey = `request__${Math.random().toString().substring(2)}`
                   return {
                     canceleFn() {
-                      // userApiRequestCancel(requestKey)
+                      // 1-6①：补 cancel 语义——取消 JS 侧等待（清定时器 + 拒绝 promise）
+                      cancelUserApiRequest(requestKey)
                     },
                     promise: sendUserApiRequest({
                       requestKey,

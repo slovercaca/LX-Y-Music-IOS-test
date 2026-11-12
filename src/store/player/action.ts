@@ -47,6 +47,8 @@ export default {
     global.state_event.playStateTextChanged(statusText)
   },
   setNowPlayTime(time: number) {
+    // 1-18(b)：非有限值不写入——NaN 会存进 nowPlayTime 并显示为 NaN:NaN
+    if (!Number.isFinite(time)) return
     state.progress.nowPlayTime = time
     state.progress.nowPlayTimeStr = formatPlayTime2(time)
     state.progress.progress = state.progress.maxPlayTime ? clamp01(time / state.progress.maxPlayTime) : 0 // 低：引擎上报 position>duration 时进度溢出，与 setProgress 同口径钳制
@@ -54,6 +56,8 @@ export default {
     global.state_event.playProgressChanged({ ...state.progress })
   },
   setMaxplayTime(time: number) {
+    // 1-18(b)：非有限值不写入——NaN 会存进 maxPlayTime 并显示为 NaN:NaN
+    if (!Number.isFinite(time)) return
     state.progress.maxPlayTime = time
     state.progress.maxPlayTimeStr = formatPlayTime2(time)
     state.progress.progress = time ? clamp01(state.progress.nowPlayTime / time) : 0 // 低：同上
@@ -61,6 +65,9 @@ export default {
     global.state_event.playProgressChanged({ ...state.progress })
   },
   setProgress(currentTime: number, totalTime: number) {
+    // 1-18(b)：与 setNowPlayTime/setMaxplayTime 同口径——任一非有限值整条跳过，
+    // 否则 NaN 会存进 nowPlayTime/maxPlayTime 并显示为 NaN:NaN
+    if (!Number.isFinite(currentTime) || !Number.isFinite(totalTime)) return
     state.progress.nowPlayTime = currentTime
     state.progress.nowPlayTimeStr = formatPlayTime2(currentTime)
     state.progress.maxPlayTime = totalTime

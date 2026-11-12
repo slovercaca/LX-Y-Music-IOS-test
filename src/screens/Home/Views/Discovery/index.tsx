@@ -13,7 +13,7 @@ import settingState from '@/store/setting/state'
 import boardState, { type BoardItem } from '@/store/leaderboard/state'
 import { getList } from '@/core/songlist'
 import { getBoardsList } from '@/core/leaderboard'
-import { shouldRefreshByTtl } from '@/core/refreshThrottle'
+import { shouldRefreshByTtl, markRefreshed } from '@/core/refreshThrottle'
 import { saveLeaderboardSettingSync } from '@/utils/data'
 import { Icon } from '@/components/common/Icon'
 import Text from '@/components/common/Text'
@@ -194,6 +194,9 @@ export default memo(() => {
       const isRefresh = shouldRefreshByTtl(`square|discovery|${source}`)
       const result = await getList(source, '', getSortId(source), 1, isRefresh)
       if (currentLoadId !== loadIdRef.current) return
+      // 4-16 后续：shouldRefreshByTtl 已改为纯判定，刷新成功后须手动补记时刻，
+      // 否则每次进入都判为「应刷新」，TTL 门控失效
+      if (isRefresh) markRefreshed(`square|discovery|${source}`)
       setPlaylists(result.list.map((item) => ({ ...item, source })))
     } catch (error: any) {
       if (currentLoadId !== loadIdRef.current) return

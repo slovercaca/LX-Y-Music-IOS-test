@@ -84,7 +84,10 @@ export default {
   },
 
   getSinger(singers) {
-    return singers.map((singer) => singer.name).join('、')
+    // 4-19：脏数据 ar 缺失/非数组时返回空串，不拖垮整批
+    // S-11：元素级 ?. 防护，与 musicDetail.js getSinger 同口径（null 元素 join 后为空串，不抛错）
+    if (!Array.isArray(singers)) return ''
+    return singers.map((singer) => singer?.name).join('、')
   },
 
   handleResult(rawList) {
@@ -127,27 +130,28 @@ export default {
       }
       types.reverse()
 
+      // 4-19：al/ar 缺失时判空（单条脏数据只丢专辑信息，不拖垮整批）
       return {
         singer: this.getSinger(item.ar),
-        artists: item.ar,
+        artists: item.ar ?? [],
         name: item.name,
         fee: item.fee,
         alias: item.alia && item.alia.length ? item.alia[0] : '',
-        albumName: item.al.name,
-        albumId: item.al.id,
+        albumName: item.al?.name ?? '',
+        albumId: item.al?.id ?? '',
         source: 'wy',
         interval: formatPlayTime(item.dt / 1000),
         songmid: item.id,
-        img: item.al.picUrl,
+        img: item.al?.picUrl ?? '',
         lrc: null,
         types,
         _types,
         typeUrl: {},
         meta: {
           songId: item.id,
-          albumName: item.al.name,
-          albumId: item.al.id,
-          picUrl: item.al.picUrl,
+          albumName: item.al?.name ?? '',
+          albumId: item.al?.id ?? '',
+          picUrl: item.al?.picUrl ?? '',
           qualitys: types,
           _qualitys: _types,
           fee: item.fee,
