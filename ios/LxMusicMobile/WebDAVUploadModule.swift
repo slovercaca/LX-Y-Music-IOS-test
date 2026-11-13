@@ -31,11 +31,18 @@ class WebDAVUploadModule: RCTEventEmitter {
   // 线程安全的 session 初始化（lazy var 非线程安全，并发上传会崩）
   private var _session: URLSession?
   private var _delegate: SharedUploadDelegate?
+  // C-F2：module 是否已失效（invalidate() 后置位），与 _session 同一把
+  // sessionLock 保护。置位后 session 计算属性拒绝新建，避免 invalidate()
+  // 置空 _session 后、module 被丢弃前恰有新上传时新建一个无人释放的 session。
+  private var invalidated = false
   private let sessionLock = NSLock()
 
-  private var session: URLSession {
+  private var session: URLSession? {
     sessionLock.lock()
     defer { sessionLock.unlock() }
+    // C-F2：已失效时返回 nil（调用方 reject），不再新建 session。
+    // 检查与新建在同一把锁内，关死 check-then-create 竞态。
+    if invalidated { return nil }
     if let s = _session { return s }
     let delegate = SharedUploadDelegate(module: self)
     _delegate = delegate
@@ -85,6 +92,9 @@ class WebDAVUploadModule: RCTEventEmitter {
     let oldSession = _session
     _session = nil
     _delegate = nil
+    // C-F2：置位失效标志（与 _session 置空同一临界区），此后 session
+    // 计算属性不再新建 session。仍先调 super.invalidate()（NS_REQUIRES_SUPER）。
+    invalidated = true
     sessionLock.unlock()
     // 注意：直接取 _session，不要走 session 计算属性（后者会在空时新建一个 session）。
     oldSession?.invalidateAndCancel()
@@ -211,7 +221,13 @@ class WebDAVUploadModule: RCTEventEmitter {
           reject("E_CHUNK_SHORT", "分块数据不完整（文件可能在上传中被修改）", nil)
           return
         }
-        task = session.uploadTask(with: request, from: chunkData)
+        // C-F2：module 已失效（bridge reload 中）时 session 为 nil，直接 reject，
+        // 不新建 session。取 session 放在任务创建前一刻，窗口压到最小。
+        guard let liveSession = session else {
+          reject("E_MODULE_INVALIDATED", "上传模块已失效（Bridge 正在重载），请重试", nil)
+          return
+        }
+        task = liveSession.uploadTask(with: request, from: chunkData)
       } catch {
         reject("E_CHUNK_READ", "读取分块失败：\(error.localizedDescription)", nil)
         return
@@ -219,7 +235,12 @@ class WebDAVUploadModule: RCTEventEmitter {
     } else {
       // 整文件流式上传（不进内存）
       // 注意：uploadTask(with:fromFile:) 会自动设置 Content-Length
-      task = session.uploadTask(with: request, fromFile: fileURL)
+      // C-F2：同上，已失效时 reject，不新建 session。
+      guard let liveSession = session else {
+        reject("E_MODULE_INVALIDATED", "上传模块已失效（Bridge 正在重载），请重试", nil)
+        return
+      }
+      task = liveSession.uploadTask(with: request, fromFile: fileURL)
     }
 
     // 5. 保存上下文

@@ -128,6 +128,11 @@ const structuralReasons = (files) => {
   if (!files.download.includes('改走通用取链（失败策略）')) {
     reasons.push('wy/bilibili 直连失败后没有落到通用分支跑失败策略')
   }
+  // D-9：bilibili 直连拿到空 URL 也须抛错落通用分支（与 wy Cookie 分支同口径），
+  // 否则空 URL 直接返回给下载器。
+  if (!files.download.includes("if (!result.url) throw new Error('Bilibili 未能获取到URL')")) {
+    reasons.push('bilibili 直连空 URL 没有抛错改走通用取链')
+  }
   // 取链失败路径不删任务：startDownload 函数体内不应出现 removeTask（手动重试
   // retryTask 里的 removeTask(task.id) 是合法的——用户点重试时删旧任务重建）
   const startDownloadBody = (() => {
@@ -292,6 +297,10 @@ const cases = []
 {
   const tampered = { ...REAL, downloadConcurrency: REAL.downloadConcurrency.replace('kickDownloadQueue()', '/* no kick */') }
   cases.push(['调大并发后不再立即泵送', structuralReasons(tampered).length > 0])
+}
+{
+  const tampered = { ...REAL, download: REAL.download.replace("if (!result.url) throw new Error('Bilibili 未能获取到URL')", '/* D-9 guard removed */') }
+  cases.push(['D-9 bilibili 空 URL 守卫被删', structuralReasons(tampered).length > 0])
 }
 const failedCases = cases.filter(([, pass]) => !pass)
 

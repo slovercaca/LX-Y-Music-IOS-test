@@ -34,8 +34,7 @@
  * themes.ts 里，无法静态覆盖 —— 结论对自定义主题只有「同一公式」的参考意义。
  *
  * 运行：
- *   C:/Users/Administrator/.workbuddy/binaries/node/versions/22.22.2-3/node.exe \
- *     scripts/sim-glass-contrast.js
+ *   node scripts/sim-glass-contrast.js
  */
 
 'use strict'
@@ -169,7 +168,7 @@ const check = (name, pass, detail) => {
 
 // ---------------------------------------------------------------- 主流程
 
-const src = fs.readFileSync(THEMES_FILE, 'utf8')
+const src = fs.readFileSync(THEMES_FILE, 'utf8').replace(/\r\n/g, '\n')
 const themes = parseThemes(src)
 if (themes.length === 0) {
   console.error('未从 themes.ts 解析到任何主题，解析规则可能已失效')

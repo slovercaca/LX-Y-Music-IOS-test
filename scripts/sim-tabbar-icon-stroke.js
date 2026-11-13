@@ -191,7 +191,7 @@ function strokeWidth(polys, { minRun = 8, maxRun = 260 } = {}) {
 // ---------------------------------------------------------------------------
 // 3. 读取实现
 // ---------------------------------------------------------------------------
-const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8')
+const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8').replace(/\r\n/g, '\n')
 
 const selection = JSON.parse(read('src/resources/fonts/selection.json'))
 const glyphOf = (name) => {

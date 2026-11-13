@@ -20,7 +20,8 @@
  *   - 下载标签包含全部任务：未完成（等待/下载/暂停/失败）进「下载中」，
  *     已完成记录进「已完成」；带全部暂停/全部清空（只清未完成）。
  *   - 总量：GET contentLength 优先，其次 HEAD 探测，完成后以实际写入
- *     字节兜底；速度用 2 秒滑动窗口算，行里空速度显示 0 B/s。
+ *     字节兜底；速度用 2 秒滑动窗口算（下载开始预置 written=0 起点采样，
+ *     首回调即有速度，不再有 500ms 盲区），行里空速度显示 0 B/s。
  *   - 悬浮下载球改去本地与下载的下载标签（pendingAction + 事件双通道），
  *     独立 DownloadManager 屏幕注册/跳转全部下线。
  *
@@ -112,6 +113,12 @@ const structuralReasons = (files, oldScreenExists) => {
     reasons.push('GET contentLength 没有优先覆盖/保留总量（会被 -1/0 覆写回未知）')
   }
   if (!files.downloadCore.includes('progressSamples')) reasons.push('速度没有用滑动窗口计算')
+  if (!files.downloadCore.includes('progressSamples.push({ time: Date.now(), written: 0 })')) {
+    reasons.push('下载开始没有预置速度起点采样（500ms 内下完的歌速度恒为 0 B/s）')
+  }
+  if (files.downloadCore.includes('if (elapsed >= 500)')) {
+    reasons.push('速度仍有 500ms 门（起点采样后应放宽到 elapsed > 0 即算）')
+  }
   if (!files.downloadCore.includes('total: knownTotal > 0 ? knownTotal : downloadResult.bytesWritten')) {
     reasons.push('下载完成时没有用实际写入字节兜底总量')
   }
@@ -212,17 +219,22 @@ const resolveCompletedTotal = (knownTotal, bytesWritten) => (knownTotal > 0 ? kn
   models.push(['总量：GET 优先、HEAD 兜底、完成时实际字节兜底', ok])
 }
 
-// —— 模型4：滑动窗口速度 ——
+// —— 模型4：滑动窗口速度（起点采样后首回调即有速度） ——
 const windowSpeed = (samples) => {
   const first = samples[0]
   const last = samples[samples.length - 1]
   const elapsed = last.time - first.time
-  return elapsed >= 500 ? (last.written - first.written) / (elapsed / 1000) : null
+  return elapsed > 0 ? (last.written - first.written) / (elapsed / 1000) : null
 }
 {
   const ok = windowSpeed([{ time: 0, written: 0 }, { time: 500, written: 500000 }]) === 1000000 &&
-    windowSpeed([{ time: 0, written: 0 }, { time: 250, written: 100 }]) === null
-  models.push(['速度：2 秒窗口内按字节增量算、窗口不足沿用旧值', ok])
+    // 起点采样 + 首回调 250ms：此前返回 null（窗口不足沿用旧值），现在已有平均速度
+    windowSpeed([{ time: 0, written: 0 }, { time: 250, written: 100 }]) === 400 &&
+    // 400ms 内下完的快歌：首回调即非零，不再全程 0 B/s
+    windowSpeed([{ time: 0, written: 0 }, { time: 400, written: 4000000 }]) === 10000000 &&
+    // 同一毫秒两次回调：elapsed 为 0，沿用旧值（防除零）
+    windowSpeed([{ time: 100, written: 0 }, { time: 100, written: 50 }]) === null
+  models.push(['速度：2 秒窗口内按字节增量算、起点采样使首回调即有速度、同一毫秒沿用旧值', ok])
 }
 
 // —— 模型5：清理记录只删失效记录 ——
@@ -261,6 +273,20 @@ const cases = []
     downloadCore: REAL.downloadCore.replace("method: 'HEAD'", "method: 'GET'"),
   }
   cases.push(['HEAD 总量探测被改回 GET', structuralReasons(tampered, false).length > 0])
+}
+{
+  const tampered = {
+    ...REAL,
+    downloadCore: REAL.downloadCore.replace('progressSamples.push({ time: Date.now(), written: 0 })', '// seed removed'),
+  }
+  cases.push(['速度起点采样被删（0 B/s 回归）', structuralReasons(tampered, false).length > 0])
+}
+{
+  const tampered = {
+    ...REAL,
+    downloadCore: REAL.downloadCore.replace('if (elapsed > 0) {', 'if (elapsed >= 500) {'),
+  }
+  cases.push(['速度 500ms 门回归', structuralReasons(tampered, false).length > 0])
 }
 {
   const tampered = {

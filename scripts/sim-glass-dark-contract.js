@@ -202,7 +202,7 @@ function run(sources) {
 
 // ---------------------------------------------------------------------------
 
-const sources = Object.values(FILES).map((f) => [f, fs.readFileSync(path.join(ROOT, f), 'utf8')])
+const sources = Object.values(FILES).map((f) => [f, fs.readFileSync(path.join(ROOT, f), 'utf8').replace(/\r\n/g, '\n')])
 
 const checks = []
 const check = (name, pass, detail) => checks.push({ name, pass, detail })
@@ -224,7 +224,7 @@ check(
 // ModernTabBar / PlayerBar 里，它们不在 FILES 中（漏扫会让这条断言永远假通过）。
 const tsxSources = collectTsx(path.join(ROOT, 'src')).map((p) => [
   path.relative(ROOT, p).replace(/\\/g, '/'),
-  fs.readFileSync(p, 'utf8'),
+  fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n'),
 ])
 const { problems: siteProblems, callSites } = checkCallSites(tsxSources)
 check(
@@ -355,7 +355,7 @@ function copyVersions(text) {
  */
 function checkCopyContract(over = {}) {
   const problems = []
-  const read = (key, file) => over[key] ?? fs.readFileSync(path.join(ROOT, file), 'utf8')
+  const read = (key, file) => over[key] ?? fs.readFileSync(path.join(ROOT, file), 'utf8').replace(/\r\n/g, '\n')
 
   const lang = read('lang', COPY_FILES.lang)
   const toggle = read('toggle', COPY_FILES.toggle)
@@ -473,9 +473,9 @@ function checkVendorHeaderContract(over = {}) {
 
 // --- 不变量 5（反例）：篡改任一处事实源都必须被报出来 ---
 {
-  const srcLang = fs.readFileSync(path.join(ROOT, COPY_FILES.lang), 'utf8')
-  const srcToggle = fs.readFileSync(path.join(ROOT, COPY_FILES.toggle), 'utf8')
-  const srcPod = fs.readFileSync(path.join(ROOT, COPY_FILES.podfile), 'utf8')
+  const srcLang = fs.readFileSync(path.join(ROOT, COPY_FILES.lang), 'utf8').replace(/\r\n/g, '\n')
+  const srcToggle = fs.readFileSync(path.join(ROOT, COPY_FILES.toggle), 'utf8').replace(/\r\n/g, '\n')
+  const srcPod = fs.readFileSync(path.join(ROOT, COPY_FILES.podfile), 'utf8').replace(/\r\n/g, '\n')
   const srcFactory = sources.find(([f]) => f === FILES.swift)[1]
   const CASES = [
     // 原生守卫调档到 26.5，文案仍写 26.2 → 必须报
@@ -557,7 +557,7 @@ function checkVendorHeaderContract(over = {}) {
 // 任何一处被删/被改，26.2+ 用户就会重新看到闪烁或看到失效开关，而 tsc/eslint 全绿。
 function checkIOS26Gate(over = {}) {
   const problems = []
-  const read = (key) => over[key] ?? fs.readFileSync(path.join(ROOT, GATE_FILES[key]), 'utf8')
+  const read = (key) => over[key] ?? fs.readFileSync(path.join(ROOT, GATE_FILES[key]), 'utf8').replace(/\r\n/g, '\n')
   // 「注释同形」教训第三次出现（前两次是守卫假阴性，这次是假阳性）：tools.ts 的
   // 26.2 判定注释里**故意写着**反模式示例（`Number(osVer) >= 26.2` 的说明文字），
   // 直接整文匹配会把注释当反模式误报。检查前剥掉整行注释与 JSDoc 行（代码行不会
@@ -622,12 +622,12 @@ const GATE_FILES = {
 
 // --- 不变量 9（反例）：抹掉/篡改任一门控点都必须被报出来 ---
 {
-  const srcTools = fs.readFileSync(path.join(ROOT, GATE_FILES.tools), 'utf8')
-  const srcComp = fs.readFileSync(path.join(ROOT, GATE_FILES.comp), 'utf8')
-  const srcToggle = fs.readFileSync(path.join(ROOT, GATE_FILES.toggle), 'utf8')
-  const srcThemeScreen = fs.readFileSync(path.join(ROOT, GATE_FILES.themeScreen), 'utf8')
-  const srcTabbar = fs.readFileSync(path.join(ROOT, GATE_FILES.tabbar), 'utf8')
-  const srcPlayerbar = fs.readFileSync(path.join(ROOT, GATE_FILES.playerbar), 'utf8')
+  const srcTools = fs.readFileSync(path.join(ROOT, GATE_FILES.tools), 'utf8').replace(/\r\n/g, '\n')
+  const srcComp = fs.readFileSync(path.join(ROOT, GATE_FILES.comp), 'utf8').replace(/\r\n/g, '\n')
+  const srcToggle = fs.readFileSync(path.join(ROOT, GATE_FILES.toggle), 'utf8').replace(/\r\n/g, '\n')
+  const srcThemeScreen = fs.readFileSync(path.join(ROOT, GATE_FILES.themeScreen), 'utf8').replace(/\r\n/g, '\n')
+  const srcTabbar = fs.readFileSync(path.join(ROOT, GATE_FILES.tabbar), 'utf8').replace(/\r\n/g, '\n')
+  const srcPlayerbar = fs.readFileSync(path.join(ROOT, GATE_FILES.playerbar), 'utf8').replace(/\r\n/g, '\n')
   const CASES = [
     // 版本判定退化成整数比较（parseInt('26.2')===26，26.1/26.2 不再区分）→ 必须报
     {

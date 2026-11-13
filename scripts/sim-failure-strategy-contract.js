@@ -12,7 +12,8 @@
  * 本脚本钉住的修复不变量：
  *   - 策略引擎在取链层（handleGetOnlineMusicUrl）：首选档试一次 → 按用户顺序
  *     跑启用的步；429 全程直通不进策略循环；allowToggleSource=false 时跳过
- *     换平台步；总开关关时只试首选一次。
+ *     换平台步；总开关关时只试首选一次。D-2：首试档以可用档为准（回退表首项，
+ *     slice(0, 1)），仍只单独试一次；quality 步排除首试档而非 targetQuality。
  *   - 两处降质闭包抽成共享原语 tryMusicUrlWithFallback；只往下的
  *     getTryQualityList / getNextTryQuality 已删除（controller 改用方向感知）。
  *   - 换源候选按用户平台优先级重排（不改调用方数组）；音质回退表按方向走。
@@ -102,8 +103,12 @@ const structuralReasons = (files) => {
   if (!files.utils.includes('getEnabledStepsInOrder(strategyConfig)')) {
     reasons.push('handleGetOnlineMusicUrl 没有按用户顺序取启用的策略步')
   }
-  if (!files.utils.includes("tryMusicUrlWithFallback(musicInfo, [targetQuality], '[在线播放]')")) {
-    reasons.push('handleGetOnlineMusicUrl 首选档没有先单独试一次')
+  // D-2：首试改为可用档感知——首试档是回退表的第一项（slice(0, 1)，目标档可用时
+  // 即目标档），仍只单独试一次；quality 步排除首试档 firstQualities[0]。
+  if (!files.utils.includes('buildSourceFallbackQualities(targetQuality, strategyConfig.qualityDirection, availableQualities).slice(0, 1)')
+    || !files.utils.includes("tryMusicUrlWithFallback(musicInfo, firstQualities, '[在线播放]')")
+    || !files.utils.includes('.filter(q => q !== firstQualities[0])')) {
+    reasons.push('handleGetOnlineMusicUrl 首试没有先单独试一次（可用档感知的首试 + quality 步排除首试档）')
   }
   if (!files.utils.includes("if (step === 'quality')") || !files.utils.includes("if (step === 'platform')") || !files.utils.includes("if (step === 'source')")) {
     reasons.push('handleGetOnlineMusicUrl 没有三步分支（quality/platform/source）')
@@ -273,6 +278,10 @@ const cases = []
 {
   const tampered = { ...REAL, utils: REAL.utils.replace('if (!allowToggleSource) continue', 'if (false) continue') }
   cases.push(['platform 步丢了防递归门', structuralReasons(tampered).length > 0])
+}
+{
+  const tampered = { ...REAL, utils: REAL.utils.replace("tryMusicUrlWithFallback(musicInfo, firstQualities, '[在线播放]')", "tryMusicUrlWithFallback(musicInfo, [targetQuality], '[在线播放]')") }
+  cases.push(['D-2 首试又改回固定 [targetQuality]', structuralReasons(tampered).length > 0])
 }
 {
   const tampered = { ...REAL, player: REAL.player.replace('if (!isRetryed && !isOnlineSong) return getMusicPlayUrl(musicInfo, isRefresh, true, quality)', 'if (!isRetryed) return getMusicPlayUrl(musicInfo, isRefresh, true, quality)') }
