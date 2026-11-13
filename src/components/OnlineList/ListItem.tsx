@@ -83,9 +83,11 @@ export default memo(
     listId: _listId,
     showCover = true,
     hideMenu = false,
+    isDimmed = false,
   }: {
     item: LX.Music.MusicInfoOnline
     index: number
+    isDimmed?: boolean
     showSource?: boolean
     onPress: (item: LX.Music.MusicInfoOnline, index: number) => void
     onLongPress: (item: LX.Music.MusicInfoOnline, index: number) => void
@@ -159,6 +161,9 @@ export default memo(
           ...styles.listItem,
           width: rowInfo.rowWidth,
           height: ITEM_HEIGHT,
+          // 离线置灰：未下载歌曲整行降透明度（封面/文字/按钮一起灰），
+          // 点播拦截在 List.handlePress，不在这里禁点击（长按多选、菜单仍可用）。
+          opacity: isDimmed ? 0.45 : 1,
         }}
       >
         {glassContentOn && highlight ? (
@@ -250,6 +255,7 @@ export default memo(
       prevProps.listId === nextProps.listId &&
       prevProps.playingId === nextProps.playingId &&
       prevProps.hideMenu === nextProps.hideMenu &&
+      prevProps.isDimmed === nextProps.isDimmed &&
       (prevProps.item as any).playHistorySource === (nextProps.item as any).playHistorySource &&
       nextProps.selectedList.includes(nextProps.item) ==
       prevProps.selectedList.includes(nextProps.item) &&

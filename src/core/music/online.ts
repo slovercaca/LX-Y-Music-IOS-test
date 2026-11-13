@@ -1,4 +1,4 @@
-import { saveLyric, saveMusicUrl, getMusicUrl as getStoreMusicUrl } from '@/utils/data'
+import { saveLyric, saveMusicUrl, getMusicUrl as getStoreMusicUrl, getCachedMusicUrlWithSource as getStoreMusicUrlWithSource } from '@/utils/data'
 import { cacheLyricToLibrary, coverBaseForSong } from '@/utils/localLibrary'
 import { mergeLyrics } from '@/screens/Home/Views/Mylist/MusicList/download/lrcTool'
 import {
@@ -63,7 +63,9 @@ export const getMusicUrl = async(options: {
 }): Promise<string> => (await resolveMusicUrl(options)).url
 
 /**
- * 解析播放地址，并同时报出**实际**拿到的音质（歌曲不支持请求档位时会降级）。
+ * 解析播放地址，并同时报出**实际**拿到的音质（歌曲不支持请求档位时会降级）
+ * 与**实际**取链平台（失败策略换源成功时为目标平台；缓存命中时取缓存里记
+ * 的平台——换源 URL 会存到原歌名下，不记平台会误报原平台，见 M-1）。
  * 播放链路只关心 url（用 getMusicUrl）；下载链路需要把实际音质记下来展示
  * （见 core/download.ts 的 actualQuality：请求 hires、实际降级 flac 时列表要显示 flac）。
  */
@@ -81,7 +83,7 @@ export const resolveMusicUrl = async({
   allowToggleSource?: boolean
   onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
   silent?: boolean
-}): Promise<{ url: string, quality: LX.Quality, musicInfo: LX.Music.MusicInfoOnline }> => {
+}): Promise<{ url: string, quality: LX.Quality, musicInfo: LX.Music.MusicInfoOnline, source: LX.Source }> => {
   // if (!musicInfo._types[type]) {
   //   if (!(musicInfo.source == 'kw' && type == '128k')) throw new Error('该歌曲没有可播放的音频')
 
@@ -121,11 +123,13 @@ export const resolveMusicUrl = async({
   const targetQuality = quality ?? getPlayQuality(preferredQuality, currentMusicInfo)
 
   // 如果不是刷新请求，先检查缓存
+  // M-1：命中时返回缓存里记的实际平台——该条目可能是历史上换源后存下的
+  // 别家 URL；旧格式条目（无 source）回退到请求歌自身平台。
   if (!isRefresh) {
-    const cachedUrl = await getStoreMusicUrl(currentMusicInfo, targetQuality)
-    if (cachedUrl) {
+    const cached = await getStoreMusicUrlWithSource(currentMusicInfo, targetQuality)
+    if (cached.url) {
       setLastTryQuality(currentMusicInfo.id, targetQuality)
-      return { url: cachedUrl, quality: targetQuality, musicInfo: currentMusicInfo }
+      return { url: cached.url, quality: targetQuality, musicInfo: currentMusicInfo, source: cached.source ?? currentMusicInfo.source }
     }
   }
 
@@ -152,11 +156,15 @@ export const resolveMusicUrl = async({
       if (!silent) console.log('### [WHITEBOX_API_URL] 异步 URL 真正就绪 ###', { title: currentMusicInfo.name, songId: currentMusicInfo.id, url: result.url })
       // 2-10：按兜底路径对齐缓存同步——换源歌曲自己的条目也要写（否则下次直接播它时
       // 缓存未命中、重复取链）；缓存命中时不重复写盘；wy 详情重取导致 id 变化时原条目也同步
-      if (result.musicInfo.id != currentMusicInfo.id && !result.isFromCache) void saveMusicUrl(result.musicInfo, result.quality, result.url)
-      void saveMusicUrl(currentMusicInfo, result.quality, result.url)
+      // M-1：三处存点都带实际平台——同一条 URL 存到哪个键下，它的平台就是
+      // 实际取链平台（result.source 优先于 musicInfo.source：换源候选的缓存
+      // 命中可能来自二阶换源，musicInfo.source 此时不是 URL 的真实平台）。
+      const actualSource = result.source ?? result.musicInfo.source
+      if (result.musicInfo.id != currentMusicInfo.id && !result.isFromCache) void saveMusicUrl(result.musicInfo, result.quality, result.url, actualSource)
+      void saveMusicUrl(currentMusicInfo, result.quality, result.url, actualSource)
       setLastTryQuality(currentMusicInfo.id, result.quality)
-      if (currentMusicInfo.id !== musicInfo.id) void saveMusicUrl(musicInfo, result.quality, result.url)
-      return { url: result.url, quality: result.quality ?? targetQuality, musicInfo: result.musicInfo }
+      if (currentMusicInfo.id !== musicInfo.id) void saveMusicUrl(musicInfo, result.quality, result.url, actualSource)
+      return { url: result.url, quality: result.quality ?? targetQuality, musicInfo: result.musicInfo, source: actualSource }
     } catch (apiError) {
       if (!silent) console.log('Custom API request failed', apiError)
       throw apiError
@@ -172,10 +180,10 @@ export const resolveMusicUrl = async({
         // 高音质长期复用（播放器按 hires 走高精度路径、降级逻辑也被误导）。
         // 首次多一次取链，换来缓存里的音质永远真实。
         const actualQuality = WY_LEVEL_TO_QUALITY[result?.level] ?? targetQuality
-        void saveMusicUrl(currentMusicInfo, actualQuality, url)
+        void saveMusicUrl(currentMusicInfo, actualQuality, url, currentMusicInfo.source)
         setLastTryQuality(currentMusicInfo.id, actualQuality)
-        if (currentMusicInfo.id !== musicInfo.id) void saveMusicUrl(musicInfo, actualQuality, url)
-        return { url, quality: actualQuality, musicInfo: currentMusicInfo }
+        if (currentMusicInfo.id !== musicInfo.id) void saveMusicUrl(musicInfo, actualQuality, url, currentMusicInfo.source)
+        return { url, quality: actualQuality, musicInfo: currentMusicInfo, source: currentMusicInfo.source }
       }
     } catch (error) {
       if (!silent) console.log('Get music url with cookie failed, fallback to custom api', error)
@@ -188,12 +196,13 @@ export const resolveMusicUrl = async({
     onToggleSource,
     isRefresh,
     allowToggleSource,
-  }).then(({ url, quality: resolvedQuality, musicInfo: targetMusicInfo, isFromCache }) => {
-    if (targetMusicInfo.id != currentMusicInfo.id && !isFromCache) { void saveMusicUrl(targetMusicInfo, resolvedQuality, url) }
-    void saveMusicUrl(currentMusicInfo, resolvedQuality, url)
+  }).then(({ url, quality: resolvedQuality, musicInfo: targetMusicInfo, isFromCache, source: resolvedSource }) => {
+    const actualSource = resolvedSource ?? targetMusicInfo.source
+    if (targetMusicInfo.id != currentMusicInfo.id && !isFromCache) { void saveMusicUrl(targetMusicInfo, resolvedQuality, url, actualSource) }
+    void saveMusicUrl(currentMusicInfo, resolvedQuality, url, actualSource)
     setLastTryQuality(currentMusicInfo.id, resolvedQuality)
-    if (currentMusicInfo.id !== musicInfo.id) void saveMusicUrl(musicInfo, resolvedQuality, url)
-    return { url, quality: resolvedQuality ?? targetQuality, musicInfo: targetMusicInfo }
+    if (currentMusicInfo.id !== musicInfo.id) void saveMusicUrl(musicInfo, resolvedQuality, url, actualSource)
+    return { url, quality: resolvedQuality ?? targetQuality, musicInfo: targetMusicInfo, source: actualSource }
   })
 }
 

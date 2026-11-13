@@ -16,6 +16,7 @@ import settingState from '@/store/setting/state'
 import downloadState from '@/store/download/state'
 import { existsFile } from '@/utils/fs'
 import { findPictureForAudio, findLibraryPicture, coverBaseForSong, cacheCoverToLibrary, isPicCacheEnabled } from '@/utils/localLibrary'
+import { readPic } from '@/utils/localMediaMetadata'
 
 export { handleGetOnlinePicUrl }
 
@@ -32,7 +33,7 @@ export const getMusicUrlWithQuality = async({
   musicInfo: LX.Music.MusicInfoOnline
   quality?: LX.Quality
   isRefresh: boolean
-}): Promise<{ url: string, quality: LX.Quality, musicInfo: LX.Music.MusicInfoOnline }> =>
+}): Promise<{ url: string, quality: LX.Quality, musicInfo: LX.Music.MusicInfoOnline, source: LX.Source }> =>
   resolveOnlineMusicUrl({ musicInfo, quality, isRefresh })
 
 // 「本地与下载」专用链路：不走自定义源管理，本地文件优先 + 内置平台直连回退
@@ -86,9 +87,44 @@ const findOfflineLocalFile = async(song: LX.Music.MusicInfo): Promise<string | n
 }
 
 /**
+ * 2026-11-13 离线分区展示：同步版的「是否已下载」判定，供列表分区用。
+ * 匹配口径与 findOfflineLocalFile 一致（ID 精确匹配优先、歌名+歌手归一化
+ * 匹配兜底，歌手为空不走歌名匹配），仅两处为展示做了取舍：不做 existsFile
+ * 校验（分区是同步计算，逐首异步验文件不可行）；同名多命中时不按时长择优
+ * （任一命中即算已下载）。文件已被外部删除的过期任务会误判为已下载——
+ * 点播时仍走 findOfflineLocalFile 验文件、失败有 toast，不会播错歌。
+ * 查找表一次建成、单首 O(1) 判定，千首列表也不会卡。
+ */
+export interface DownloadedLookup {
+  ids: Set<string>
+  nameSinger: Set<string>
+}
+export const buildDownloadedLookup = (): DownloadedLookup => {
+  const ids = new Set<string>()
+  const nameSinger = new Set<string>()
+  const normalize = (s: string) => (s || '').trim().toLowerCase()
+  for (const task of downloadState.tasks) {
+    if (task.status !== 'completed' || !task.filePath) continue
+    const ti = task.musicInfo
+    if (!ti) continue
+    if (ti.id) ids.add(ti.id)
+    const n = normalize(ti.name)
+    const s = normalize(ti.singer)
+    if (n && s) nameSinger.add(`${n}\n${s}`)
+  }
+  return { ids, nameSinger }
+}
+export const isSongDownloaded = (song: LX.Music.MusicInfo, lookup: DownloadedLookup): boolean => {
+  if (song.id && lookup.ids.has(song.id)) return true
+  const n = (song.name || '').trim().toLowerCase()
+  const s = (song.singer || '').trim().toLowerCase()
+  return !!n && !!s && lookup.nameSinger.has(`${n}\n${s}`)
+}
+
+/**
  * 2026-10-22 封面缓存全局化：为在线歌曲查找本地已缓存封面（不限离线模式）。
  * 优先顺序：匹配的下载任务自带本地封面 > 任务音频同名 picture/ 封面 >
- * 按下载文件名模板（歌名 - 歌手）在本地库 picture/ 里找。
+ * 任务音频内嵌封面 > 按下载文件名模板（歌名 - 歌手）在本地库 picture/ 里找。
  */
 const findLocalCachedPic = async(song: LX.Music.MusicInfo): Promise<string | null> => {
   const normalize = (s: string) => (s || '').trim().toLowerCase()
@@ -108,9 +144,21 @@ const findLocalCachedPic = async(song: LX.Music.MusicInfo): Promise<string | nul
     // 2. 任务音频同名 picture/ 封面（music/ ↔ picture/ 等结构统一查找）
     const sidecar = await findPictureForAudio(task.filePath).catch(() => null)
     if (sidecar) return `file://${sidecar}`
+    // 3. 任务音频内嵌封面（2026-11-13，与播放链路 localPlay.getPicUrl 第 1 步
+    //    对齐）：2026-10-22 之前下载的歌曲只有内嵌封面、没有 picture/ 旁路
+    //    文件，列表此前从不读内嵌，离线时显示 LX 占位图。列表缺内嵌而播放
+    //    链路（任务/本地分支）有内嵌是不对称的代码事实；在线歌曲从歌单点播
+    //    时播放与列表走同一条 findLocalCachedPic，不要把“播放有封面”一概
+    //    归因于此（迷你播放器封面也可能是在线时段解析后残留的）。
+    //    旁路文件优先于内嵌（existsFile 便宜、原生提取相对贵）；音频文件
+    //    不存在时不调原生提取（与 localPlay 同款守卫）。
+    if (await existsFile(task.filePath).catch(() => false)) {
+      const embedded = await readPic(task.filePath).catch(() => null)
+      if (embedded) return embedded
+    }
     // 当前任务无封面，继续检查其他匹配的任务
   }
-  // 3. 在线时缓存到 picture/ 的封面（按模板基名）
+  // 4. 在线时缓存到 picture/ 的封面（按模板基名）
   const libraryPic = await findLibraryPicture(coverBaseForSong(song.name, song.singer)).catch(() => null)
   if (libraryPic) return `file://${libraryPic}`
   return null
@@ -184,9 +232,13 @@ export const getMusicUrl = async({
   }
 }
 
-// 取链并返回「链接 + 实际音质」，供播放器判断能否走原生 FLAC 高精度路径。
+// 取链并返回「链接 + 实际音质 + 实际平台」，供播放器判断能否走原生 FLAC
+// 高精度路径、以及详情页展示失败策略换源/换音质后的实际值。
 // 参考 Q-1515/lx-music-mobile ios-adaptation：播放核心使用 getMusicUrlInfo，
 // 本项目的本地/WebDAV/汽水链路没有音质回传，故回退为请求时指定的音质（缺省 null）。
+// 实际平台取 resolveMusicUrl 回传的 source（换源成功时即目标平台；缓存命中时
+// 取缓存里记的平台——换源 URL 会存到原歌名下，musicInfo.source 会误报）；
+// 非在线路径不换源，回传歌曲自身平台。
 export const getMusicUrlInfo = async({
   musicInfo,
   quality,
@@ -199,7 +251,7 @@ export const getMusicUrlInfo = async({
   quality?: LX.Quality
   onToggleSource?: (musicInfo?: LX.Music.MusicInfoOnline) => void
   allowToggleSource?: boolean
-}): Promise<{ url: string, quality: LX.Quality | null }> => {
+}): Promise<{ url: string, quality: LX.Quality | null, source: LX.Source | null }> => {
   // 中-9：在线歌曲直接走 resolveMusicUrl 拿实际音质——此前用 getMusicUrl 取到
   // 链接后把请求档位原样回显，实际降级时播放器仍按高档位处理（原生 FLAC
   // 高精度路径误判）；未指定档位时恒 null、高精度永不启用。
@@ -212,10 +264,15 @@ export const getMusicUrlInfo = async({
       onToggleSource,
       allowToggleSource,
     })
-    return { url: resolved.url, quality: resolved.quality }
+    // M-1：用 resolveMusicUrl 回传的 source，不用 musicInfo.source——缓存命中时
+    // musicInfo 是请求的那首歌，而 URL 可能是历史上换源后存下的别家 URL。
+    return { url: resolved.url, quality: resolved.quality, source: resolved.source }
   }
   const url = await getMusicUrl({ musicInfo, quality, isRefresh, onToggleSource, allowToggleSource })
-  return { url, quality: quality ?? null }
+  const originalSource: LX.Source | null = 'progress' in musicInfo
+    ? (musicInfo.metadata?.musicInfo?.source ?? null)
+    : musicInfo.source
+  return { url, quality: quality ?? null, source: originalSource }
 }
 
 export const getPicPath = async({

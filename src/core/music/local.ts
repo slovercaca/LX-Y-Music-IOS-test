@@ -211,7 +211,8 @@ export const getMusicUrl = async({
       isRefresh,
     }).then(({ url, quality: targetQuality, musicInfo: targetMusicInfo, isFromCache }) => {
       // saveLyric(musicInfo, data.lyricInfo)
-      if (!isFromCache) void saveMusicUrl(targetMusicInfo, targetQuality, url)
+      // M-1：存点带平台（新鲜取链的 URL 恒为目标歌自身平台；缓存命中不重复写盘）。
+      if (!isFromCache) void saveMusicUrl(targetMusicInfo, targetQuality, url, targetMusicInfo.source)
 
       // TODO: save url ?
       return url

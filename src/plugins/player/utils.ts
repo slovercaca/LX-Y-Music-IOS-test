@@ -212,8 +212,13 @@ const playMusic = ((fn: (musicInfo: LX.Player.PlayMusic, url: string, time: numb
   handlePlayMusic(musicInfo, url, time, quality)
 })
 
-export const setResource = (musicInfo: LX.Player.PlayMusic, url: string, duration?: number, quality?: LX.Quality | null) => {
+export const setResource = (musicInfo: LX.Player.PlayMusic, url: string, duration?: number, quality?: LX.Quality | null, source?: LX.Source | null) => {
   playerState.quality = quality ?? null
+  // 2026-11-13 实际取链平台（失败策略换源时为目标平台）：与 quality 一起写入、
+  // 一起广播，供详情页展示「原平台/音质 → 实际平台/音质」；切歌时由
+  // setPlayMusicInfo 清零，避免新歌取链完成前显示上一首的实际值。
+  playerState.actualSource = source ?? null
+  global.state_event.playStreamInfoChanged({ quality: playerState.quality, actualSource: playerState.actualSource })
   playMusic(musicInfo, url, duration ?? 0, quality)
 }
 

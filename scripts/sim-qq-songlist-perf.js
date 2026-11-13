@@ -111,7 +111,10 @@ const invariants = (files) => {
   }
   if (!/: OnlineListProps\['onPlayList'\] = \(index, item\)/.test(musicList)) reasons.push('MusicList 没有拿到被点中的 item（显示下标无法回推真实位置）')
   if (!/songlistState\.listDetailInfo\.list = songs/.test(musicList)) reasons.push('后台补全时 store 与界面不同源（点歌下标错位 → 点了没反应）')
-  if (!/onPlayList\(index, item\)/.test(files.onlineList)) reasons.push('OnlineList 没有把被点击的行传给 onPlayList')
+  // 锚点更新（2026-11-13）：离线分区后 List 传给 onPlayList 的下标先经
+  // toOriginalIndex 回译（onPlayList(toOriginalIndex(item, index), item)），
+  // 正则放宽为「第二参数是被点中的行」，不变量（必须传行对象）不变。
+  if (!/onPlayList\(.*?, item\)/.test(files.onlineList)) reasons.push('OnlineList 没有把被点击的行传给 onPlayList')
 
   return reasons
 }
@@ -222,7 +225,7 @@ checkCase('C6 点歌不再回推真实下标（直接用显示下标）', {
 }, '没有按被点中的歌回推下标')
 
 checkCase('C7 OnlineList 不传被点击的行', {
-  onlineList: tamper(REAL.onlineList, 'onPlayList(index, item)', 'onPlayList(index)'),
+  onlineList: tamper(REAL.onlineList, 'onPlayList(toOriginalIndex(item, index), item)', 'onPlayList(toOriginalIndex(item, index))'),
 }, '没有把被点击的行传给 onPlayList')
 
 const missed = cases.filter(([, ok]) => !ok)
