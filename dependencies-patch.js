@@ -10,7 +10,13 @@ const sharedIRBridgeHeaderSource = fs.readFileSync(path.join(rootPath, 'patches/
 const sharedIRBridgeSource = fs.readFileSync(path.join(rootPath, 'patches/ios/LXSharedIRConvolutionBridge.mm'), 'utf8')
 
 /**
- * @typedef {{ from: string, to: string }} PatchChange
+ * @typedef {{ from: string, to: string, alreadyApplied?: string|RegExp }} PatchChange
+ * alreadyApplied（F-A2）：「已应用」的独立判定（子串或正则，不用 /g 标志）。
+ * 下游 pair 可能改写本 pair 的 `to`（#1 插入 import AVFoundation、#2 把
+ * equalizer* 迁移为 soundEffect*、regex 步重写整函数），此时 from 与 to 都不
+ * 存在，但补丁实际已生效；本判定让二次 npm install 能认出已应用状态而跳过，
+ * 恢复幂等性。判定串必须满足：在 pristine 树与本 pair 在 RUN 1 执行时均不存
+ * 在，只在已应用（含下游改写）后出现。
  * @typedef {{ filePath: string, changes: PatchChange[] }} PatchTarget
  */
 
@@ -36,6 +42,8 @@ private let lxTrackPlayerLifecycleNotification = Notification.Name("LXTrackPlaye
 @objc(RNTrackPlayer)
 public class RNTrackPlayer: RCTEventEmitter {
 `,
+        // F-A2：#1 pair 0 随后插入 import AVFoundation，改写本 pair 的 to。
+        alreadyApplied: 'lxTrackPlayerLifecycleNotification',
       },
       {
         from: `    private var hasInitialized = false
@@ -71,6 +79,9 @@ public class RNTrackPlayer: RCTEventEmitter {
 
     // MARK: - Lifecycle Methods
 `,
+        // F-A2：#1 pair 1 随后在 player 声明与本函数之间插入 equalizer 声明
+        // （#2 又迁移为 soundEffect*），改写本 pair 的 to；函数定义本身仍在。
+        alreadyApplied: 'private func postLifecycleEvent(',
       },
       {
         from: `    @objc(destroy)
@@ -92,6 +103,9 @@ public class RNTrackPlayer: RCTEventEmitter {
         hasInitialized = false
     }
 `,
+        // F-A2：#1 pair 4 随后在 destroy 内插入 equalizer 清理行（#2 又迁移为
+        // soundEffect*），改写本 pair 的 to；本 pair 的调用行本身仍在。
+        alreadyApplied: 'postLifecycleEvent("destroy", state: .idle, position: 0, rate: 0)',
       },
       {
         from: `    @objc(reset:rejecter:)
@@ -115,6 +129,9 @@ public class RNTrackPlayer: RCTEventEmitter {
         }
     }
 `,
+        // F-A2：#1 pair 5 随后在 reset 内插入 equalizer 清理行（#2 又迁移为
+        // soundEffect*），改写本 pair 的 to；本 pair 的调用行本身仍在。
+        alreadyApplied: 'postLifecycleEvent("reset", state: .idle, position: 0, rate: 0)',
       },
       {
         from: `    @objc(seekTo:resolver:rejecter:)
@@ -160,6 +177,9 @@ public class RNTrackPlayer: RCTEventEmitter {
         postLifecycleEvent("state", state: state)
     }
 `,
+        // F-A2：#1 pair 7 与 regex 步随后重写整个函数体，改写本 pair 的 to；
+        // regex 版仍保留本 pair 的 postLifecycleEvent 调用行。
+        alreadyApplied: 'postLifecycleEvent("state", state: state)',
       },
       {
         from: `    func handleAudioPlayerFailed(error: Error?) {
@@ -218,6 +238,10 @@ private let lxTrackPlayerLifecycleNotification = Notification.Name("LXTrackPlaye
 
     private func lifecycleStateName(_ state: AVPlayerWrapperState) -> String {
 `,
+        // F-A2：#2 pair 0 随后把 equalizer* 声明迁移为 soundEffect*，改写本
+        // pair 的 to；迁移后形态（soundEffectConfig）或未迁移形态任一存在即
+        // 已应用。
+        alreadyApplied: /soundEffectConfig|equalizerEnabled/,
       },
       {
         from: `    deinit {
@@ -267,6 +291,9 @@ private let lxTrackPlayerLifecycleNotification = Notification.Name("LXTrackPlaye
         hasInitialized = false
     }
 `,
+        // F-A2：#2 pair 1 随后把本 pair 的清理行迁移为 soundEffect* 形态
+        // （soundEffectPlayerItem?.audioMix = nil），改写本 pair 的 to。
+        alreadyApplied: 'soundEffectPlayerItem?.audioMix = nil',
       },
       {
         from: `    @objc(reset:rejecter:)
@@ -293,6 +320,9 @@ private let lxTrackPlayerLifecycleNotification = Notification.Name("LXTrackPlaye
         }
     }
 `,
+        // F-A2：#2 pair 2 随后把本 pair 的清理行迁移为 soundEffect* 形态
+        // （soundEffectPlayerItem?.audioMix = nil），改写本 pair 的 to。
+        alreadyApplied: 'soundEffectPlayerItem?.audioMix = nil',
       },
       {
         from: `    @objc(updateNowPlayingMetadata:resolver:rejecter:)
@@ -351,6 +381,9 @@ private let lxTrackPlayerLifecycleNotification = Notification.Name("LXTrackPlaye
 
     // MARK: - QueuedAudioPlayer Event Handlers
 `,
+        // F-A2：#2 pair 3 随后把本 pair 的三个函数整体替换为 soundEffectConfig
+        // 版（refreshSoundEffectAudioMix），改写本 pair 的 to。
+        alreadyApplied: 'refreshSoundEffectAudioMix',
       },
       {
         from: `    func handleAudioPlayerStateChange(state: AVPlayerWrapperState) {
@@ -364,6 +397,9 @@ private let lxTrackPlayerLifecycleNotification = Notification.Name("LXTrackPlaye
         postLifecycleEvent("state", state: state)
     }
 `,
+        // F-A2：regex 步随后重写整个函数体（refreshSoundEffectAudioMixOnMainThread），
+        // 改写本 pair 的 to。
+        alreadyApplied: 'refreshSoundEffectAudioMixOnMainThread',
       },
       {
         from: `    func handleAudioPlayerQueueIndexChange(previousIndex: Int?, nextIndex: Int?) {
@@ -373,6 +409,9 @@ private let lxTrackPlayerLifecycleNotification = Notification.Name("LXTrackPlaye
         refreshEqualizerAudioMix()
         var dictionary: [String: Any] = [ "position": player.currentTime ]
 `,
+        // F-A2：regex 步随后重写本函数开头（refreshSoundEffectAudioMixOnMainThread），
+        // 改写本 pair 的 to。
+        alreadyApplied: 'refreshSoundEffectAudioMixOnMainThread',
       },
     ],
   },
@@ -812,8 +851,16 @@ const patchFile = async({ filePath, changes }) => {
   let normalizedFile = file.replace(/\r\n/g, '\n')
   const originalFile = normalizedFile
 
-  for (const { from, to } of changes) {
+  for (const { from, to, alreadyApplied } of changes) {
     if (normalizedFile.includes(to)) continue
+    // F-A2：下游已改写容忍——本 pair 的 `to` 可能已被下游 pair 改写（如 #1 插入
+    // import AVFoundation、#2 迁移 equalizer*→soundEffect*、regex 步重写整函数），
+    // 此时 from 与 to 都不存在，但补丁实际已生效；alreadyApplied 命中即跳过，
+    // 恢复已打补丁树上二次 npm install 的幂等性（6-8① 抛错口径不变：无判定命
+    // 中且 from 不存在时仍抛错）。
+    if (alreadyApplied != null && (typeof alreadyApplied === 'string'
+      ? normalizedFile.includes(alreadyApplied)
+      : alreadyApplied.test(normalizedFile))) continue
     // 6-8①：锚点未命中不再静默跳过，打日志并抛错（与 patchFileByRegex 口径对齐），
     // 避免上游漂移后整组补丁静默丢失功能；调用方 IIFE 会把失败记为 exitCode 1。
     if (!normalizedFile.includes(from)) {
@@ -874,8 +921,11 @@ const ensureFileContent = async({ filePath, content }) => {
 
 // 6-8③：patchSwiftAudioSeek 已删除——其目标 AVPlayerWrapper.swift 在
 // react-native-track-player 树内根本不存在（来自 SwiftAudioEx pod），
-// 该函数每次都走 "not found" 提前返回，是 no-op；seek 补丁真正生效
-// 的是 Podfile 的 lx_patch_swift_audio_seek（打 Pods 沙箱里的 pod 副本）。
+// 该函数每次都走 "not found" 提前返回，是 no-op。
+// F-A1：Podfile 的 lx_patch_swift_audio_seek 同样从未生效——其正则要求不存
+// 在的 seek(by:)，且替换体 Double/Int 类型错、引用不存在的
+// timeToSeekToAfterLoading，已一并删除；seek 精度补丁目前不存在，seek 走
+// 上游 SwiftAudioEx 0.14.7 默认 seek(to:)。
 
 const patchTrackPlayerSoundEffectRefresh = async() => {
   const filePath = 'node_modules/react-native-track-player/ios/RNTrackPlayer/RNTrackPlayer.swift'
@@ -984,7 +1034,8 @@ const patchTrackPlayerSoundEffectRefresh = async() => {
       process.exitCode = 1
     }
   }
-  // 6-8③：patchSwiftAudioSeek 已删除（见上），seek 补丁由 Podfile 侧生效。
+  // 6-8③/F-A1：patchSwiftAudioSeek 与 Podfile 的 lx_patch_swift_audio_seek 均已
+  // 删除（见上），seek 走上游 SwiftAudioEx 0.14.7 默认 seek(to:)。
   try {
     await patchTrackPlayerSoundEffectRefresh()
   } catch (err) {

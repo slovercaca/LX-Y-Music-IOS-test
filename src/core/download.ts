@@ -206,6 +206,9 @@ const startDownload = async(task: DownloadTask) => {
       console.log('[Download] 处理 bilibili 源')
       try {
         const result: any = await (bilibiliSdk.getMusicUrl(musicInfo, task.quality) as any).promise
+        // D-9：与 wy Cookie 分支同口径——空 URL 抛错改走通用取链（失败策略），
+        // 否则空 URL 直接返回给下载器，下游收到的任务没有可用的 URL。
+        if (!result.url) throw new Error('Bilibili 未能获取到URL')
         if (result.headers) console.log('[Download] 使用 bilibili 自定义 headers')
         return { url: result.url, headers: result.headers ?? getDownloadHeaders(task), resolvedMusicInfo: musicInfo, fromBilibiliDirect: true }
       } catch (error: any) {
@@ -269,6 +272,12 @@ const startDownload = async(task: DownloadTask) => {
     lastSpeedText = '0 B/s'
     knownTotal = 0
     progressSamples.length = 0
+    // 速度起点采样（2026-11-13，0 B/s 修复）：下载开始即预置一个 written=0
+    // 的起点，此后首个进度回调的 elapsed 就是真实下载耗时，首回调即可算出
+    // 有意义的平均速度；此前首采样是第一次回调、又要 elapsed>=500 才算，
+    // 500ms 内下完的歌速度永远算不出非零值。清零之后才预置；两遍重取链时
+    // downloadOnce 各跑一次，第二遍重新清零并重新预置，不会串用第一遍起点。
+    progressSamples.push({ time: Date.now(), written: 0 })
     currentDownloadUrl = url
 
     // 总量兜底：部分源站对 GET 使用分块传输，RNFS 回调的 contentLength
@@ -305,14 +314,16 @@ const startDownload = async(task: DownloadTask) => {
 
         // 速度用最近 2 秒的滑动窗口算，不再用相邻两次回调的瞬时差：
         // 250ms 级别的瞬时值抖动大、首帧还经常算出空/异常值，行里看起来
-        // 就像「没有速度」。窗口不足 500ms 时先沿用上一次速度（初始 0 B/s）。
+        // 就像「没有速度」。起点采样已预置，elapsed 是真实下载耗时，首回调
+        // 即可算平均速度，不再设 500ms 门；只有同一毫秒内两次回调
+        // （elapsed 为 0，除零）时才沿用上一次速度（初始 0 B/s）。
         progressSamples.push({ time: now, written })
         while (progressSamples.length > 2 && now - progressSamples[0].time > 2000) {
           progressSamples.shift()
         }
         const firstSample = progressSamples[0]
         const elapsed = now - firstSample.time
-        if (elapsed >= 500) {
+        if (elapsed > 0) {
           const speed = (written - firstSample.written) / (elapsed / 1000)
           if (Number.isFinite(speed) && speed >= 0) lastSpeedText = `${sizeFormate(speed)}/s`
         }
@@ -900,6 +911,15 @@ export const resumeTask = async(taskId: string) => {
     resumeCompleteFiles.delete(task.id)
     return
   }
+  // D-3：恢复→暂停→恢复三连击时，先到的调用在 await 磁盘校验后会看到后到
+  // 调用置的 waiting、与后到调用一起入队，同一任务在队列里出现两次、并行
+  // 写同一文件。入队前再查一次队列：先到者已入队时后到者直接返回。检查与
+  // push 之间无 await、是同一同步块，原子性成立；若先到者已出队开下，
+  // 状态已同步变为 downloading，上面的状态检查已把后到者拦下（updateTask
+  // 是同步 Object.assign，startDownload 首行即置 downloading）。此处只
+  // return、不清 resumeCompleteFiles——已入队的调用拥有该登记，清掉会让
+  // 它丢掉快路径、把完整文件重下一遍。
+  if (taskQueue.some(t => t.id === task.id)) return
   taskQueue.push(freshTask)
   processQueue()
 }
@@ -953,9 +973,12 @@ export const addTask = async(
   addingTaskIds.add(taskId)
   try {
     // 4-3(a)：磁盘已有同名文件时不静默覆盖——跳过并提示（手动拷入/旧残留
-    // 的同名文件此前会被下载直写或改名前 unlink 覆盖）
+    // 的同名文件此前会被下载直写或改名前 unlink 覆盖）。D-4：删已完成记录
+    // 不删文件，删记录后重下会被这条拦住；提示里说明绕过方法——本地列表
+    // 的批量删除会删磁盘文件（LocalDownload handleDeleteSelected），删掉
+    // 文件后再下即可。不改成静默覆盖，4-3(a) 的本意保留。
     if (await existsFile(filePath).catch(() => false)) {
-      if (!silent) toast('本地已有同名文件，跳过下载')
+      if (!silent) toast('本地已有同名文件，跳过下载；如需重下，请先在「本地与下载」里删除这首歌', 'long')
       return
     }
 

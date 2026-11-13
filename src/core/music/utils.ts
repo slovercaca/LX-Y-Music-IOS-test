@@ -55,13 +55,15 @@ const getLocalOnlineApi = (): any | null => {
 }
 const otherSourceCache = new Map<string, LX.Music.MusicInfoOnline[]>()
 
-// 2-11(a)：换源缓存键改字符串复合键（source_id 形态）——对象引用作键时列表重建/
-// 对象复制后永不命中；getOtherSourcePromises 早已用同口径字符串键
+// 2-11(a)：换源缓存键改字符串复合键——对象引用作键时列表重建/对象复制后永不命中；
+// getOtherSourcePromises 与本缓存共用此键（同口径）。
+// D-8：键不做前缀归一——旧公式下同一源内 id `kw_123` 与 `123` 都映射到 `kw_123`，
+// 2-11(a) 改字符串键后缓存真正命中，碰撞会让两首不同歌返回对方的跨平台候选；
+// 改用 `source::id`（`::` 在源 id 与歌曲 id 中均不出现）。旧键自然失效属预期，
+// 本缓存仅内存 Map、无落盘，重启后本就为空。
 const getOtherSourceCacheKey = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem): string => {
   if ('progress' in musicInfo) return `local_${musicInfo.id}`
-  return musicInfo.id?.startsWith(`${musicInfo.source}_`)
-    ? musicInfo.id
-    : `${musicInfo.source}_${musicInfo.id}`
+  return `${musicInfo.source}::${musicInfo.id}`
 }
 
 const cleanFileName = (name: string): string => {
@@ -818,9 +820,13 @@ export const handleGetOnlineMusicUrl = async({
   // 旧行为是「本源全档降质 → 换源」写死顺序；现在降质属于 quality 步、换源属于
   // platform 步，顺序与开关都由用户定（默认 platform → quality → source）。
   // 429 在任何位置都直通抛错，不进策略循环。
+  // D-2：首试档位以可用档为准——getPlayQuality 兜底 128k 时该歌可能根本没有
+  // 128k（如仅有 flac）；直接请求不存在的档位白耗一次请求，且默认顺序下会先
+  // 换平台、本源可用档反而后试。目标档可用时首项即目标档，行为与原来一致。
+  const firstQualities = buildSourceFallbackQualities(targetQuality, strategyConfig.qualityDirection, availableQualities).slice(0, 1)
   let lastErr: any = null
   try {
-    const first = await tryMusicUrlWithFallback(musicInfo, [targetQuality], '[在线播放]')
+    const first = await tryMusicUrlWithFallback(musicInfo, firstQualities, '[在线播放]')
     return { musicInfo, url: first.url, quality: first.type, isFromCache: false }
   } catch (err: any) {
     if (err.message == requestMsg.tooManyRequests) throw err
@@ -830,9 +836,10 @@ export const handleGetOnlineMusicUrl = async({
   for (const step of enabledSteps) {
     try {
       if (step === 'quality') {
-        // 原源换音质：从首选档按设定方向一档一档走（首选档已试过，排除）
+        // 原源换音质：从首选档按设定方向一档一档走（首试档已试过，排除；
+        // D-2：首试档是 firstQualities[0]，兜底场景下可能不是 targetQuality）
         const ladder = buildSourceFallbackQualities(targetQuality, strategyConfig.qualityDirection, availableQualities)
-          .filter(q => q !== targetQuality)
+          .filter(q => q !== firstQualities[0])
         if (!ladder.length) {
           userApiLog.info('[在线播放] [失败策略] 换音质：无其它可用档位，跳过')
           continue
@@ -856,13 +863,17 @@ export const handleGetOnlineMusicUrl = async({
         otherSource.forEach((item, index) => {
           userApiLog.info(`[在线播放]   ${index + 1}. ${item.source} - "${item.name}" - "${item.singer}"`)
         })
-        return getOnlineOtherSourceMusicUrl({
+        // D-1：必须 await 再 return——async 函数里裸 return 的 promise 其
+        // rejection 不进外层 try/catch，换平台全败时会直接抛错、quality 步
+        // 永远跑不到（默认顺序 platform→quality 下等于少了一步）
+        const platformRet = await getOnlineOtherSourceMusicUrl({
           musicInfos: [...otherSource],
           onToggleSource,
           quality,
           isRefresh,
           retryedSource: [musicInfo.source],
         })
+        return platformRet
       }
 
       if (step === 'source') {
