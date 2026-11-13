@@ -288,8 +288,11 @@ static NSDictionary *LXGenerateRSAKeyPair(NSError **error) {
 
   SecKeyRef publicKey = SecKeyCopyPublicKey(privateKey);
   // 6-14(d): publicKey 为 NULL 时直接中止，不传给 SecKeyCopyExternalRepresentation
+  // C-F3: 走到这里时 cfError 恒为 NULL（SecKeyCreateRandomKey 已成功，且
+  // SecKeyCopyPublicKey 不接受 error 参数），原先 *error 保持 nil；显式构造
+  // 一个 NSError，复用 LXError 口径（code 与调用方 reject 码一致）。
   if (publicKey == NULL) {
-    if (error != NULL && cfError != NULL) *error = CFBridgingRelease(cfError);
+    if (error != NULL) *error = LXError(@"generate_rsa_key", @"Failed to derive RSA public key");
     CFRelease(privateKey);
     return nil;
   }
@@ -522,7 +525,10 @@ static UIImage *LXBlurredBackgroundImage(UIImage *inputImage, CGFloat radius) {
   // ARC 在块结束即释放，而 imageRef 的后续使用点（vImage 缓冲尺寸、
   // CGDataProviderCopyData、CGImageGetColorSpace/BitmapInfo）全在块结束之后
   // （UAF）。声明在 if 之前、块内只赋值，强持有覆盖到函数返回。
-  UIImage *convertedImage = nil;
+  // C-F1: 另加 objc_precise_lifetime——ARC 只保证强引用存活到变量最后一次
+  // 使用（块内 .CGImage 取值），不保证到作用域末尾；该属性把释放点
+  // 形式化地推迟到作用域结束，覆盖其后全部 imageRef 使用点。
+  __attribute__((objc_precise_lifetime)) UIImage *convertedImage = nil;
   if (CGImageGetBitsPerPixel(imageRef) != 32 || !((CGImageGetBitmapInfo(imageRef) & kCGBitmapAlphaInfoMask))) {
     UIGraphicsImageRendererFormat *const rendererFormat = [UIGraphicsImageRendererFormat defaultFormat];
     rendererFormat.scale = inputImage.scale;
