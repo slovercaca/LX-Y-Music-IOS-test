@@ -3,6 +3,7 @@ import {
   // getOtherSource as getOtherSourceFromStore,
   // saveOtherSource as saveOtherSourceFromStore,
   getMusicUrl as getStoreMusicUrl,
+  getCachedMusicUrlWithSource as getStoreMusicUrlWithSource,
   getPlayerLyric,
   getLyric as getStoreLyric,
 } from '@/utils/data'
@@ -570,7 +571,9 @@ const tryMusicUrlWithFallback = async(
  * startQuality 在可用列表里时以它开头；不在时（getPlayQuality 兜底 128k
  * 而该歌根本没有 128k 时）按方向走全部可用档位——往下从高到低、往上从低到高。
  */
-const buildSourceFallbackQualities = (
+// 2026-11-13（S-1）：导出供详情页徽章用——徽章的「请求档位」须按引擎首试口径算，
+// 不能直接用 getPlayQuality 的 128k 兜底值（否则仅有高档的歌会显示虚假升级箭头）。
+export const buildSourceFallbackQualities = (
   startQuality: LX.Quality,
   direction: 'down' | 'up',
   available: LX.Quality[],
@@ -602,6 +605,9 @@ export const getOnlineOtherSourceMusicUrl = async({
   musicInfo: LX.Music.MusicInfoOnline
   quality: LX.Quality
   isFromCache: boolean
+  // 实际取链平台（仅缓存命中时设置：候选歌自己的缓存条目也可能是它历史上
+  // 换源后存下的别家 URL；不设置时调用方回退到 musicInfo.source）
+  source?: LX.Source
 }> => {
   if (!(await global.lx.apiInitPromise[0])) {
     userApiLog.error('[换源播放] API 未初始化，无法获取播放地址')
@@ -672,13 +678,15 @@ export const getOnlineOtherSourceMusicUrl = async({
     throw new Error(global.i18n.t('toggle_source_failed'))
   }
 
-  const cachedUrl = await getStoreMusicUrl(musicInfo, itemQuality)
-  if (cachedUrl && !isRefresh) {
+  // M-1：缓存命中时带上缓存里记的实际平台——候选歌自己的缓存条目也可能是
+  // 它历史上换源后存下的别家 URL，直接报 musicInfo.source 会误报。
+  const cached = await getStoreMusicUrlWithSource(musicInfo, itemQuality)
+  if (cached.url && !isRefresh) {
     userApiLog.info('[换源播放]   命中缓存，直接返回播放地址')
     userApiLog.info('[换源播放] ========== 换源成功 ==========')
-    userApiLog.info(`[换源播放] 最终音源: "${musicInfo.source}"`)
+    userApiLog.info(`[换源播放] 最终音源: "${cached.source ?? musicInfo.source}"`)
     userApiLog.info(`[换源播放] 音质: ${itemQuality}`)
-    return { url: cachedUrl, musicInfo, quality: itemQuality, isFromCache: true }
+    return { url: cached.url, musicInfo, quality: itemQuality, isFromCache: true, source: cached.source ?? musicInfo.source }
   }
 
   // 失败策略（2026-11-12）：音质回退表按用户设定的方向走（往下降 = 旧行为，
@@ -756,6 +764,9 @@ export const handleGetOnlineMusicUrl = async({
   musicInfo: LX.Music.MusicInfoOnline
   quality: LX.Quality
   isFromCache: boolean
+  // 实际取链平台（仅缓存命中 / 换源候选缓存命中时设置；不设置时调用方
+  // 回退到 musicInfo.source）
+  source?: LX.Source
 }> => {
   if (!(await global.lx.apiInitPromise[0])) {
     userApiLog.error('[在线播放] API 未初始化，无法获取播放地址')
@@ -805,11 +816,13 @@ export const handleGetOnlineMusicUrl = async({
   userApiLog.info(`[在线播放] 是否刷新缓存: ${isRefresh}`)
   userApiLog.info(`[在线播放] 是否允许换源: ${allowToggleSource}`)
 
-  const cachedUrl = await getStoreMusicUrl(musicInfo, targetQuality)
-  if (cachedUrl && !isRefresh) {
+  // M-1：缓存命中时带上缓存里记的实际平台——换源 URL 会存到原歌名下，
+  // 直接报 musicInfo.source 会把换源音频误报为原平台。
+  const cached = await getStoreMusicUrlWithSource(musicInfo, targetQuality)
+  if (cached.url && !isRefresh) {
     userApiLog.info('[在线播放] 命中缓存，直接返回播放地址')
     userApiLog.info('[在线播放] ========== 获取成功 ==========')
-    return { url: cachedUrl, musicInfo, quality: targetQuality, isFromCache: true }
+    return { url: cached.url, musicInfo, quality: targetQuality, isFromCache: true, source: cached.source ?? musicInfo.source }
   }
 
   const strategyConfig = getFailureStrategyConfig()

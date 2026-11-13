@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState, forwardRef, useImperativeHandle, useEffect } from 'react'
 import { FlatList, type FlatListProps, Keyboard, RefreshControl, TouchableOpacity, View } from 'react-native'
 import ListItem, { ITEM_HEIGHT } from './ListItem'
-import { createStyle, getRowInfo, type RowInfoType } from '@/utils/tools'
+import { createStyle, getRowInfo, toast, type RowInfoType } from '@/utils/tools'
 import { useHorizontalMode } from '@/utils/hooks'
 import type { Position } from './ListMenu'
 import type { SelectMode } from '@/components/common/MultiSelectTopBar'
@@ -13,6 +13,8 @@ import { handlePlay } from './listAction'
 import { useSettingValue } from '@/store/setting/hook'
 import { useBottomOverlayInset } from '@/store/common/hook'
 import { usePhantomScrollGuard } from '@/utils/hooks/usePhantomScrollGuard'
+import { useDownloadTasks } from '@/store/download/hook'
+import { buildDownloadedLookup, isSongDownloaded } from '@/core/music'
 
 type FlatListType = FlatListProps<LX.Music.MusicInfoOnline>
 export type { RowInfoType }
@@ -108,6 +110,59 @@ const List = forwardRef<ListType, ListProps>(
     // 不再等点播被拦截才知道
     const offlineMode = useSettingValue('player.offlineMode')
     const [offlineBannerDismissed, setOfflineBannerDismissed] = useState(false)
+    // S-3：横幅关闭状态随离线模式重置——否则关掉一次后，退出再进离线时
+    // 分区悄悄生效却无任何说明。
+    useEffect(() => {
+      if (offlineMode) setOfflineBannerDismissed(false)
+    }, [offlineMode])
+    // 离线分区只订阅下载任务的结构变化（增/删/状态变），不跟进度刷新——
+    // useDownloadTasks 监听的是 download_list_changed，纯进度更新不广播。
+    // 数组本身只作 memo 的响应式触发，判定用的查找表在 memo 内现建。
+    const downloadTasks = useDownloadTasks()
+    // S-2：下载任务版本号（O(1) 指纹）：downloadTasks 引用每次结构变化都是
+    // 新数组，渲染期间比对引用、变化即递增；extraData 用它代替置灰 id 全量
+    // 拼接（2000 首全未下载时约 30KB 字符串/次渲染）。置灰集合的变化只可能
+    // 来自下载任务变化（本版本号）、playingId（extraData 已有）、currentList /
+    // listVersion（data 引用与 extraData 已有）、offlineMode（extraData 已有）。
+    const lastDownloadTasksRef = useRef(downloadTasks)
+    const downloadVersionRef = useRef(0)
+    if (lastDownloadTasksRef.current !== downloadTasks) {
+      lastDownloadTasksRef.current = downloadTasks
+      downloadVersionRef.current += 1
+    }
+
+    // 2026-11-13 离线分区展示：离线模式下已下载歌曲在前、未下载歌曲沉底并置灰，
+    // 退出离线自动恢复原序。只做展示层派生，不写回 setList/onListUpdate，
+    // 因此 store 与父组件的原列表不受影响；分区依据 downloadTasks 实时重算。
+    // 正在播放的那首视为可用（流已加载、正在出声），不沉底、不置灰。
+    // 注意 listVersion 必须进依赖：musicInfoUpdate 原地换行对象、不换数组引用，
+    // 不含它时分区 memo 会拿着旧对象渲染（封面/信息更新不到行上）。
+    const partition = useMemo(() => {
+      if (!offlineMode) return { list: currentList, dimmedIds: new Set<string>() }
+      const lookup = buildDownloadedLookup()
+      const downloaded: LX.Music.MusicInfoOnline[] = []
+      const undownloaded: LX.Music.MusicInfoOnline[] = []
+      const dimmedIds = new Set<string>()
+      for (const song of currentList) {
+        const available = (playingId != null && song.id === playingId) || isSongDownloaded(song, lookup)
+        if (available) downloaded.push(song)
+        else {
+          undownloaded.push(song)
+          dimmedIds.add(song.id)
+        }
+      }
+      return { list: [...downloaded, ...undownloaded], dimmedIds }
+    }, [currentList, listVersion, offlineMode, downloadTasks, playingId])
+    const displayListRef = useRef(partition.list)
+    displayListRef.current = partition.list
+
+    // 展示下标 → 原列表下标：离线分区后 FlatList 行下标是分区后的，调用方
+    // （onPlayList/范围选区/菜单）一律按原列表理解下标，必须回译；
+    // 未分区时两者相同，回译无影响。找不到时退回原下标（防御，不应发生）。
+    const toOriginalIndex = (item: LX.Music.MusicInfoOnline, displayIndex: number): number => {
+      const idx = listDataRef.current.indexOf(item)
+      return idx >= 0 ? idx : displayIndex
+    }
     const isShowInterval = useSettingValue('list.isShowInterval')
 
     useImperativeHandle(ref, () => ({
@@ -162,7 +217,8 @@ const List = forwardRef<ListType, ListProps>(
         setStatus(val)
       },
       scrollToInfo(info) {
-        const index = listDataRef.current.findIndex(item => item.id === info.id)
+        // 按展示列表定位：离线分区后行下标是分区后的，原列表下标会滚错位置
+        const index = displayListRef.current.findIndex(item => item.id === info.id)
         if (index > -1) {
           // 程序化定位：先停用幽灵守卫，避免它把定位结果拉回顶部
           phantomGuard.stop()
@@ -219,6 +275,9 @@ const List = forwardRef<ListType, ListProps>(
     }
 
     const handleSelect = (item: LX.Music.MusicInfoOnline, pressIndex: number) => {
+      // 范围选区按原列表切片，下标先回译（分区后视觉区间与原序区间未必一致，
+      // 以原序区间为准）。
+      pressIndex = toOriginalIndex(item, pressIndex)
       let newList: LX.Music.MusicInfoOnline[]
       if (selectModeRef.current == 'single') {
         prevSelectIndexRef.current = pressIndex
@@ -256,8 +315,12 @@ const List = forwardRef<ListType, ListProps>(
       // 这里直接同步调用，按压反馈仍由 TouchableOpacity 原生处理。
       if (isMultiSelectModeRef.current) {
         handleSelect(item, index)
+      } else if (partition.dimmedIds.has(item.id)) {
+        // 离线置灰行：未下载、点播必失败，直接提示，不进播放链路——
+        // 否则 autoSkipOnError 开着时会把它当播放失败自动切走。
+        toast('离线模式：该歌曲未下载')
       } else if ((forcePlayList || settingState.setting['list.isClickPlayList']) && onPlayList != null) {
-        onPlayList(index, item)
+        onPlayList(toOriginalIndex(item, index), item)
       } else {
         // 用行数据本身（item）而不是 currentList[index]：列表在点击瞬间发生变化时，
         // 下标可能越界取到 undefined，导致播放链路静默返回（表现为点了没反应）。
@@ -265,9 +328,13 @@ const List = forwardRef<ListType, ListProps>(
       }
     }
 
+    const handleShowMenu = (item: LX.Music.MusicInfoOnline, index: number, position: Position) => {
+      onShowMenu(item, toOriginalIndex(item, index), position)
+    }
+
     const handleLongPress = (item: LX.Music.MusicInfoOnline, index: number) => {
       if (isMultiSelectModeRef.current) return
-      prevSelectIndexRef.current = index
+      prevSelectIndexRef.current = toOriginalIndex(item, index)
       handleUpdateSelectedList([item])
       onMuiltSelectMode()
     }
@@ -290,8 +357,9 @@ const List = forwardRef<ListType, ListProps>(
       selectedList,
       handlePress,
       handleLongPress,
-      onShowMenu,
+      handleShowMenu,
       rowInfo,
+      dimmedIds: partition.dimmedIds,
     })
     renderDepsRef.current = {
       showSource,
@@ -302,8 +370,9 @@ const List = forwardRef<ListType, ListProps>(
       selectedList,
       handlePress,
       handleLongPress,
-      onShowMenu,
+      handleShowMenu,
       rowInfo,
+      dimmedIds: partition.dimmedIds,
     }
     const renderItem = useCallback<NonNullable<FlatListType['renderItem']>>(({ item, index }) => {
       const d = renderDepsRef.current
@@ -315,12 +384,13 @@ const List = forwardRef<ListType, ListProps>(
           showSource={d.showSource}
           onPress={d.handlePress}
           onLongPress={d.handleLongPress}
-          onShowMenu={d.onShowMenu}
+          onShowMenu={d.handleShowMenu}
           selectedList={d.selectedList}
           playingId={d.playingId}
           rowInfo={d.rowInfo}
           isShowAlbumName={d.isShowAlbumName}
           isShowInterval={d.isShowInterval}
+          isDimmed={d.dimmedIds.has(item.id)}
         />
       )
     }, [])
@@ -389,7 +459,7 @@ const List = forwardRef<ListType, ListProps>(
         {offlineMode && !offlineBannerDismissed ? (
           <View style={{ ...styles.offlineBanner, backgroundColor: theme['c-primary-background'] }}>
             <Text size={12} color={theme['c-primary-font']} style={{ flex: 1 }}>
-              离线模式已开启，只能播放已下载的歌曲
+              离线模式已开启，只能播放已下载的歌曲，未下载歌曲已移至底部并置灰
             </Text>
             <TouchableOpacity onPress={() => { setOfflineBannerDismissed(true) }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Text size={12} color={theme['c-primary-font']}>✕</Text>
@@ -406,7 +476,7 @@ const List = forwardRef<ListType, ListProps>(
         // 这里用 contentContainerStyle 而不是给外层容器加 paddingBottom，是因为
         // 后者会缩短列表的滚动范围（停在胶囊上方留空白），前者让列表占满整屏。
         contentContainerStyle={{ paddingBottom: bottomInset }}
-        data={currentList}
+        data={partition.list}
         numColumns={numColumns}
         horizontal={false}
         maxToRenderPerBatch={20}
@@ -426,7 +496,7 @@ const List = forwardRef<ListType, ListProps>(
         delaysContentTouches={false}
         // 行数据原地更新（musicInfoUpdate）+ 播放状态变化时驱动对应行重渲染；
         // data 引用保持稳定、renderItem 引用固定，VirtualizedList 不重置渲染窗口。
-        extraData={`${listVersion}|${playingId ?? ''}|${showSource ? '1' : '0'}|${selectedList.map(m => m.id).join(',')}`} // 中：此前只拼选中数量，等长换选行不重渲、高亮与实际选区不符
+        extraData={`${listVersion}|${playingId ?? ''}|${showSource ? '1' : '0'}|${selectedList.map(m => m.id).join(',')}|${offlineMode ? '1' : '0'}|${downloadVersionRef.current}`} // 中：此前只拼选中数量，等长换选行不重渲、高亮与实际选区不符；离线分区后下载任务变化也要驱动行重渲（S-2：用 O(1) 版本号，不拼置灰 id 全量字符串）
         renderItem={renderItem}
         keyExtractor={getkey}
         getItemLayout={getItemLayout}

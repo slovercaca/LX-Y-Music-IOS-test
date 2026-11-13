@@ -79,11 +79,14 @@ const createGettingUrlId = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem
 interface PlayUrlInfo {
   url: string
   quality: LX.Quality | null
+  // 实际取链平台（失败策略换源成功时为目标平台，否则为歌曲自身平台）
+  source: LX.Source | null
 }
 const currentStreamInfo = {
   musicId: null as string | null,
   url: '',
   quality: null as LX.Quality | null,
+  source: null as LX.Source | null,
 }
 /**
  * 检查音乐信息是否已更改
@@ -234,7 +237,8 @@ export const setMusicUrl = (musicInfo: LX.Music.MusicInfo | LX.Download.ListItem
     currentStreamInfo.musicId = musicInfo.id
     currentStreamInfo.url = result.url
     currentStreamInfo.quality = result.quality
-    setResource(musicInfo, result.url, currentTime, result.quality)
+    currentStreamInfo.source = result.source
+    setResource(musicInfo, result.url, currentTime, result.quality, result.source)
   }).catch((err: any) => {
     // M-3：旧轮失败不报毒——不得弹错、不触发 5 秒跳歌（新轮正在播/取链）
     if (myGen !== setMusicUrlGen) return

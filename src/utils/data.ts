@@ -403,10 +403,27 @@ export const removeListMusics = async(ids: string[]): Promise<void> => {
   // delaySaveListScrollPosition(global.lx.listScrollPosition)
 }
 
+// 2026-11-13（M-1）：URL 缓存值带实际取链平台——换源 URL 会存到原歌名下
+//（online.ts 的无条件 saveMusicUrl），裸 URL 无法区分实际平台，缓存命中时
+// 详情页会误报原平台。值格式为 JSON {"u": url, "s": source}；旧纯字符串值
+// 解析为 source: null（向后兼容，无需清缓存），调用方回退到请求歌自身平台。
+// URL 本身不可能是合法 JSON（http/file 开头），解析失败即旧值。
+const parseCachedMusicUrl = (raw: string | null | undefined): { url: string, source: LX.Source | null } => {
+  if (!raw) return { url: '', source: null }
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object' && typeof parsed.u === 'string') {
+      return { url: parsed.u, source: typeof parsed.s === 'string' ? parsed.s as LX.Source : null }
+    }
+  } catch {}
+  return { url: raw, source: null }
+}
 export const getMusicUrl = async(musicInfo: LX.Music.MusicInfo, type: LX.Quality) =>
-  getData<string>(`${storageDataPrefix.musicUrl}${musicInfo.id}_${type}`).then((url) => url ?? '')
-export const saveMusicUrl = async(musicInfo: LX.Music.MusicInfo, type: LX.Quality, url: string) =>
-  saveData(`${storageDataPrefix.musicUrl}${musicInfo.id}_${type}`, url)
+  getData<string>(`${storageDataPrefix.musicUrl}${musicInfo.id}_${type}`).then((raw) => parseCachedMusicUrl(raw).url)
+export const getCachedMusicUrlWithSource = async(musicInfo: LX.Music.MusicInfo, type: LX.Quality): Promise<{ url: string, source: LX.Source | null }> =>
+  getData<string>(`${storageDataPrefix.musicUrl}${musicInfo.id}_${type}`).then((raw) => parseCachedMusicUrl(raw))
+export const saveMusicUrl = async(musicInfo: LX.Music.MusicInfo, type: LX.Quality, url: string, source?: LX.Source | null) =>
+  saveData(`${storageDataPrefix.musicUrl}${musicInfo.id}_${type}`, source ? JSON.stringify({ u: url, s: source }) : url)
 export const clearMusicUrl = async(keys?: string[]) => {
   if (!keys) keys = (await getAllKeys()).filter((key) => key.startsWith(storageDataPrefix.musicUrl))
   await removeDataMultiple(keys)
