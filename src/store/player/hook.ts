@@ -41,6 +41,19 @@ export const usePlayInfo = () => {
   return value
 }
 
+export const usePlayStreamInfo = () => {
+  const [value, update] = useState({ quality: state.quality, actualSource: state.actualSource })
+
+  useEffect(() => {
+    global.state_event.on('playStreamInfoChanged', update)
+    return () => {
+      global.state_event.off('playStreamInfoChanged', update)
+    }
+  }, [])
+
+  return value
+}
+
 export const useStatusText = () => {
   const [value, update] = useState(state.statusText)
 

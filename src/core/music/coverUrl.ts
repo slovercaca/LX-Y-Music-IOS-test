@@ -1,5 +1,6 @@
 import { getPicPath } from './index'
 import { getCachedQsCover, fetchQsCover } from './qsCover'
+import settingState from '@/store/setting/state'
 
 /**
  * 列表项封面动态获取。
@@ -67,18 +68,32 @@ const keyOf = (song: CoverSong): string =>
   // 「源|歌名|歌手」→ 不同专辑/版本共用第一个缓存封面串图。两层都读。
   `${song.source}|${song.name}|${song.singer}|${song.albumName ?? song.meta?.albumName ?? ''}|${song.songId ?? song.meta?.songId ?? song.id ?? ''}`
 
+// 离线时内存里残留的 http 封面地址不可用（断网加载失败），必须视为无缓存、
+// 放行到本地查找；否则同一会话内先在线浏览过、再断网打开列表时，行封面
+// 会被 stale http 缓存顶掉、本地有文件也不显示（M-1 连带，2026-11-13）。
+const isUsableCachedUrl = (url: string | undefined): url is string =>
+  !!url && (settingState.setting['player.offlineMode'] !== true || !url.startsWith('http'))
+
 export const getCachedCoverUrl = (song: CoverSong): string => {
-  if (song.source === 'qs') return getCachedQsCover(song as LX.Music.MusicInfoOnline)
-  return coverCache.get(keyOf(song)) ?? ''
+  if (song.source === 'qs') {
+    const cached = getCachedQsCover(song as LX.Music.MusicInfoOnline)
+    return isUsableCachedUrl(cached) ? cached : ''
+  }
+  const cached = coverCache.get(keyOf(song))
+  return isUsableCachedUrl(cached) ? cached : ''
 }
 
 export const fetchCoverUrl = async(song: CoverSong): Promise<string> => {
   // qs 源沿用既有跨平台匹配逻辑（含其独立缓存）
-  if (song.source === 'qs') return fetchQsCover(song as LX.Music.MusicInfoOnline)
+  // M-1（2026-11-13）：离线模式下 qs 不走 fetchQsCover——它以 filePath:'' 调
+  // localPlay，从不匹配下载任务、从不读内嵌，离线 qs 行恒无封面；改走
+  // getPicPath，其 qs 离线分支只读本地（findLocalCachedPic，现含内嵌回退）。
+  // 在线 qs 保持跨平台匹配不变。
+  if (song.source === 'qs' && settingState.setting['player.offlineMode'] !== true) return fetchQsCover(song as LX.Music.MusicInfoOnline)
 
   const key = keyOf(song)
   const cached = coverCache.get(key)
-  if (cached) return cached
+  if (isUsableCachedUrl(cached)) return cached
   const inflight = coverInflight.get(key)
   if (inflight) return inflight
 

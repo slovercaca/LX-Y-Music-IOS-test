@@ -23,9 +23,18 @@ export interface InitState {
 
   /**
    * 当前实际播放的音质（如 'flac' | 'flac24bit' | 'master' | 'atmos' 等）。
-   * 用于判断 seek 冻结同步逻辑仅对高码率音质（master / atmos / atmos_plus）生效。
+   * 由 setResource 在取链成功后写入，切歌时由 setPlayMusicInfo 清零；
+   * 详情页徽章用它对比请求音质（O-6：旧注释称的 seek 冻结消费者不存在，
+   * 全仓除徽章外无其他读点，原生 FLAC 判定用 setResource 传入的参数）。
    */
   quality: LX.Quality | null
+
+  /**
+   * 当前实际取链的平台（失败策略换源成功时为目标平台，否则为歌曲自身平台）。
+   * 与 quality 一起由 setResource 写入、切歌时由 setPlayMusicInfo 清零，
+   * 供详情页展示「原平台/音质 → 实际平台/音质」。
+   */
+  actualSource: LX.Source | null
 
   playedList: LX.Player.PlayMusicInfo[]
   tempPlayList: LX.Player.PlayMusicInfo[]
@@ -74,6 +83,7 @@ const state: InitState = {
   playRate: 1,
   statusText: '',
   quality: null,
+  actualSource: null,
   loadErrorPicUrl: '',
 
   playedList: [],

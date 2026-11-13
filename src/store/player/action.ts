@@ -24,6 +24,13 @@ export default {
   ) {
     state.playMusicInfo = { listId, musicInfo, isTempPlay }
 
+    // 切歌时清掉上一首的实际流信息（音质/实际源），避免详情页在新歌取链完成前
+    // 显示上一首的实际值；setResource 会在取链成功后重新写入并广播。
+    // 同歌刷新不走这里（setMusicUrl isRefresh 不调 setPlayMusicInfo），不闪烁。
+    state.quality = null
+    state.actualSource = null
+    global.state_event.playStreamInfoChanged({ quality: null, actualSource: null })
+
     global.state_event.playMusicInfoChanged(state.playMusicInfo)
   },
   setMusicInfo(_musicInfo: Partial<LX.Player.MusicInfo>) {

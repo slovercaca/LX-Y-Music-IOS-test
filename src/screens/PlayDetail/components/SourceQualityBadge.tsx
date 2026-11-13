@@ -1,10 +1,12 @@
 import { memo, useMemo } from 'react'
 import { View } from 'react-native'
-import { usePlayMusicInfo } from '@/store/player/hook'
+import { usePlayMusicInfo, usePlayStreamInfo } from '@/store/player/hook'
 import { useSettingValue } from '@/store/setting/hook'
 import { useI18n } from '@/lang'
-import { getPlayQuality } from '@/core/music/utils'
+import { getPlayQuality, buildSourceFallbackQualities } from '@/core/music/utils'
+import { getFailureStrategyConfig } from '@/core/music/failureStrategy'
 import Badge, { type BadgeType } from '@/components/common/Badge'
+import Text from '@/components/common/Text'
 import { createStyle } from '@/utils/tools'
 
 // 平台英文缩写映射（用户指定：酷狗=KG，网易=WY，企鹅=QQ，酷我=KW，咪咕=MG）
@@ -50,6 +52,7 @@ export default memo(() => {
   const t = useI18n()
   const playMusicInfo = usePlayMusicInfo()
   const playQuality = useSettingValue('player.playQuality')
+  const streamInfo = usePlayStreamInfo()
 
   const musicInfo = playMusicInfo.musicInfo
     ? 'progress' in playMusicInfo.musicInfo
@@ -59,15 +62,32 @@ export default memo(() => {
 
   const abbr = musicInfo ? (SOURCE_ABBR[musicInfo.source] ?? musicInfo.source.toUpperCase()) : ''
 
-  const qualityBadge = useMemo(() => {
+  // 请求音质：按引擎首试口径——目标档位经 buildSourceFallbackQualities 取首项。
+  // S-1：不能直接用 getPlayQuality 的返回值——它在全部可用档都高于偏好档时
+  // 兜底返回 128k（该歌可能根本没有 128k），而引擎首试即最高可用档，徽章会
+  // 显示虚假的「128K → SQ」升级箭头。目标档可用时首项即目标档，与原来一致。
+  // qualityDirection 读当前配置（切歌时重新计算；同歌内改方向不重算，可接受）。
+  const requestedQuality = useMemo(() => {
     if (!musicInfo || musicInfo.source === 'local') return null
     try {
-      const quality = getPlayQuality(playQuality as LX.Quality, musicInfo as LX.Music.MusicInfoOnline)
-      return getQualityBadge(quality, t)
+      const target = getPlayQuality(playQuality as LX.Quality, musicInfo as LX.Music.MusicInfoOnline)
+      const available = Object.keys((musicInfo as LX.Music.MusicInfoOnline).meta._qualitys ?? {}) as LX.Quality[]
+      return buildSourceFallbackQualities(target, getFailureStrategyConfig().qualityDirection, available)[0] ?? target
     } catch {
       return null
     }
-  }, [musicInfo, playQuality, t])
+  }, [musicInfo, playQuality])
+
+  const qualityBadge = requestedQuality ? getQualityBadge(requestedQuality, t) : null
+
+  // 实际值（失败策略换源/换音质后）：只在与原值不同时才展示实际徽章，
+  // 未换源换音质时保持原样（不画蛇添足）。取链完成前 actualSource/quality
+  // 为 null（切歌时已清零），不显示上一首的残留实际值。
+  const actualSourceDiffers = streamInfo.actualSource != null && musicInfo != null && streamInfo.actualSource !== musicInfo.source
+  const actualQualityDiffers = streamInfo.quality != null && requestedQuality != null && streamInfo.quality !== requestedQuality
+  const showActual = actualSourceDiffers || actualQualityDiffers
+  const actualQualityBadge = actualQualityDiffers ? getQualityBadge(streamInfo.quality!, t) : null
+  const actualAbbr = actualSourceDiffers ? (SOURCE_ABBR[streamInfo.actualSource!] ?? streamInfo.actualSource!.toUpperCase()) : ''
 
   if (!musicInfo) return null
 
@@ -75,6 +95,13 @@ export default memo(() => {
     <View style={styles.row}>
       <Badge type="tertiary">{abbr}</Badge>
       {qualityBadge ? <Badge type={qualityBadge.type}>{qualityBadge.label}</Badge> : null}
+      {showActual ? (
+        <>
+          <Text size={12} style={styles.arrow}>→</Text>
+          {actualSourceDiffers ? <Badge type="tertiary">{actualAbbr}</Badge> : null}
+          {actualQualityBadge ? <Badge type={actualQualityBadge.type}>{actualQualityBadge.label}</Badge> : null}
+        </>
+      ) : null}
     </View>
   )
 })
@@ -83,6 +110,11 @@ const styles = createStyle({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     marginTop: 4,
+  },
+  arrow: {
+    marginHorizontal: 4,
+    alignSelf: 'center',
   },
 })
