@@ -214,6 +214,11 @@ export const showAnnouncementModal = async(): Promise<boolean> => {
     return true
   } catch (err) {
     console.error('[Announcement] Failed to show overlay:', err)
+    // D-10 附带：失败时立即清除去抖标记——否则 500ms 内重试会命中去抖
+    // 直接返回 true，调用方以为弹窗已展示（showModal 保持 true）而实际无
+    // 弹窗，且唯一复位路径是弹窗自身的卸载 effect（永不执行），本会话公
+    // 告永久不再弹出。setTimeout 的删除对已不存在的键是空操作，无影响。
+    pendingOverlays.delete(ANNOUNCEMENT_MODAL)
     return false
   }
 }

@@ -54,7 +54,7 @@ function collectFiles(dir, out = []) {
 
 const FILES = collectFiles(path.join(ROOT, SRC)).map((p) => [
   path.relative(ROOT, p).replace(/\\/g, '/'),
-  fs.readFileSync(p, 'utf8'),
+  fs.readFileSync(p, 'utf8').replace(/\r\n/g, '\n'),
 ])
 
 /**
@@ -93,7 +93,7 @@ function findMissing(messages, refs = collectRefs()) {
 
 // ---------------------------------------------------------------------------
 
-const messages = JSON.parse(fs.readFileSync(path.join(ROOT, MESSAGES), 'utf8'))
+const messages = JSON.parse(fs.readFileSync(path.join(ROOT, MESSAGES), 'utf8').replace(/\r\n/g, '\n'))
 const refs = collectRefs()
 const missing = findMissing(messages, refs)
 

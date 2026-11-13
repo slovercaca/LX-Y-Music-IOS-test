@@ -20,6 +20,7 @@ import QQWebLoginManager from '@/components/QQWebLoginManager'
 import KgWebLoginManager from '@/components/KgWebLoginManager'
 import Basic from '@/screens/Home/Views/Setting/settings/Basic'
 import Player from '@/screens/Home/Views/Setting/settings/Player'
+import FailureStrategy from '@/screens/Home/Views/Setting/settings/FailureStrategy'
 import Search from '@/screens/Home/Views/Setting/settings/Search'
 import List from '@/screens/Home/Views/Setting/settings/List'
 import Sync from '@/screens/Home/Views/Setting/settings/Sync'
@@ -34,6 +35,7 @@ const SETTING_COMPONENTS: Record<SettingScreenIds, ComponentType> = {
   theme: ThemeScreen,
   platform: PlatformScreen,
   player: Player,
+  failure_strategy: FailureStrategy,
   search: Search,
   list: List,
   download: Download,

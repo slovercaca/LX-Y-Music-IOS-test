@@ -2,9 +2,9 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const rootPath = path.resolve(__dirname, '..')
-const profile = JSON.parse(fs.readFileSync(path.join(rootPath, 'config/soundEffectDspProfile.json'), 'utf8'))
-const appDelegate = fs.readFileSync(path.join(rootPath, 'ios/LxMusicMobile/AppDelegate.mm'), 'utf8')
-const swiftPatch = fs.readFileSync(path.join(rootPath, 'patches/ios/LXEqualizerAudioMix.swift'), 'utf8')
+const profile = JSON.parse(fs.readFileSync(path.join(rootPath, 'config/soundEffectDspProfile.json'), 'utf8').replace(/\r\n/g, '\n'))
+const appDelegate = fs.readFileSync(path.join(rootPath, 'ios/LxMusicMobile/AppDelegate.mm'), 'utf8').replace(/\r\n/g, '\n')
+const swiftPatch = fs.readFileSync(path.join(rootPath, 'patches/ios/LXEqualizerAudioMix.swift'), 'utf8').replace(/\r\n/g, '\n')
 
 const errors = []
 

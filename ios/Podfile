@@ -32,62 +32,6 @@ def lx_build_libflac_xcframework
   raise 'Failed to build LXLibFLAC xcframework' unless success
 end
 
-def lx_patch_swift_audio_seek(installer)
-  wrapper_path = Dir.glob(File.join(installer.sandbox.root.to_s, '**', 'AVPlayerWrapper.swift'))
-    .find { |file| file.include?('SwiftAudioEx') || file.include?('SwiftAudio') }
-
-  unless wrapper_path
-    Pod::UI.puts 'Skip SwiftAudio seek patch: AVPlayerWrapper.swift not found'.yellow
-    return
-  end
-
-  replacement = <<~'SWIFT'
-    func seek(to seconds: TimeInterval) {
-        // if the player is loading then we need to defer seeking until it's ready.
-        if (avPlayer.currentItem == nil) {
-            timeToSeekToAfterLoading = seconds
-        } else {
-            let time = CMTimeMakeWithSeconds(seconds, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
-            let performSeek = { [weak self] (completion: @escaping (Bool) -> Void) in
-                guard let self = self else {
-                    completion(false)
-                    return
-                }
-                self.currentItem?.cancelPendingSeeks()
-                self.avPlayer.seek(to: time, toleranceBefore: CMTime.zero, toleranceAfter: CMTime.zero, completionHandler: completion)
-            }
-
-            performSeek { [weak self] finished in
-                guard let self = self else { return }
-                let currentTime = self.avPlayer.currentTime().seconds
-                if finished && !currentTime.isNaN && abs(currentTime - seconds) > 0.2 {
-                    performSeek { [weak self] retryFinished in
-                        guard let self = self else { return }
-                        self.delegate?.AVWrapper(seekTo: Double(seconds), didFinish: retryFinished)
-                    }
-                    return
-                }
-                self.delegate?.AVWrapper(seekTo: Double(seconds), didFinish: finished)
-            }
-        }
-    }
-
-    func seek(by seconds: TimeInterval) {
-  SWIFT
-
-  source = File.binread(wrapper_path)
-  return if source.include?(replacement.strip)
-
-  patched = source.gsub(/func seek\(to seconds: TimeInterval\) \{.*?func seek\(by seconds: TimeInterval\) \{/m, replacement)
-  if patched == source
-    Pod::UI.puts "Skip SwiftAudio seek patch: pattern not found in #{wrapper_path}".yellow
-    return
-  end
-
-  File.binwrite(wrapper_path, patched)
-  Pod::UI.puts "Patched SwiftAudio seek: #{wrapper_path}".green
-end
-
 def lx_patch_swift_audio_player_access(installer)
   queued_player_path = Dir.glob(File.join(installer.sandbox.root.to_s, '**', 'QueuedAudioPlayer.swift'))
     .find { |file| file.include?('SwiftAudioEx') || file.include?('SwiftAudio') }
@@ -112,8 +56,10 @@ def lx_patch_swift_audio_player_access(installer)
     "#{match}\n\n#{insertion.strip}"
   end
   if patched == source
-    Pod::UI.puts "Skip SwiftAudio queued player patch: anchor not found in #{queued_player_path}".yellow
-    return
+    # F-A1：锚点未命中即 raise，与 dependencies-patch.js 6-8① 的 loud-failure
+    # 口径对齐（该锚点已对 SwiftAudioEx 0.14.7 真实源码复刻验证为匹配；若上游
+    # 漂移，应红构建而非静默丢功能——本补丁提供音效代码依赖的 currentPlayerItem）。
+    raise "SwiftAudio queued player patch: anchor not found in #{queued_player_path}"
   end
 
   File.binwrite(queued_player_path, patched)
@@ -158,7 +104,9 @@ target 'LxMusicMobile' do
       :mac_catalyst_enabled => false
     )
 
-    lx_patch_swift_audio_seek(installer)
+    # F-A1：lx_patch_swift_audio_seek 已删除——其正则要求不存在的 seek(by:)，
+    # 对锁定的 SwiftAudioEx 0.14.7 从未生效过（且替换体 Double/Int 类型错、
+    # 引用不存在的 timeToSeekToAfterLoading）；seek 走上游默认 seek(to:)。
     lx_patch_swift_audio_player_access(installer)
 
     installer.pods_project.targets.each do |target|

@@ -45,7 +45,10 @@ const withInitTimeout = async <T,>(promise: Promise<T>, label: string, fallback:
   let timedOut = false
   if (onLate) {
     promise.then(
-      (value) => { if (timedOut) onLate(value) },
+      // D-7：onLate 本身抛错时，派生 promise 的 rejection 无人处理（.then
+      // 第二个参数只管原 promise 的 rejection）——就地 try/catch 吞掉，
+      // 与拒绝分支同口径（兜底值已在用，晚到值应用失败无须处理）
+      (value) => { try { if (timedOut) onLate(value) } catch {} },
       () => {},
     )
   }
