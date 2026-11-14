@@ -80,13 +80,17 @@ export default memo(() => {
 
   const qualityBadge = requestedQuality ? getQualityBadge(requestedQuality, t) : null
 
-  // 实际值（失败策略换源/换音质后）：只在与原值不同时才展示实际徽章，
-  // 未换源换音质时保持原样（不画蛇添足）。取链完成前 actualSource/quality
+  // 实际值（失败策略换源/换音质后）：箭头只在有变化时出现（平台变了或
+  // 音质变了），未换源换音质时保持原样。取链完成前 actualSource/quality
   // 为 null（切歌时已清零），不显示上一首的残留实际值。
+  // 2026-11-14：换平台后实际音质恒显示——用户要求格式「KG 128K → WY Master」：
+  // 实际侧出现时，只要实际音质已知就一并显示；平台变了但音质没变时也显示
+  // （如「KG 128K → WY 128K」），确认未降质。本地/下载歌 quality 为 null，
+  // 不画音质徽章，只显示实际平台。
   const actualSourceDiffers = streamInfo.actualSource != null && musicInfo != null && streamInfo.actualSource !== musicInfo.source
   const actualQualityDiffers = streamInfo.quality != null && requestedQuality != null && streamInfo.quality !== requestedQuality
   const showActual = actualSourceDiffers || actualQualityDiffers
-  const actualQualityBadge = actualQualityDiffers ? getQualityBadge(streamInfo.quality!, t) : null
+  const actualQualityBadge = showActual && streamInfo.quality != null ? getQualityBadge(streamInfo.quality, t) : null
   const actualAbbr = actualSourceDiffers ? (SOURCE_ABBR[streamInfo.actualSource!] ?? streamInfo.actualSource!.toUpperCase()) : ''
 
   if (!musicInfo) return null

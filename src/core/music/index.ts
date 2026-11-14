@@ -272,7 +272,15 @@ export const getMusicUrlInfo = async({
   const originalSource: LX.Source | null = 'progress' in musicInfo
     ? (musicInfo.metadata?.musicInfo?.source ?? null)
     : musicInfo.source
-  return { url, quality: quality ?? null, source: originalSource }
+  // 2026-11-14 下载项播放时显示实际下载平台：任务换源下载后 metadata.actualSource
+  // 与原平台不同，返回实际平台，setResource 写入 playerState.actualSource 后详情页
+  // 徽章即显示「原 → 实际」；未换源/旧任务无此字段时回退原平台，行为与原来一致。
+  // 注意：这里只改返回的 source（供徽章展示），不改 url/歌词/封面取链——它们仍按
+  // 原平台 musicInfo 走。
+  const resolvedSource: LX.Source | null = 'progress' in musicInfo
+    ? (musicInfo.metadata?.actualSource ?? originalSource)
+    : originalSource
+  return { url, quality: quality ?? null, source: resolvedSource }
 }
 
 export const getPicPath = async({

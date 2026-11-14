@@ -55,6 +55,8 @@ declare namespace LX {
         ext: FileExt
         fileName: string
         filePath: string
+        /** 实际下载平台（失败策略换源下载时与 musicInfo.source 不同）；未换源/旧任务无此字段 */
+        actualSource?: LX.OnlineSource
       }
     }
 

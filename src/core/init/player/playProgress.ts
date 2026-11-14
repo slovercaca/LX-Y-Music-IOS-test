@@ -89,6 +89,16 @@ export default () => {
       restorePlayInfo.index == playerState.playInfo.playIndex
   }
 
+  // A（2026-11-14）：引擎位置超总时长时自愈总时长——引擎时长（AVAsset.duration）
+  // 可能少报文件真实长度（实锤：3: 30PM 显示 02:20、实际约 02:26），播放头 honest 地
+  // 越过显示总时长。只在引擎位置（慢校准/syncFromEngine）上扩展，绝不在快路径
+  // 时钟外推上扩展（时钟可超文件结尾，扩展会掩盖根因二）。maxPlayTime 为 0（尚未
+  // 定总时长）时不扩展，避免起播瞬间把总时长定成当前位置。
+  const healMaxTimeIfNeeded = (enginePosition: number) => {
+    const maxTime = playerState.progress.maxPlayTime
+    if (maxTime > 0 && enginePosition > maxTime) setMaxplayTime(enginePosition)
+  }
+
   const getCurrentTime = () => {
     // 后台（音频后台播放时 JS 线程仍存活）跳过全部轮询工作：
     // 位置桥往返、React 渲染、进度条补间重启、存储写入在后台都没有意义，
@@ -116,6 +126,8 @@ export default () => {
       }
 
       setNowPlayTime(position)
+      // A：引擎位置（慢校准）超总时长时自愈总时长（见 healMaxTimeIfNeeded）。
+      healMaxTimeIfNeeded(position)
 
       // 先检查引擎状态：buffering 期间音频没有真正渲染，getPosition() 返回的是
       // seek 目标而非实际播放位置。此时冻结 audioClock（scrollToActiveContinuous
@@ -276,6 +288,8 @@ export default () => {
       isBufferingHold = false
       audioClock.setAnchor(stamped.position * 1000, settingState.setting['player.playbackRate'], true)
       setNowPlayTime(stamped.position)
+      // A：引擎位置（syncFromEngine）超总时长时自愈总时长（见 healMaxTimeIfNeeded）。
+      healMaxTimeIfNeeded(stamped.position)
       anchorLyricToEngineTime(stamped.position * 1000)
       const ageMs = stamped.snapshotAt > 0 ? 0 : Math.max(0, Date.now() - calibStartedAt - stamped.ageMs)
       void reanchorNowPlayingLyric(stamped.position * 1000, stamped.snapshotAt, ageMs)
@@ -732,12 +746,21 @@ export default () => {
         seekHoldUntil = 0
       }
     }
-    setNowPlayTime(position)
-    audioClock.setAnchor(position * 1000, rate || settingState.setting['player.playbackRate'], true)
+    // D（2026-11-14）：快路径时钟位置钳制到总时长——原生 4Hz 歌词时钟无时长钳制、
+    // 无文件结束自停，音频播完、ended 尚未触发的窗口里会外推超文件结尾
+    // （实锤：莫愁乡文件 136.24s、显示跑到 138s）。总时长为 0（未定）时不钳制。
+    // 与 A 配合：引擎位置真超总时长时 A 先扩展总时长，钳制用扩展后的值；
+    // 慢校准 1s 一次，钳制最多让显示在旧总时长处停顿约 1s 即跟上。
+    // 注意：seek 落点判定在上方用的是原始 position，不受钳制影响。
+    const maxTime = playerState.progress.maxPlayTime
+    const clampedPosition = maxTime > 0 ? Math.min(position, maxTime) : position
+    setNowPlayTime(clampedPosition)
+    audioClock.setAnchor(clampedPosition * 1000, rate || settingState.setting['player.playbackRate'], true)
     // 行级自愈探针（快路径层，≤250ms 收敛）：守卫条件（确认在播/非缓冲/非拖动/非
     // seek 窗口）已在上方逐条检查，position 为原生歌词时钟外推的引擎位置。覆盖
     // 「playing 事件被丢弃但快路径已复活」的窗口，比 1s 慢校准更快自愈。
-    verifyLyricLineSync(position * 1000)
+    // D：探针同样用钳制后的位置，与进度 UI/时钟锚点保持一致。
+    verifyLyricLineSync(clampedPosition * 1000)
   })
 
   // ≈ 上游 `seeked` 事件（AVPlayer seek completion，源级无条件触发，AVPlayer 路径）：

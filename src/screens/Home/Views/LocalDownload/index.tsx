@@ -109,6 +109,9 @@ const taskToPlayItem = (task: LX.Download.DownloadTask): any => ({
     ext: (task.fileName.split('.').pop() as any) ?? 'mp3',
     fileName: task.fileName,
     filePath: task.filePath,
+    // 2026-11-14 实际下载平台带进播放链路：换源下载后详情页徽章显示「原 → 实际」；
+    // 未换源/旧任务为 undefined，取链层回退原平台，行为与原来一致。
+    actualSource: task.actualSource,
   },
 })
 

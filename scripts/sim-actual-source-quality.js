@@ -16,7 +16,9 @@
  *   - setResource 写 actualSource 并广播 playStreamInfoChanged。
  *   - 切歌时 setPlayMusicInfo 把 quality/actualSource 清零并广播（防新歌
  *     取链完成前显示上一首的实际值）。
- *   - 徽章只在实际值与原值不同时展示实际徽章（箭头 + 差异项）。
+ *   - 徽章的箭头只在实际值与原值不同时出现；实际侧出现时，实际音质只要
+ *     已知就一并显示（2026-11-14：换平台后恒显示实际音质，如「KG 128K →
+ *     WY Master」；平台变了但音质没变时也显示实际音质，确认未降质）。
  *   - M-1：URL 缓存值带实际平台（JSON {"u", "s"}），缓存命中路径返回缓存
  *     里记的平台而非请求歌的平台；存点一律传实际平台。
  *   - S-1：徽章的请求档位按引擎首试口径（buildSourceFallbackQualities 首项），
@@ -78,8 +80,13 @@ check(
   '在线路径的 source 取 resolveMusicUrl 回传的 source（非 musicInfo.source）',
 )
 check(
-  /return \{ url, quality: quality \?\? null, source: originalSource \}/.test(indexSrc),
-  '非在线路径回传歌曲自身平台',
+  /return \{ url, quality: quality \?\? null, source: resolvedSource \}/.test(indexSrc),
+  '非在线路径回传 resolvedSource（下载项为实际下载平台，否则为歌曲自身平台）',
+)
+check(
+  /const resolvedSource: LX\.Source \| null = 'progress' in musicInfo/.test(indexSrc) &&
+  /musicInfo\.metadata\?\.actualSource \?\? originalSource/.test(indexSrc),
+  '下载项 source 取 metadata.actualSource、缺失时回退原平台（2026-11-14 下载实际平台展示）',
 )
 
 // --- M-1：URL 缓存带实际平台 ---
@@ -189,6 +196,10 @@ check(
   '仅变化时显示箭头与实际徽章',
 )
 check(
+  /const actualQualityBadge = showActual && streamInfo\.quality != null \? getQualityBadge\(streamInfo\.quality, t\) : null/.test(badgeSrc),
+  '2026-11-14：实际侧出现时实际音质恒显示（换平台后「KG 128K → WY Master」）',
+)
+check(
   /buildSourceFallbackQualities\(target, getFailureStrategyConfig\(\)\.qualityDirection, available\)\[0\]/.test(badgeSrc),
   'S-1：徽章请求档位按引擎首试口径（非 getPlayQuality 128k 兜底）',
 )
@@ -214,6 +225,19 @@ check(
   check(
     !/source: cached\.source \?\? currentMusicInfo\.source/.test(stripped),
     '反例自检：缓存命中改回原平台时检查能发现',
+  )
+}
+
+// 反例自检：实际音质徽章改回「仅音质不同时显示」后检查能发现
+// （2026-11-14 换平台后恒显示实际音质的回归）
+{
+  const stripped = badgeSrc.replace(
+    'const actualQualityBadge = showActual && streamInfo.quality != null ? getQualityBadge(streamInfo.quality, t) : null',
+    'const actualQualityBadge = actualQualityDiffers ? getQualityBadge(streamInfo.quality!, t) : null',
+  )
+  check(
+    !/const actualQualityBadge = showActual && streamInfo\.quality != null \? getQualityBadge\(streamInfo\.quality, t\) : null/.test(stripped),
+    '反例自检：实际音质改回仅差异时显示后检查能发现',
   )
 }
 
