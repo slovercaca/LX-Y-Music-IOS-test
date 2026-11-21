@@ -6,6 +6,7 @@ import { filterSensitiveSettingsForSync, getAllDataForSync } from './syncHelpers
 import { confirmDialog, toast } from '@/utils/tools'
 import { updateSetting } from '@/core/common'
 import settingState from '@/store/setting/state'
+import settingActions from '@/store/setting/action'
 import { webDAVLog } from '@/core/webdavMusic/logger'
 import { friendlyWebDAVError } from '@/core/webdavMusic/client'
 import { debounce } from '@/utils/common'
@@ -212,8 +213,12 @@ const hashSettingsForSync = (settings: Record<string, unknown>): string => {
 let settingsConflictNotified = false
 let userApisConflictNotified = false
 
-async function syncSettingsAuto(): Promise<void> {
-  if (settingState.setting['sync.webdav.syncSettings'] === false) return
+async function syncSettingsAuto(): Promise<boolean> {
+  // Bug 25：返回本域是否真正跑完（true）还是被跳过（false：开关关闭、
+  // 远端解析失败、无基线无时间戳、双端冲突、data 结构损坏）。调用方
+  // debouncedSync 据此决定是否清 settingsChanged——跳过时清标志会让
+  // 自动同步停滞到下一次用户变更。上传/下载/无变化都算跑完。
+  if (settingState.setting['sync.webdav.syncSettings'] === false) return false
   const includeCookies = settingState.setting['sync.webdav.syncCookies'] === true
   const { settings } = await getAllDataForSync(includeCookies)
   const localHash = hashSettingsForSync(settings as Record<string, unknown>)
@@ -228,14 +233,14 @@ async function syncSettingsAuto(): Promise<void> {
       const ts = await uploadSettings()
       updateSetting({ 'sync.webdav.lastSyncTimeSettings': ts, 'sync.webdav.lastSyncSettingsHash': localHash })
     }
-    return
+    return true
   }
 
   // 2026-10-24：此前这里裸 JSON.parse、只打一条无细节 warn，
   // 自动同步反复跑时既看不出云端文件是什么、也不提示恢复路径。
   // 改走安全解析（自动同步每会话每类只弹一次，见 safeParseSyncFile）。
   const remoteData = safeParseSyncFile(remoteContent, '设置', false)
-  if (remoteData === null) return
+  if (remoteData === null) return false
   const remoteTimestamp = remoteData.lastModified ?? 0
 
   // 全量修复：无基线且远端时间戳缺失/为 0 时，无法判断谁新谁旧，
@@ -247,7 +252,7 @@ async function syncSettingsAuto(): Promise<void> {
       settingsConflictNotified = true
       toast('首次同步：云端已有设置文件但无时间戳，已跳过自动同步，请在同步页手动选择上传或下载', 'long')
     }
-    return
+    return false
   }
 
   // 2026-10-24 冲突卡死修复：无基线（lastHash 为空 = 从未同步过，如新设备）
@@ -265,7 +270,7 @@ async function syncSettingsAuto(): Promise<void> {
       settingsConflictNotified = true
       toast('设置在本地与另一台设备都有修改，已跳过自动覆盖，请手动同步确认', 'long')
     }
-    return
+    return false
   }
 
   if (remoteTimestamp > localTimestamp) {
@@ -273,7 +278,7 @@ async function syncSettingsAuto(): Promise<void> {
     // 时不能展开进本地设置，否则会把索引当键写进去。
     if (!remoteData.data || typeof remoteData.data !== 'object' || Array.isArray(remoteData.data)) {
       webDAVLog.error('[Sync] 远端设置文件结构损坏（data 不是对象），跳过本次同步')
-      return
+      return false
     }
     // 远端更新：下载到本地。设置下载实际是合并（updateSetting 无法
     // 删除远端没有的本地键），所以基线必须按合并后本地的真实 hash 算，
@@ -282,7 +287,9 @@ async function syncSettingsAuto(): Promise<void> {
     // 已如实说明。
     webDAVLog.info('[Sync] 下载设置（远端更新）')
     const filtered = filterSensitiveSettingsForSync(remoteData.data, includeCookies)
-    updateSetting(filtered)
+    // Bug 23：下载落盘走不标脏的 store 直写（同样广播与落盘，仅跳过
+    // markSettingsChanged）——标脏版会让 3 秒后防抖空跑一轮同步。
+    settingActions.updateSetting(filtered)
     const mergedHash = hashSettingsForSync(filterSensitiveSettingsForSync(settingState.setting, includeCookies) as Record<string, unknown>)
     updateSetting({
       'sync.webdav.lastSyncTimeSettings': remoteTimestamp,
@@ -294,14 +301,17 @@ async function syncSettingsAuto(): Promise<void> {
     const ts = await uploadSettings(settings, monotonicTimestamp(remoteTimestamp))
     updateSetting({ 'sync.webdav.lastSyncTimeSettings': ts, 'sync.webdav.lastSyncSettingsHash': localHash })
   }
+  return true
 }
 
 /**
  * 自动同步自定义音源/插件（2026-10-06）：逻辑同 syncSettingsAuto，
  * hash 口径为 getAllDataForSync 返回的 userApis（list + scripts）。
  */
-async function syncUserApisAuto(): Promise<void> {
-  if (settingState.setting['sync.webdav.syncUserApis'] === false) return
+async function syncUserApisAuto(): Promise<boolean> {
+  // Bug 25：同 syncSettingsAuto——返回本域是否真正跑完，供 debouncedSync
+  // 决定是否清 settingsChanged（设置/音源共用这一个脏标志）。
+  if (settingState.setting['sync.webdav.syncUserApis'] === false) return false
   const { userApis } = await getAllDataForSync()
   const localHash = JSON.stringify(userApis)
   const lastHash = settingState.setting['sync.webdav.lastSyncUserApisHash'] ?? ''
@@ -314,12 +324,12 @@ async function syncUserApisAuto(): Promise<void> {
       const ts = await uploadUserApis()
       updateSetting({ 'sync.webdav.lastSyncTimeUserApis': ts, 'sync.webdav.lastSyncUserApisHash': localHash })
     }
-    return
+    return true
   }
 
   // 2026-10-24：同设置——裸 JSON.parse 改走安全解析，见 syncSettingsAuto。
   const remoteData = safeParseSyncFile(remoteContent, '自定义音源', false)
-  if (remoteData === null) return
+  if (remoteData === null) return false
   const remoteTimestamp = remoteData.lastModified ?? 0
 
   // 全量修复：同设置——无基线且远端无时间戳时跳过，不用本地覆盖云端。
@@ -329,7 +339,7 @@ async function syncUserApisAuto(): Promise<void> {
       userApisConflictNotified = true
       toast('首次同步：云端已有自定义音源文件但无时间戳，已跳过自动同步，请在同步页手动选择上传或下载', 'long')
     }
-    return
+    return false
   }
 
   // 2026-10-24 冲突卡死修复：同设置——无基线不算冲突，见 syncSettingsAuto。
@@ -341,21 +351,27 @@ async function syncUserApisAuto(): Promise<void> {
       userApisConflictNotified = true
       toast('自定义音源在本地与另一台设备都有修改，已跳过自动覆盖，请手动同步确认', 'long')
     }
-    return
+    return false
   }
 
   if (remoteTimestamp > localTimestamp) {
     webDAVLog.info('[Sync] 下载自定义音源（远端更新）')
     await overwriteUserApis(remoteData.data)
+    // Bug 26：基线按落盘后本地实际值算——比对侧 localHash 是
+    // getAllDataForSync 重建的 { list, scripts }（仅含名单内脚本、
+    // 固定键顺序），直接存远端原始 JSON 会在键顺序/孤立脚本键
+    // 不同时误判本地有变、下一轮误传一次。
+    const { userApis: writtenApis } = await getAllDataForSync()
     updateSetting({
       'sync.webdav.lastSyncTimeUserApis': remoteTimestamp,
-      'sync.webdav.lastSyncUserApisHash': JSON.stringify(remoteData.data),
+      'sync.webdav.lastSyncUserApisHash': JSON.stringify(writtenApis),
     })
   } else if (lastHash !== localHash) {
     webDAVLog.info('[Sync] 上传自定义音源（本地有变化）')
     const ts = await uploadUserApis(userApis, monotonicTimestamp(remoteTimestamp))
     updateSetting({ 'sync.webdav.lastSyncTimeUserApis': ts, 'sync.webdav.lastSyncUserApisHash': localHash })
   }
+  return true
 }
 
 // ---------------------------------------------------------------------------
@@ -619,7 +635,8 @@ export async function manualDownloadSettingsAndApis(onProgress?: SyncProgressCal
         // sync.webdav.syncCookies 开启时，下载设置包含平台 cookie
         const includeCookies = settingState.setting['sync.webdav.syncCookies'] === true
         const filtered = filterSensitiveSettingsForSync(remoteSettingsData.data, includeCookies)
-        updateSetting(filtered)
+        // Bug 23：同自动下载分支——下载落盘不标脏，防 3 秒后防抖空跑。
+        settingActions.updateSetting(filtered)
         // 2026-10-24 冲突卡死修复 + 全量修复：基线按合并后本地真实
         // hash 算，不能按远端过滤值算，否则 3 秒后防抖会把合并态
         // 重新上传，云端还原点被污染。
@@ -643,9 +660,11 @@ export async function manualDownloadSettingsAndApis(onProgress?: SyncProgressCal
         await overwriteUserApis(remoteApisData.data)
         // 2026-10-24 冲突卡死修复：同设置——手动下载后推进基线，口径与
         // 自动下载分支一致。overwriteUserApis 抛错时不执行，基线不动。
+        // Bug 26：同自动下载分支——基线取落盘后本地实际值，不存远端原始 JSON。
+        const { userApis: writtenApis } = await getAllDataForSync()
         updateSetting({
           'sync.webdav.lastSyncTimeUserApis': remoteApisData.lastModified ?? 0,
-          'sync.webdav.lastSyncUserApisHash': JSON.stringify(remoteApisData.data),
+          'sync.webdav.lastSyncUserApisHash': JSON.stringify(writtenApis),
         })
         applied = true
       }
@@ -714,7 +733,10 @@ export async function manualDownloadLists(onProgress?: SyncProgressCallback): Pr
         return false
       }
       onProgress?.(0.6, '正在覆盖本地歌单…')
-      await overwriteListFull(normalizedData.data)
+      // Bug 24：云端下载传 isRemote=true，跳过操作队列入队与标脏——
+      // 否则覆盖时新写入的 op 落在 opsAtStart 快照之外清不掉，3 秒后
+      // 防抖同步会把刚下载的云端数据原样再上传一次（回声重传）。
+      await overwriteListFull(normalizedData.data, true)
       applied = true
       await applyRemoteExtraData(normalizedData)
       // 高：快照清——下载期间的新编辑操作要保留待下轮同步
@@ -735,6 +757,14 @@ export async function manualDownloadLists(onProgress?: SyncProgressCallback): Pr
 
 let listsChanged = false
 let settingsChanged = false
+// Bug 25：最近一轮 triggerWebDAVSync 各域是否真正跑完（非跳过）。
+// triggerWebDAVSync 的 'ok'/'failed'/'not-run'/'not-configured' 四态契约
+// 不动（3-6 锚点与手动调用方都依赖它），各域结果另记在这里，供
+// debouncedSync 成功后仅清已同步域的脏标志：歌单开关关闭、首次/冲突
+// 弹窗取消、远端解析失败等跳过路径下，脏标志必须保留到下次触发。
+// isSyncing 保证同时最多一轮 trigger 在跑，无并发覆写；故障转移重跑
+// 回调时在回调入口重置，避免首轮结果残留到次轮。
+let lastSyncOutcomes = { lists: false, settings: false, apis: false }
 // 低-3：变更序号——防抖同步的 finally 若无条件清标志，同步进行中产生的新变更
 // 会被一起清掉、永不自动上传（歌单有 opQueue 兜底，设置没有）。用序号区分
 // 「同步开始后有没有新变更」。
@@ -815,9 +845,16 @@ const debouncedSync = debounce(() => {
       // 成功：连续失败计数清零、清掉待命的退避定时器（若有）。
       syncRetryCount = 0
       clearSyncRetryTimer()
-      // 同步期间又产生了新变更（序号变了）则保留标志，等下一轮防抖带上
-      if (listsChangeSeq === lSeq) listsChanged = false
-      if (settingsChangeSeq === sSeq) settingsChanged = false
+      // Bug 25：仅清已同步域的标志——同步期间又产生了新变更（序号变了）
+      // 则保留标志，等下一轮防抖带上；本轮被跳过的域（开关关闭、弹窗
+      // 取消、解析失败、双端冲突）同样保留，待下次变更/手动同步重试。
+      // 设置/音源共用 settingsChanged：开关关闭的域视为无需同步，只有
+      // 开着的域都真正跑完才清。
+      if (listsChangeSeq === lSeq && lastSyncOutcomes.lists) listsChanged = false
+      const settingsSynced =
+        (settingState.setting['sync.webdav.syncSettings'] === false || lastSyncOutcomes.settings) &&
+        (settingState.setting['sync.webdav.syncUserApis'] === false || lastSyncOutcomes.apis)
+      if (settingsChangeSeq === sSeq && settingsSynced) settingsChanged = false
     }).catch(() => {
       // trigger 内部已 catch 并 toast，这里只防未处理 rejection 刷屏
     })
@@ -890,7 +927,7 @@ async function resolveFirstSync(remoteData: ListsSyncFile): Promise<'done' | 'ca
   }
   if (userChoice === false) {
     webDAVLog.info('[Sync] User chose to download remote state during first sync.')
-    await overwriteListFull(remoteData.data)
+    await overwriteListFull(remoteData.data, true)
     await applyRemoteExtraData(remoteData)
     await clearOperationQueueSnapshot(opsAtStart)
     updateSetting({ 'sync.webdav.lastSyncTimeLists': remoteData.lastModified })
@@ -922,6 +959,8 @@ export async function triggerWebDAVSync(isManual = false): Promise<WebDAVSyncRes
   }
 
   isSyncing = true
+  // Bug 25：本轮各域结果重置（见 lastSyncOutcomes 注释）。
+  lastSyncOutcomes = { lists: false, settings: false, apis: false }
   // 3-6：跟踪真实完成状态——此前 catch 后无条件 return true，
   // debouncedSync 误清脏标志、失败后不再自动重调度
   let succeeded = true
@@ -936,13 +975,14 @@ export async function triggerWebDAVSync(isManual = false): Promise<WebDAVSyncRes
   const runSettingsAndApisSync = async() => {
     let firstError: any = null
     try {
-      await syncSettingsAuto()
+      // Bug 25：记下本域是否真正跑完（抛错时保持 false）。
+      lastSyncOutcomes.settings = await syncSettingsAuto()
     } catch (error: any) {
       webDAVLog.warn('[Sync] 设置自动同步失败', { error: error?.message ?? error })
       firstError = firstError ?? error
     }
     try {
-      await syncUserApisAuto()
+      lastSyncOutcomes.apis = await syncUserApisAuto()
     } catch (error: any) {
       webDAVLog.warn('[Sync] 自定义音源自动同步失败', { error: error?.message ?? error })
       firstError = firstError ?? error
@@ -954,6 +994,8 @@ export async function triggerWebDAVSync(isManual = false): Promise<WebDAVSyncRes
     // 存疑处理：先等操作队列加载完成再读队列，避免未就绪误判 hasLocalChanges
     await whenOperationQueueReady()
     await runWithWebDAVFailover(async() => {
+      // Bug 25：故障转移重跑回调时重置本轮各域结果，避免首轮结果残留。
+      lastSyncOutcomes = { lists: false, settings: false, apis: false }
       // P1-7（2026-10-06）：歌单同步受 sync.webdav.syncLists 开关控制。
       // 自动触发时若开关关闭，跳过歌单流程（只跑设置/插件自动同步）；
       // 手动触发（isManual）时允许，方便用户手动同步一次。
@@ -969,6 +1011,7 @@ export async function triggerWebDAVSync(isManual = false): Promise<WebDAVSyncRes
         await uploadLists(lists)
         await clearOperationQueueSnapshot(opsAtStart)
         if (isManual) toast('歌单上传成功！')
+        lastSyncOutcomes.lists = true
         await runSettingsAndApisSync()
         return
       }
@@ -987,6 +1030,8 @@ export async function triggerWebDAVSync(isManual = false): Promise<WebDAVSyncRes
         if (localTimestamp === 0) {
           const result = await resolveFirstSync(remoteData)
           if (result === 'cancelled' && isManual) toast('同步已取消')
+          // Bug 25：用户取消首次同步取舍时歌单域算跳过，脏标志保留。
+          if (result === 'done') lastSyncOutcomes.lists = true
           await runSettingsAndApisSync()
           return
         }
@@ -1037,14 +1082,16 @@ export async function triggerWebDAVSync(isManual = false): Promise<WebDAVSyncRes
               }
               await clearOperationQueueSnapshot(opsAtChoice)
               toast('已强制使用本地歌单覆盖云端！')
+              lastSyncOutcomes.lists = true
             } else if (userChoice === false) {
               webDAVLog.info('[Sync] Conflict resolved by user: Force pulling remote state.')
               const opsAtChoice = getOperationQueue()
-              await overwriteListFull(remoteData.data)
+              await overwriteListFull(remoteData.data, true)
               await applyRemoteExtraData(remoteData)
               await clearOperationQueueSnapshot(opsAtChoice)
               updateSetting({ 'sync.webdav.lastSyncTimeLists': remoteTimestamp })
               toast('已从云端同步歌单，本地更改已放弃！')
+              lastSyncOutcomes.lists = true
             } else {
               webDAVLog.info('[Sync] Conflict resolution cancelled by user.')
               toast('操作已取消')
@@ -1052,7 +1099,8 @@ export async function triggerWebDAVSync(isManual = false): Promise<WebDAVSyncRes
           } else {
             webDAVLog.info('[Sync] Merge successful or only remote changes detected.')
             try {
-              await overwriteListFull(mergedData)
+              // Bug 24：合并结果源自云端数据，传 isRemote=true（同上）。
+              await overwriteListFull(mergedData, true)
               if (hasLocalChanges) {
                 // 3-7(a)：时间戳单调递增，防时钟回拨导致下轮被旧文件滚回
                 await uploadLists(mergedData, monotonicTimestamp(remoteTimestamp))
@@ -1071,6 +1119,9 @@ export async function triggerWebDAVSync(isManual = false): Promise<WebDAVSyncRes
               //（uploadLists 成功时已在 :170 清过，此处再清无害）
               pendingExtraData = null
             }
+            // Bug 25：合并落盘/上传完成（抛错时走外层 catch、trigger 报
+            // failed，本行不执行，脏标志由 failed 分支保留）。
+            lastSyncOutcomes.lists = true
           }
         } else if (hasLocalChanges) {
           webDAVLog.info('[Sync] Local has unsynced changes. Uploading.')
@@ -1080,9 +1131,15 @@ export async function triggerWebDAVSync(isManual = false): Promise<WebDAVSyncRes
           await uploadLists(currentLocalLists, monotonicTimestamp(remoteTimestamp))
           await clearOperationQueueSnapshot(opsAtStart)
           if (isManual) toast('本地歌单已上传！')
-        } else if (isManual) {
-          webDAVLog.info('[Sync] Lists are up to date.')
-          toast('歌单已是最新，无需同步')
+          lastSyncOutcomes.lists = true
+        } else {
+          // Bug 25：双端一致、无待同步变更，歌单域算跑完（原 else if
+          // (isManual) 只改 toast 触发条件，行为不变）。
+          if (isManual) {
+            webDAVLog.info('[Sync] Lists are up to date.')
+            toast('歌单已是最新，无需同步')
+          }
+          lastSyncOutcomes.lists = true
         }
       }
       } // P1-7: syncLists 开关 guard 结束

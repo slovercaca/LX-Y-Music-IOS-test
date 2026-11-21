@@ -493,7 +493,13 @@ final class LXEqualizerAudioMixController {
     }
 
     func updateConfig(enabled: Bool, gains: [Float]) {
+        // 6-G74: 在 lock 内拷贝 self.config，解锁后再调 updateConfig(_:)——
+        // 旧代码无锁拷贝，与另一线程的持锁写竞争引用计数成员（CoW gains 数组）；
+        // NSLock 不可重入，持锁调 updateConfig(_:)（内部再 lock）会死锁，
+        // 故必须先解锁。
+        lock.lock()
         var config = self.config
+        lock.unlock()
         config.equalizerEnabled = enabled
         config.gains = Self.normalizeGains(gains)
         updateConfig(config)
@@ -965,6 +971,13 @@ final class LXEqualizerAudioMixController {
         return lxSoundEffectBandFrequencies.enumerated().map { index, frequency in
             let gain = index < gains.count ? gains[index] : 0
             if abs(gain) < 0.01 { return .bypass }
+            // 6-G73: 超 Nyquist 频段直接 bypass——采样率 < 32000 Hz 时 16kHz 频段的
+            // omega > π，sin(omega) < 0 → alpha < 0，IIR 极点落到单位圆外，状态指数
+            // 发散至 ±Inf/NaN（满幅噪声）。该频段本来就不该发声。
+            // （与 AppDelegate.mm 的 LXRealtimeEqualizerProcessor::makeCoefficients
+            // 同改；系数变化时不重置 eqStates——bypass 已消除发散源，而每次改增益
+            // 都清状态会在拖滑杆时引入可闻咔哒声。）
+            if frequency >= Float(sampleRate * 0.49) { return .bypass }
 
             let amplitude = pow(10, gain / 40)
             let omega = 2 * Float.pi * frequency / Float(sampleRate)
