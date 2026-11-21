@@ -107,8 +107,11 @@ export const loadPlaybackResource = async({
     if (isStale()) return
   }
 
-  const track = await loadTrackPlayerResource(musicInfo, url, time, shouldAutoStart)
+  const track = await loadTrackPlayerResource(musicInfo, url, time, shouldAutoStart, isStale)
   if (isStale()) return
+  // Bug 16：装载中途过期时 loadTrackPlayerResource 返回 null（不再碰队列），
+  // 此处直接返回，不写新歌元数据。
+  if (!track) return
   ensureCurrentTrackMetadata({
     title: track.title,
     artist: track.artist,

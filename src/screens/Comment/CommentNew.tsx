@@ -81,10 +81,15 @@ export default ({
     listRef.current?.setStatus('loading')
     void handleGetComment(musicInfo, page, requestSeqRef.current)
       .then(({ comments }) => {
+        // Bug 63：请求在途退出评论页（组件卸载，listRef.current 被置 null）
+        // 后回调到达，内层裸读 listRef.current.getList() 抛 TypeError，
+        // 链上又无 catch，成未处理 rejection；先判空再读
+        if (!listRef.current) return
         let isEnd = page >= listInfo.current.maxPage
         if (listInfo.current.isEnd != isEnd) listInfo.current.isEnd = isEnd
         listRef.current?.setList(filterList([...listRef.current.getList(), ...comments]))
       })
+      .catch(() => {})
       .finally(updateStatus)
   }
 

@@ -101,9 +101,9 @@ export const filterMusicInfoList = (rawList) => {
       typeUrl: {},
       meta: {
         songId: item.audio_info.audio_id,
-        albumName: decodeName(item.album_info.album_name),
-        albumId: item.album_info.album_id,
-        picUrl: item.album_info.sizable_cover ? item.album_info.sizable_cover.replace('{size}', '400') : null,
+        albumName: decodeName(item.album_info?.album_name),
+        albumId: item.album_info?.album_id,
+        picUrl: item.album_info?.sizable_cover ? item.album_info.sizable_cover.replace('{size}', '400') : null,
         qualitys: types,
         _qualitys: _types,
         hash: item.audio_info.hash,

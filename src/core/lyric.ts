@@ -6,6 +6,7 @@ import {
   setPlaybackRate as lrcSetPlaybackRate,
   toggleTranslation as lrcToggleTranslation,
   toggleRoma as lrcToggleRoma,
+  anchorLyric as lrcAnchorLyric,
   init as lrcInit,
 } from '@/plugins/lyric'
 import { getPosition } from '@/plugins/player/utils'
@@ -99,7 +100,12 @@ export const setPlaybackRate = async(playbackRate: number) => {
  */
 export const toggleTranslation = async(isShowTranslation: boolean) => {
   lrcToggleTranslation(isShowTranslation)
-  if (playerState.isPlay) play()
+  // Bug 13：lrc.setLyric() 重解析后行号被重置为 0，暂停态原先不重锚，
+  // 高亮会停在顶部直到下次恢复播放。改动后无论播放/暂停都取实时位置重锚——
+  // anchorLyric 本身就是"暂停只落行不推进、播放继续推进"语义，无需再分流。
+  void getReliableLyricPosition().then((position) => {
+    lrcAnchorLyric(position * 1000, playerState.isPlay)
+  })
 }
 
 /**
@@ -108,7 +114,10 @@ export const toggleTranslation = async(isShowTranslation: boolean) => {
  */
 export const toggleRoma = async(isShowLyricRoma: boolean) => {
   lrcToggleRoma(isShowLyricRoma)
-  if (playerState.isPlay) play()
+  // Bug 13：同 toggleTranslation，暂停态也要重锚（见上）。
+  void getReliableLyricPosition().then((position) => {
+    lrcAnchorLyric(position * 1000, playerState.isPlay)
+  })
 }
 
 export const play = () => {

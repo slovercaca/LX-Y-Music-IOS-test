@@ -23,6 +23,10 @@ const hello = async(urlInfo: LX.Sync.UrlInfo) =>
       return false
     })
     .catch((err: any) => {
+      // Bug 29：版本不匹配错误必须放行——此前 .catch 把 high/lowServiceVersion
+      // 也吞成 false，调用方只能抛 connectServiceFailed，用户看不到版本
+      // 不匹配的真实原因。只吞网络异常。
+      if (err?.message === SYNC_CODE.highServiceVersion || err?.message === SYNC_CODE.lowServiceVersion) throw err
       log.error('[auth] hello', err.message)
       console.log(err)
       return false

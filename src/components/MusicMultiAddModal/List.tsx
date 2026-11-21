@@ -93,7 +93,14 @@ export default ({
     } else {
       sourceList = localLists
     }
-    return sourceList.filter((l) => l.id != listId)
+    return sourceList.filter((l) => {
+      // Bug 58：wy 订阅歌单的 l.id 是不带前缀的原始数字 id，而 listId 带
+      // wy__ 前缀，直接比较恒不等，源歌单未被排除——移动时误选源歌单自身，
+      // wy 分支先加后删同一歌单，选中歌曲被清空。比较前剥离 wy__ 前缀。
+      // tx 的 l.id 自带 tx__ 前缀，与 listId 一致，不动；本地歌单无前缀，不动。
+      if (playlistType === 'wy') return String(l.id) !== String(listId).replace(/^wy__/, '')
+      return l.id != listId
+    })
   }, [playlistType, localLists, onlinePlaylists, uid, listId, txPlaylists])
 
   const itemWidth = useMemo(() => {

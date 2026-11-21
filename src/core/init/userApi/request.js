@@ -55,7 +55,9 @@ const handleRequestData = async({
       headers['Content-Type'] = 'application/json'
     }
   }
-  if (headers['Content-Type'] === 'application/json' && options.body) {
+  if (headers['Content-Type'] === 'application/json' && options.body && typeof options.body !== 'string') {
+    // Bug 49 同型：已序列化的字符串 body 不得二次 stringify（会包一层引号并
+    // 转义内部引号）；对象 body 行为不变
     options.body = JSON.stringify(options.body)
   }
 
@@ -90,6 +92,15 @@ export const fetchData = (url, { timeout = 13_000, ...options } = {}) => {
     id = null
     controller.abort()
   }, timeout)
+  // Bug 8：幂等清理超时 timer——handleRequestData 抛错（用户脚本入参不可信：
+  // 孤 surrogates/循环引用/非字符串 method）时内层 fetch 链不执行，timer
+  // 得不到提前清理；外层 .finally 与 abort() 在此兜底（timer 自身在 timeout
+  // 后触发置 null，故泄漏有界，此处只是提前释放）。
+  const clearTimer = () => {
+    if (id == null) return
+    BackgroundTimer.clearTimeout(id)
+    id = null
+  }
 
   return {
     request: handleRequestData(options).then((options) => {
@@ -130,13 +141,11 @@ export const fetchData = (url, { timeout = 13_000, ...options } = {}) => {
           // console.log(err, err.code, err.message)
           return Promise.reject(err)
         })
-        .finally(() => {
-          if (id == null) return
-          BackgroundTimer.clearTimeout(id)
-        })
-    }),
+        .finally(clearTimer)
+    }).finally(clearTimer),
     abort() {
       controller.abort()
+      clearTimer()
     },
   }
 }

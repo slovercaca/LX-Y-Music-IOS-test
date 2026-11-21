@@ -17,6 +17,11 @@ export default () => {
     lockLrc: false,
   }
   let syncedDurationMusicId: string | null = null
+  // Bug 5：播放/暂停状态同步代际——handlePlay/handlePause 的 syncNowPlayingState
+  // 是异步的，快速 play→pause→stop 时在途旧链 resolve 后会把 buttons.play
+  // 改回过期值；每次事件递增代际，await 后过期链直接丢弃（handleStop 同步
+  // 写 buttons.play = false 时同样递增，使在途的 play 链失效）。
+  let syncGen = 0
   const setButtons = () => {
     // setPlayerAction(buttons)
     if (!playerState.playMusicInfo.musicInfo) return
@@ -38,8 +43,10 @@ export default () => {
   // }
 
   const handlePlay = () => {
+    const gen = ++syncGen
     void (async() => {
       await syncNowPlayingState('play')
+      if (gen != syncGen) return
       // if (buttons.empty) buttons.empty = false
       if (buttons.play) return
       buttons.play = true
@@ -47,8 +54,10 @@ export default () => {
     })()
   }
   const handlePause = () => {
+    const gen = ++syncGen
     void (async() => {
       await syncNowPlayingState('pause')
+      if (gen != syncGen) return
       // if (buttons.empty) buttons.empty = false
       if (!buttons.play) return
       buttons.play = false
@@ -56,6 +65,7 @@ export default () => {
     })()
   }
   const handleStop = () => {
+    syncGen++
     void syncNowPlayingState('stop')
     buttons.play = false
     setButtons()
