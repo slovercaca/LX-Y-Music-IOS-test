@@ -513,7 +513,7 @@ export const shareMusic = (
   const detailUrl =
     musicInfo.source == 'local'
       ? ''
-      : (musicSdk[musicInfo.source]?.getMusicDetailPageUrl(toOldMusicInfo(musicInfo)) ?? '')
+      : (musicSdk[musicInfo.source]?.getMusicDetailPageUrl?.(toOldMusicInfo(musicInfo)) ?? '')
   const musicTitle = formatMusicName(downloadFileName, name, singer)
   switch (shareType) {
     case 'system':

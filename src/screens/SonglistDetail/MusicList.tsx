@@ -337,6 +337,13 @@ export default forwardRef<MusicListType, MusicListProps>(({ componentId, isCreat
         }
       },
       addSongToList(rawSong: any) {
+        // Bug 55：按 LX.Music.MusicInfo_kg 规范构造完整 meta——渲染侧
+        // ListItem 多处无可选链直接读 item.meta（:112 useIsWyLiked、
+        // :119/:150/:206），缺 meta 时添加后 setList 立即崩溃。
+        // 顶层只保留 MusicInfoBase 声明的字段（albumName/albumId/songmid/
+        // mixSongId），去掉 as any；hash/fileId/img 不在声明类型内，
+        // hash 归入 meta，fileId 删除时由 getKgPlaylistSongs 重查，
+        // 封面走 meta.picUrl。qualitys 未知时留空，下次刷新被真实条目替换。
         const song: LX.Music.MusicInfoOnline = {
           id: `kg__${rawSong.hash || rawSong.audio_id}`,
           name: decodeName(rawSong.name || rawSong.songname || '').replace(/\.mp3$/i, ''),
@@ -344,13 +351,20 @@ export default forwardRef<MusicListType, MusicListProps>(({ componentId, isCreat
           albumName: decodeName(rawSong.album_name || ''),
           albumId: String(rawSong.album_id || ''),
           songmid: String(rawSong.audio_id || rawSong.hash || ''),
+          mixSongId: rawSong.mixsongid ? String(rawSong.mixsongid) : undefined,
           source: 'kg',
           interval: rawSong.duration ? rawSong.duration + 's' : '',
-          img: rawSong.cover ? rawSong.cover.replace('{size}', '400') : '',
-          hash: rawSong.hash || '',
-          mixsongid: rawSong.mixsongid || 0,
-          fileId: rawSong.fileid || 0,
-        } as any
+          meta: {
+            songId: rawSong.audio_id || rawSong.hash || '',
+            albumName: decodeName(rawSong.album_name || ''),
+            albumId: String(rawSong.album_id || ''),
+            picUrl: rawSong.cover ? rawSong.cover.replace('{size}', '400') : null,
+            qualitys: [],
+            _qualitys: {},
+            hash: rawSong.hash || '',
+            mixSongId: rawSong.mixsongid ? String(rawSong.mixsongid) : undefined,
+          },
+        }
         const currentList = [...songlistState.listDetailInfo.list]
         if (!currentList.some(s => s.id === song.id)) {
           currentList.push(song)

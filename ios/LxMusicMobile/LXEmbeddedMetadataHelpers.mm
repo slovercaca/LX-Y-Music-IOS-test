@@ -201,7 +201,16 @@ static void LXID3TagSizeToBytes(NSUInteger size, uint8_t *bytes) {
 
 static NSString *LXStringFromEncodingBytes(const uint8_t *bytes, NSUInteger length, uint8_t enc) {
   // Trim a trailing null terminator if present.
-  if (length > 0 && bytes[length - 1] == 0) length--;
+  // 6-G71: UTF-16（0x01/0x02）终止符是两个 0x00 字节——旧代码无条件只裁 1 字节，
+  // 带终止符时长度变奇数、initWithBytes: 解码失败返回 nil；更普遍的是 UTF-16LE
+  // 文本以 ASCII 结尾时末字节本身就是 0x00（无终止符也被裁成奇数 → nil），
+  // 几乎所有 UTF-16LE 标题/歌手/专辑都读失败，写封面时旧字段被静默丢掉。
+  // 仅当末尾两字节都是 0x00 时裁 2 字节；单字节/UTF-8（0x00/0x03）裁 1 字节。
+  if (enc == 0x01 || enc == 0x02) {
+    if (length >= 2 && bytes[length - 1] == 0 && bytes[length - 2] == 0) length -= 2;
+  } else if (length > 0 && bytes[length - 1] == 0) {
+    length--;
+  }
   if (length == 0) return nil;
   NSStringEncoding nsEnc = NSUTF8StringEncoding;
   if (enc == 0x01) nsEnc = NSUTF16StringEncoding;
@@ -232,11 +241,14 @@ static NSString *LXID3USLTFrameValue(NSData *body) {
   const uint8_t *b = (const uint8_t *)body.bytes;
   uint8_t enc = b[0];
   NSUInteger offset = 4;
-  if (enc == 0x03) {
+  // 6-G72: 0x00（Latin-1）描述符是单字节 NUL 终止，与 UTF-8 分支扫描逻辑一致；
+  // 0x02（UTF-16BE 无 BOM）描述符是双字节 NUL 终止，与 0x01 分支一致。
+  // 旧代码只有 0x03/0x01 两个分支，其余直接返回 nil，写标签时原内嵌歌词丢失。
+  if (enc == 0x03 || enc == 0x00) {
     while (offset < body.length && b[offset] != 0) offset++;
     if (offset < body.length) offset++;
     return LXStringFromEncodingBytes(b + offset, body.length - offset, enc);
-  } else if (enc == 0x01) {
+  } else if (enc == 0x01 || enc == 0x02) {
     while (offset + 1 < body.length && !(b[offset] == 0 && b[offset + 1] == 0)) offset += 2;
     if (offset + 1 < body.length) offset += 2;
     return LXStringFromEncodingBytes(b + offset, body.length - offset, enc);

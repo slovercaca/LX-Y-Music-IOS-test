@@ -277,25 +277,61 @@ export const setScreenOrientation = (orientation: 'landscape' | 'portrait' | 'au
 // 切歌期间申请 UIApplication 的后台任务，为 JS 争取一段额外的后台执行时间。
 // 同时只允许持有一个任务：连续切歌时复用，避免重复申请把系统给的预算耗光。
 let backgroundTaskId: number | null = null
+// Bug 18：in-flight begin 复用。原守卫在 await 之前，并发调用会各自发起桥接
+// 调用（原生侧虽已去重、返回同一 ID，无句柄泄漏，但重复申请浪费系统预算）。
+// 并发调用复用同一个在途 Promise，只发一次桥接调用。
+// 注意：绝不能按"返回后若已存在 backgroundTaskId 则立即 end"修——原生去重后
+// 并发返回的是同一个 ID，end 掉它等于杀掉唯一的共享任务，一半有害。
+let beginBackgroundTaskPromise: Promise<void> | null = null
+// begin 在途时先调 end：end 见 backgroundTaskId 为 null 会直接返回，随后 begin
+// 完成并持有任务，无人再释放。记下挂起的 end 请求，任务到手后立即释放。
+let endRequestedWhileBeginning = false
 
-export const beginBackgroundTask = async(): Promise<void> => {
-  if (!isIOS || !UtilsModule?.beginBackgroundTask) return
-  if (backgroundTaskId != null) return
-  try {
-    const taskId = await (UtilsModule.beginBackgroundTask as () => Promise<number>)()
-    // UIBackgroundTaskInvalid == 0，表示系统本次未分配后台时间
-    if (typeof taskId == 'number' && taskId > 0) backgroundTaskId = taskId
-  } catch {}
+export const beginBackgroundTask = (): Promise<void> => {
+  if (!isIOS || !UtilsModule?.beginBackgroundTask) return Promise.resolve()
+  if (backgroundTaskId != null) return Promise.resolve()
+  if (beginBackgroundTaskPromise) return beginBackgroundTaskPromise
+  beginBackgroundTaskPromise = (async(): Promise<void> => {
+    try {
+      const taskId = await (UtilsModule.beginBackgroundTask as () => Promise<number>)()
+      // UIBackgroundTaskInvalid == 0，表示系统本次未分配后台时间
+      if (typeof taskId == 'number' && taskId > 0) {
+        if (endRequestedWhileBeginning) {
+          // begin 在途时已调 end：任务刚到手就释放，避免无人释放。
+          // 与"返回后见已有 ID 就 end"的有害修法不同——这里的 end 由一次
+          // 真实的 endBackgroundTask() 调用触发，不是凭 ID 重复推断。
+          try {
+            UtilsModule.endBackgroundTask(taskId)
+          } catch {}
+        } else {
+          backgroundTaskId = taskId
+        }
+      }
+      // taskId 无效（系统未分配后台时间）时无任务可释放，挂起的 end 请求自然作废。
+    } catch {}
+  })().finally(() => {
+    beginBackgroundTaskPromise = null
+    // 本轮 begin 已落定，挂起的 end 请求无论是否被消费都已作废——清掉，
+    // 避免污染下一次 begin（尤其 end 恰落在 IIFE 完成与 finally 执行之间时）。
+    endRequestedWhileBeginning = false
+  })
+  return beginBackgroundTaskPromise
 }
 
 export const endBackgroundTask = (): void => {
   if (!isIOS || !UtilsModule?.endBackgroundTask) return
-  if (backgroundTaskId == null) return
-  const taskId = backgroundTaskId
-  backgroundTaskId = null
-  try {
-    UtilsModule.endBackgroundTask(taskId)
-  } catch {}
+  if (backgroundTaskId != null) {
+    const taskId = backgroundTaskId
+    backgroundTaskId = null
+    try {
+      UtilsModule.endBackgroundTask(taskId)
+    } catch {}
+    return
+  }
+  // begin 在途（任务尚未到手）：记下请求，待任务到手后立即释放。
+  // 先查 backgroundTaskId 再查在途 Promise——begin 完成的赋值与挂起标记的
+  // 消费在同一同步块内，无竞态窗口。
+  if (beginBackgroundTaskPromise) endRequestedWhileBeginning = true
 }
 
 const blurredPicCacheKey = (uri: string, blurRadius: number) => `${uri}|${blurRadius}`
