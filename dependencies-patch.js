@@ -777,8 +777,9 @@ private let lxTrackPlayerLifecycleNotification = Notification.Name("LXTrackPlaye
 `,
         to: `        player.event.queueIndex.addListener(self, handleAudioPlayerQueueIndexChange)
         // ≈ HTMLMediaElement 的 seeked：AVPlayer seek completion（引擎真正到达落点，
-        // 无论是否经历缓冲）。发起时的 "seek" lifecycle 事件带请求目标；本事件带引擎
-        // 真实落点，控制中心歌词时钟据此精确重锚，并转发 JS 触发歌词重锚。
+        // 无论是否经历缓冲）。发起时的 "seek" lifecycle 事件带请求目标；本事件带完成
+        // 时刻的引擎位置（真实落点，见 handleAudioPlayerSeekCompleted），控制中心歌词
+        // 时钟据此精确重锚，并转发 JS 触发歌词重锚。
         player.event.seek.addListener(self, handleAudioPlayerSeekCompleted)
     }
 `,
@@ -787,9 +788,13 @@ private let lxTrackPlayerLifecycleNotification = Notification.Name("LXTrackPlaye
         from: '    func handleAudioPlayerStateChange(state: AVPlayerWrapperState) {',
         to: `    // ≈ HTMLMediaElement 的 seeked：seek completion 回调（SeekEventData = (seconds: Int, didFinish: Bool)）。
     // 同时发 lifecycle 通知（控制中心歌词时钟重锚到真实落点）与 JS 事件（歌词重锚触发）。
+    // 2026-11-21：data.seconds 是请求目标（SwiftAudioEx 回调原样回传请求参数，还截成
+    // 整数），不是真实落点；默认容差 seek 可落在目标之前。改用完成时刻的引擎位置
+    // （player.currentTime）上报，歌词时钟锚到真实落点。
     private func handleAudioPlayerSeekCompleted(_ data: (seconds: Int, didFinish: Bool)) {
-        postLifecycleEvent("seeked", position: Double(data.seconds))
-        sendEvent(withName: "player-seeked", body: ["position": Double(data.seconds), "finished": data.didFinish])
+        let landedPosition = player.currentTime
+        postLifecycleEvent("seeked", position: landedPosition)
+        sendEvent(withName: "player-seeked", body: ["position": landedPosition, "finished": data.didFinish])
     }
 
     func handleAudioPlayerStateChange(state: AVPlayerWrapperState) {`,

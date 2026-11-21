@@ -66,6 +66,39 @@ def lx_patch_swift_audio_player_access(installer)
   Pod::UI.puts "Patched SwiftAudio queued player access: #{queued_player_path}".green
 end
 
+def lx_patch_swift_audio_precise_seek(installer)
+  wrapper_path = Dir.glob(File.join(installer.sandbox.root.to_s, '**', 'AVPlayerWrapper.swift'))
+    .find { |file| file.include?('SwiftAudioEx') || file.include?('SwiftAudio') }
+
+  unless wrapper_path
+    Pod::UI.puts 'Skip SwiftAudio precise seek patch: AVPlayerWrapper.swift not found'.yellow
+    return
+  end
+
+  source = File.binread(wrapper_path)
+
+  # 幂等：已打过补丁直接返回（pod install 可重复跑）。
+  return if source.include?('toleranceBefore: .zero')
+
+  # 2026-11-21：默认容差 seek 可落在请求目标之前（FLAC seek 表稀疏时差距可达
+  # 数秒），而 seek/seeked 事件与歌词时钟都按请求目标重锚，导致「歌词/进度条
+  # 超前、音频滞后，条跑完音乐还在播」。改零容差，落点即目标，锚点与音频同一
+  # 时间轴。锚点已对锁定的 SwiftAudioEx 0.14.7 真实源码验证为匹配；上游仅此一
+  # 处 avPlayer.seek 调用，_initialTime 延迟 seek 与遥控 seek 都经同一函数。
+  patched = source.sub(
+    'avPlayer.seek(to: CMTimeMakeWithSeconds(seconds, preferredTimescale: 1000))',
+    'avPlayer.seek(to: CMTimeMakeWithSeconds(seconds, preferredTimescale: 1000), toleranceBefore: .zero, toleranceAfter: .zero)'
+  )
+  if patched == source
+    # 锚点未命中即 raise，与 lx_patch_swift_audio_player_access 的 loud-failure
+    # 口径对齐：若上游漂移，应红构建而非静默丢功能。
+    raise "SwiftAudio precise seek patch: anchor not found in #{wrapper_path}"
+  end
+
+  File.binwrite(wrapper_path, patched)
+  Pod::UI.puts "Patched SwiftAudio precise seek: #{wrapper_path}".green
+end
+
 target 'LxMusicMobile' do
   config = use_native_modules!
 
@@ -106,8 +139,10 @@ target 'LxMusicMobile' do
 
     # F-A1：lx_patch_swift_audio_seek 已删除——其正则要求不存在的 seek(by:)，
     # 对锁定的 SwiftAudioEx 0.14.7 从未生效过（且替换体 Double/Int 类型错、
-    # 引用不存在的 timeToSeekToAfterLoading）；seek 走上游默认 seek(to:)。
+    # 引用不存在的 timeToSeekToAfterLoading）。2026-11-21 起由下面的
+    # lx_patch_swift_audio_precise_seek 接替（零容差精确 seek，见该函数注释）。
     lx_patch_swift_audio_player_access(installer)
+    lx_patch_swift_audio_precise_seek(installer)
 
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |build_configuration|
