@@ -86,6 +86,10 @@ export function useWebDAVPage() {
   const listRef = useRef<FlatList<LX.WebDAV.MusicInfo>>(null)
   const searchInputRef = useRef<TextInput>(null)
   const pendingJumpIdRef = useRef<string | null>(null)
+  // Bug 32：activeTab 的 ref 镜像——jumpWebDAVPosition 事件处理器在
+  // useEffect 里注册、依赖只有 scrollToMusic，读不到最新的 activeTab
+  // state；用 ref 读当前 tab 决定是否写 pending（见下方同步 effect）。
+  const activeTabRef = useRef<ActiveTab>('list')
   const webDAVListMenuRef = useRef<WebDAVListMenuType>(null)
   const musicMultiAddModalRef = useRef<MusicMultiAddModalType>(null)
   const metadataEditTypeRef = useRef<any>(null)
@@ -930,7 +934,15 @@ export function useWebDAVPage() {
       const rawMusicInfo = playerState.playMusicInfo.musicInfo
       const musicInfo = rawMusicInfo && 'progress' in rawMusicInfo ? rawMusicInfo.metadata.musicInfo : rawMusicInfo
       if (!musicInfo) return
-      pendingJumpIdRef.current = musicInfo.id
+      // Bug 32：已在 list 时直接滚动并清空残留 pending，不写 pending——
+      // 否则 scrollToMusic 内的 setActiveTab('list') 是同值调用、消费
+      // effect 不触发，pending 残留到下次切回 list 时误跳旧歌；
+      // 仅非 list 时才写 pending，等切 tab 后由消费 effect 滚动。
+      if (activeTabRef.current === 'list') {
+        pendingJumpIdRef.current = null
+      } else {
+        pendingJumpIdRef.current = musicInfo.id
+      }
       scrollToMusic(musicInfo.id)
     }
     global.app_event.on('jumpWebDAVPosition', handleJumpPosition)
@@ -938,6 +950,12 @@ export function useWebDAVPage() {
       global.app_event.off('jumpWebDAVPosition', handleJumpPosition)
     }
   }, [scrollToMusic])
+
+  // Bug 32：activeTab 同步到 ref（与 displayedSongsLengthRef 同款写法）。
+  // effect 在渲染提交后跑，用户点定位按钮前必已同步，无时序问题。
+  useEffect(() => {
+    activeTabRef.current = activeTab
+  }, [activeTab])
 
   useEffect(() => {
     if (activeTab !== 'list' || !pendingJumpIdRef.current) return

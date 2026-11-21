@@ -306,11 +306,15 @@ export function useUploadManager(deps: UploadManagerDeps) {
           if (!lrcPath) return
           const lrcName = fileNameOf(lrcPath)
           const lrcRemote = buildUploadRemotePath(targetDir, lrcName, 'lrc')
+          const st = await stat(lrcPath).catch(() => null)
+          if (!st) return
+          // Bug 33：查重必须在 await stat() 之后、set 之前的同一同步块内——
+          // 此前查重与 set 之间隔了一次 await，同批两首同底名音频的配对
+          // 任务都会在对方写入前通过查重，随后重复入队同一歌词。
+          // 其间无 await，JS 单线程下查重 + 写入原子。
           for (const it of itemsRef.current.values()) {
             if (it.localPath === lrcPath && it.remotePath === lrcRemote) return
           }
-          const st = await stat(lrcPath).catch(() => null)
-          if (!st) return
           const lrcId = newId()
           const lrcItem: WebDAVUploadQueueItem = {
             id: lrcId,
@@ -341,11 +345,13 @@ export function useUploadManager(deps: UploadManagerDeps) {
           if (!coverPath) return
           const coverName = fileNameOf(coverPath)
           const coverRemote = buildUploadRemotePath(targetDir, coverName, 'picture')
+          const st = await stat(coverPath).catch(() => null)
+          if (!st) return
+          // Bug 33：同歌词配对——查重移到 await stat() 之后、set 之前的
+          // 同一同步块内，防同批同底名音频重复配对同一封面。
           for (const it of itemsRef.current.values()) {
             if (it.localPath === coverPath && it.remotePath === coverRemote) return
           }
-          const st = await stat(coverPath).catch(() => null)
-          if (!st) return
           const coverId = newId()
           const coverItem: WebDAVUploadQueueItem = {
             id: coverId,

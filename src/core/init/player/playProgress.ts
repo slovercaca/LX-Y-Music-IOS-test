@@ -81,6 +81,9 @@ export default () => {
   const LONG_PAUSE_RESUME_MIN_MS = 5000
   let pauseResumePosition: number | null = null
   let pauseResumeAt = 0
+  // Bug 3：暂停恢复意图绑定的歌曲（照 restorePlayTimeTrack 模式）——切歌可能
+  // 不发 stopped 事件，无绑定时残留意图会让新歌出声即被拉回旧歌暂停位置。
+  let pauseResumeTrack: string | null = null
 
   const isRestoringCurrentMusic = () => {
     const restorePlayInfo = global.lx.restorePlayInfo
@@ -189,19 +192,26 @@ export default () => {
     })
   }
   const getMaxTime = async() => {
+    // Bug 2：入口快照 musicId/musicInfo/listId——getDuration() 是桥往返，
+    // 返回时可能已切歌/停播，旧歌时长不得污染新歌总时长，更不得经
+    // updateListMusics 持久化写进新歌的歌单条目（interval 字段）。
+    const musicId = playerState.musicInfo.id
+    const musicInfo = playerState.playMusicInfo.musicInfo
+    const listId = playerState.playMusicInfo.listId
     const duration = await getDuration()
-    const timelineDuration = getTimelineDuration(playerState.playMusicInfo.musicInfo, duration)
+    if (!playerState.isPlay || playerState.musicInfo.id != musicId) return
+    const timelineDuration = getTimelineDuration(musicInfo, duration)
     setMaxplayTime(timelineDuration)
     updateScrobbleTotalTime(timelineDuration)
 
-    if (playerState.playMusicInfo.musicInfo && 'source' in playerState.playMusicInfo.musicInfo && !playerState.playMusicInfo.musicInfo.interval) {
+    if (musicInfo && 'source' in musicInfo && !musicInfo.interval) {
       // console.log(formatPlayTime2(playProgress.maxPlayTime))
 
-      if (playerState.playMusicInfo.listId) {
+      if (listId) {
         void updateListMusics([{
-          id: playerState.playMusicInfo.listId,
+          id: listId,
           musicInfo: {
-            ...playerState.playMusicInfo.musicInfo,
+            ...musicInfo,
             interval: formatPlayTime2(playerState.progress.maxPlayTime),
           },
         }])
@@ -348,12 +358,16 @@ export default () => {
         // 后续的 buffering→playing 迟到事件（否则会在播放中途凭空把音频拉回旧位置）。
         if (pauseResumePosition != null) {
           const recoveryTime = pauseResumePosition
+          // Bug 3：意图绑定发起时的歌曲，消费时比对——切歌可能不发 stopped
+          // 事件，残留意图不得打到新歌（与 restorePlayTimeTrack 同模式）。
+          const recoveryTrack = pauseResumeTrack
           const pauseDurationMs = Date.now() - pauseResumeAt
+          pauseResumeTrack = null
           pauseResumePosition = null
           pauseResumeAt = 0
           const currentMusicInfo = playerState.playMusicInfo.musicInfo
           const isLocalTrack = currentMusicInfo != null && 'source' in currentMusicInfo && currentMusicInfo.source == 'local'
-          if (pauseDurationMs >= LONG_PAUSE_RESUME_MIN_MS && recoveryTime > 0 && event.driver == 'trackPlayer' && !isLocalTrack) {
+          if (pauseDurationMs >= LONG_PAUSE_RESUME_MIN_MS && recoveryTime > 0 && recoveryTrack == musicId && event.driver == 'trackPlayer' && !isLocalTrack) {
             lastSeekIntentAt = Date.now()
             pullBackCount = 0
             void setCurrentTime(recoveryTime).catch(() => {})
@@ -395,9 +409,11 @@ export default () => {
           const pausedPosition = audioClock.hasAnchor ? audioClock.getTime() : playerState.progress.nowPlayTime
           pauseResumePosition = pausedPosition > 0 ? pausedPosition : null
           pauseResumeAt = pauseResumePosition == null ? 0 : Date.now()
+          pauseResumeTrack = pauseResumePosition == null ? null : musicId
         } else if (event.state === 'stopped') {
           pauseResumePosition = null
           pauseResumeAt = 0
+          pauseResumeTrack = null
         }
         break
     }
@@ -523,6 +539,7 @@ export default () => {
     // 用户自己 seek 了：暂停恢复意图作废（新落点才是意图位置）
     pauseResumePosition = null
     pauseResumeAt = 0
+    pauseResumeTrack = null
     if (mediaBuffer.timeout != null || mediaBuffer.playTime != null) {
       // 缓冲看门狗进行中又 seek：清旧轮次，以新目标为回拉基准重启看门狗（上游同语义）
       clearBufferTimeout()
@@ -537,10 +554,13 @@ export default () => {
     // 窗口保留：窗口内引擎旧位置不得刷进进度条 UI（防拖动/seek 后进度条抽帧）。
     seekTargetPosition = time
     seekHoldUntil = Date.now() + 2000
-    seekGen++
+    // Bug 1：捕获本次 seek 的代际——setCurrentTime 内部稳定化轮询最长约 1.5s，
+    // 回调返回时可能已切歌或用户又发起了新 seek，过期回调不得把旧落点写进
+    // 新歌进度并重开 2s 锁窗（与 syncFromEngine 的 genAtCall 模式同口径）。
+    const genAtCall = ++seekGen
 
     void setCurrentTime(time).then((targetPosition) => {
-      if (!playerState.musicInfo.id) return
+      if (playerState.musicInfo.id != musicId || genAtCall != seekGen) return
       if (targetPosition > 0) {
         setNowPlayTime(targetPosition)
         seekTargetPosition = targetPosition
@@ -602,6 +622,7 @@ export default () => {
     pullBackCount = 0
     pauseResumePosition = null
     pauseResumeAt = 0
+    pauseResumeTrack = null
     // 切歌/停播可能没有任何引擎状态事件（尤其 nativeFlac stop 不走状态机），
     // 快路径门控必须显式复位，否则残留的 engineConfirmedPlaying 会让 4Hz 位置
     // 事件/自愈探针在上首歌曲的原生时钟位置上继续工作。
@@ -630,6 +651,11 @@ export default () => {
     // setMaxplayTime(playProgress.maxPlayTime)
     handlePause()
     updateScrobbleInfo()
+    // Bug 3：切歌时暂停恢复意图作废（track 绑定已是主防线，这里顺手清掉，
+    // 不留陈旧意图给新歌的 playing 事件）。
+    pauseResumePosition = null
+    pauseResumeAt = 0
+    pauseResumeTrack = null
     // Skip the startup restore transition so we don't overwrite saved progress with 0.
     if (isRestoringCurrentMusic()) return
     if (!playerState.playMusicInfo.isTempPlay) {
