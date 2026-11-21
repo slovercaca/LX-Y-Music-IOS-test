@@ -20,6 +20,7 @@ import { mkdir, readDir, moveFile, existsFile, unlink } from '@/utils/fs'
 import { getDefaultDownloadPath } from '@/utils/downloadPath'
 import { getDownloadTasks, saveDownloadTasks } from '@/utils/data/download'
 import downloadActions from '@/store/download/action'
+import downloadState from '@/store/download/state'
 import { startCookieKeepAlive } from '@/utils/cookieKeepAlive'
 import { withTimeout } from '@/utils/withTimeout'
 import defaultSetting from '@/config/defaultSetting'
@@ -132,6 +133,37 @@ export default async() => {
   return handlePushedHomeScreen
 }
 
+// Bug 6：路径映射写回 helper（步骤 2/3/4 共用）。
+// 迁移循环只收集 Map<oldPath, newPath>，写回时基于最新内存任务
+// （downloadState.tasks）按 filePath 精确匹配原位映射再落盘——此前各步骤
+// 拿迁移前的磁盘快照全量覆盖，迁移期间新增的任务会被写丢（窗口可达数秒）。
+// 原位改写同一数组引用：并发的节流保存（addTask/updateTask）随后落地时
+// 带的是同一批已更新路径的任务，不会把旧路径写回来。
+// 内存为空时回退读盘：启动加载超时/失败时内存尚未填入，直接读盘与旧行为一致
+// （读盘后 setTasks 会挡住 initLocalData 晚到旧路径值的应用——其回调只在
+// 内存仍为空时才应用）。
+const applyPathMapping = async(mapping: Map<string, string>): Promise<boolean> => {
+  if (mapping.size === 0) return false
+  let tasks = downloadState.tasks
+  if (tasks.length === 0) {
+    tasks = await getDownloadTasks()
+    if (tasks.length === 0) return false
+  }
+  let changed = false
+  for (const task of tasks) {
+    if (!task.filePath) continue
+    const next = mapping.get(task.filePath)
+    if (next && next !== task.filePath) {
+      task.filePath = next
+      changed = true
+    }
+  }
+  if (!changed) return false
+  await saveDownloadTasks(tasks)
+  downloadActions.setTasks(tasks)
+  return true
+}
+
 /**
  * 初始化下载目录：
  * - 若设置中无 download.path，则预创建默认下载目录「本地」，确保「文件」App 中可见。
@@ -188,18 +220,17 @@ const initDownloadPath = async(_setting: LX.AppSetting) => {
   }
 
   // 2) 迁移散落在 Documents 根目录的下载文件（按下载任务记录精确移动）
+  // Bug 6：循环只收集 movedPaths 映射（磁盘快照仅用于决定搬哪些文件），
+  // 写回走 applyPathMapping 基于最新内存任务原位映射——此前拿迁移前的
+  // 磁盘快照全量覆盖，迁移期间新增的下载任务会被写丢。
   try {
     const tasks = await getDownloadTasks()
-    let changed = false
     for (const task of tasks) {
       const filePath = task.filePath
       if (!filePath || !filePath.startsWith(`${RNFS.DocumentDirectoryPath}/`)) continue
       if (filePath.startsWith(`${defaultPath}/`)) continue
-      if (movedPaths.has(filePath)) {
-        task.filePath = movedPaths.get(filePath)!
-        changed = true
-        continue
-      }
+      // 步骤 1 已搬过：映射已在 movedPaths 里，写回时统一应用
+      if (movedPaths.has(filePath)) continue
       const targetPath = `${defaultPath}/${filePath.split('/').pop()}`
       try {
         if (await existsFile(filePath)) {
@@ -210,18 +241,15 @@ const initDownloadPath = async(_setting: LX.AppSetting) => {
           if (lrcPath !== filePath && (await existsFile(lrcPath).catch(() => false))) {
             await moveFile(lrcPath, targetPath.replace(/\.[^/.]+$/, '.lrc')).catch(() => {})
           }
-          // P0（2026-10-12）：只有文件真实存在并移动成功，才改写任务路径。
+          // P0（2026-10-12）：只有文件真实存在并移动成功，才记入映射改写任务路径。
           // 之前无条件改写，导致源文件不存在时任务指向一个空位置，离线无法播放。
-          task.filePath = targetPath
-          changed = true
         }
       } catch (moveErr) {
         console.warn(`[Download Path] Failed to move ${filePath} to ${targetPath}:`, moveErr)
       }
     }
-    if (changed) {
-      await saveDownloadTasks(tasks)
-      downloadActions.setTasks(await getDownloadTasks())
+    // 步骤 1+2 的映射一次应用（含步骤 1 搬走的文件对应的任务）
+    if (await applyPathMapping(movedPaths)) {
       console.log('[Download Path] Rewrote download task paths into 本地.')
     }
   } catch (err) {
@@ -231,9 +259,10 @@ const initDownloadPath = async(_setting: LX.AppSetting) => {
   // 3) 修复已被旧版迁移写坏的任务路径（P0，2026-10-12）。
   // 旧版无条件改写 task.filePath，导致部分任务指向不存在的位置。
   // 按文件名在下载目录/旧目录/Documents 根逐个找回，修复任务路径。
+  // Bug 6：循环只收集 repairMap，写回走 applyPathMapping（同步骤 2）。
   try {
     const tasks = await getDownloadTasks()
-    let repaired = false
+    const repairMap = new Map<string, string>()
     const legacyPath = `${RNFS.DocumentDirectoryPath}/LX-Y Music`
     const docRoot = RNFS.DocumentDirectoryPath
     for (const task of tasks) {
@@ -253,15 +282,12 @@ const initDownloadPath = async(_setting: LX.AppSetting) => {
         if (candidate === filePath) continue
         if (await existsFile(candidate).catch(() => false)) {
           console.log('[Download Path] Repaired task path:', filePath, '->', candidate)
-          task.filePath = candidate
-          repaired = true
+          repairMap.set(filePath, candidate)
           break
         }
       }
     }
-    if (repaired) {
-      await saveDownloadTasks(tasks)
-      downloadActions.setTasks(await getDownloadTasks())
+    if (await applyPathMapping(repairMap)) {
       console.log('[Download Path] Repaired broken download task paths.')
     }
   } catch (err) {
@@ -310,19 +336,9 @@ const initDownloadPath = async(_setting: LX.AppSetting) => {
     if (legacyLocalDir !== root) await sweepDir(legacyLocalDir)
 
     if (moved.size > 0) {
-      const tasks = await getDownloadTasks()
-      let changed = false
-      for (const task of tasks) {
-        const next = task.filePath ? moved.get(task.filePath) : undefined
-        if (next) {
-          task.filePath = next
-          changed = true
-        }
-      }
-      if (changed) {
-        await saveDownloadTasks(tasks)
-        downloadActions.setTasks(await getDownloadTasks())
-      }
+      // Bug 6：写回走 applyPathMapping（基于最新内存任务原位映射），
+      // 不拿磁盘快照全量覆盖
+      await applyPathMapping(moved)
       console.log(`[Download Path] Structure migrated ${moved.size} files into music/lrc/picture.`)
       // 一次性提示标记（D17）：文件被搬走后用户在「文件」App 里会以为歌丢了，
       // 由本地列表页消费该标记弹一次说明后清除

@@ -289,7 +289,9 @@ export const getListDetailAll = async(
 
   const result = await loadData(1)
   // 优先以实际返回的歌曲数为准：如果第一页已经把 total 首歌都拿到了，直接返回。
-  if (result.list.length >= result.total) {
+  // Bug 35：total 为 0/未给时不短路——否则下方「翻到没有新歌为止」的退化循环
+  // 永远不可达，total: 0 但实际多页的歌单会丢掉第 2 页起的所有歌曲。
+  if (result.total > 0 && result.list.length >= result.total) {
     const onlyPage = deduplicationList(result.list)
     onProgress?.(onlyPage, result.total || onlyPage.length, true)
     return onlyPage

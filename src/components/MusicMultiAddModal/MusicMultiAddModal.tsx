@@ -244,6 +244,42 @@ export default forwardRef<MusicMultiAddModalType, MusicMultiAddModalProps>(({ on
         songSources: selectedList.map(m => m.source),
       })
 
+      // Bug 57：照 wy 分支补 isMove——此前 tx 分支只添加后直接 return，
+      // 批量「移动」实际只执行了「复制」，源歌单歌曲残留
+      if (isMove) {
+        const sourcePlaylistId = fromListId.replace('tx__', '')
+        txApi.addSongToPlaylist(toListId, songMids).then(() => {
+          if ((listInfo as any).dirid === 201) {
+            for (const music of selectedList) {
+              const txSongId = (music.meta as any).id
+              const isNumericId = txSongId && /^\d+$/.test(String(txSongId))
+              const likeKey = isNumericId ? String(txSongId) : String((music.meta as any).mid || music.meta.songId)
+              addTxLikedSong(likeKey)
+            }
+          }
+          clearListDetailCache('tx', toListId)
+          global.app_event.playlist_updated({ source: 'tx', listId: toListId })
+          return txApi.removeSongFromPlaylist(sourcePlaylistId, songMids)
+        }).then(() => {
+          onAdded?.()
+          toast(t('list_edit_action_tip_move_success'))
+          clearListDetailCache('tx', sourcePlaylistId)
+          global.app_event.playlist_updated({ source: 'tx', listId: sourcePlaylistId })
+          log.info('[MusicMultiAddModal] QQ歌单移动成功', { toListId, songCount: songMids.length, fromListId })
+        }).catch((err) => {
+          log.error('[MusicMultiAddModal] QQ歌单移动失败', {
+            error: err.message || err,
+            toListId,
+            songCount: songMids.length,
+            songMids,
+            songSources: selectedList.map(m => m.source),
+            fromListId,
+          })
+          toast(err.message || t('list_edit_action_tip_move_failed'))
+        })
+        return
+      }
+
       txApi.addSongToPlaylist(toListId, songMids).then(() => {
         if ((listInfo as any).dirid === 201) {
           for (const music of selectedList) {

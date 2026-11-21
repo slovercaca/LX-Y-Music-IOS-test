@@ -52,7 +52,6 @@ export default memo(({ componentId, artistInfo }: { componentId: string, artistI
   const albumsLoadingRef = useRef(false)
   const albumsHasMoreRef = useRef(true)
   const songsRequestIdRef = useRef(0)
-  const isFirstSortEffect = useRef(true)
   const playerMusicInfo = usePlayerMusicInfo()
 
   const handleSongListUpdate = useCallback((newList: LX.Music.MusicInfoOnline[]) => {
@@ -256,16 +255,11 @@ export default memo(({ componentId, artistInfo }: { componentId: string, artistI
     } else {
       if (albums.list.length === 0) loadAlbums(1, false)
     }
-  }, [activeTab, artistInfo, albums.list.length, loadAlbums, loadSongs, songs.list.length, songs.sort])
-
-  useEffect(() => {
-    if (isFirstSortEffect.current) {
-      isFirstSortEffect.current = false
-      return
-    }
-    setSongs(prev => ({ ...prev, page: 1, list: [], hasMore: true }))
-    loadSongs(songs.sort, 1, true)
-  }, [songs.sort, loadSongs])
+    // Bug 60：依赖中去掉 songs.sort——排序切换由 handleSortChange 直接调
+    // loadSongs(newSort, 1, true)。本 effect 仍会因 list.length 变 0 重跑，
+    // 但 loadSongs 的 loading 守卫是同步设置的（handleSortChange 的调用已
+    // 先置 songsLoadingRef），isRefresh=false 的补发会被守卫挡住，不双发。
+  }, [activeTab, artistInfo, albums.list.length, loadAlbums, loadSongs, songs.list.length])
 
   const handleLoadMoreSongs = () => {
     loadSongs(songs.sort, songs.page)
@@ -280,6 +274,8 @@ export default memo(({ componentId, artistInfo }: { componentId: string, artistI
     const cacheKeyParam = artistInfo.source === 'tx' ? (artistInfo.mid || artistInfo.id) : artistInfo.id
     clearArtistCache(cacheKeyParam)
     setSongs(prev => ({ ...prev, sort: newSort, list: [], page: 1, hasMore: true }))
+    // Bug 60：排序切换直接在这里加载（替代已删的第二个 effect），只发一次请求
+    loadSongs(newSort, 1, true)
   }
 
   const handleTabChange = (newTab: 'songs' | 'albums') => {

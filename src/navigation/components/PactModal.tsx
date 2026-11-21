@@ -1,6 +1,6 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useRef } from 'react'
 import { View, ScrollView, Image, Platform } from 'react-native'
-import { Navigation } from 'react-native-navigation'
+import { dismissOverlay } from '@/navigation'
 
 import Button from '@/components/common/Button'
 import { createStyle, openUrl, tipDialog } from '@/utils/tools'
@@ -165,6 +165,10 @@ const Footer = ({ componentId }: { componentId: string }) => {
   const isAgreePact = useSettingValue('common.isAgreePact')
   // const checkUpdate = useDispatch('common', 'checkUpdate')
   const [time, setTime] = useState(5)
+  // Bug 10：防双击——ref 同步拦截同一 tick 内的二次点击（state 异步，单靠
+  // disabled 拦不住）；confirming 状态同步禁用按钮给视觉反馈
+  const confirmingRef = useRef(false)
+  const [confirming, setConfirming] = useState(false)
 
   const handleRejct = () => {
     // 不接受协议就等于不能使用本软件。Android 上 exitApp 会真正结束进程；
@@ -184,9 +188,14 @@ const Footer = ({ componentId }: { componentId: string }) => {
   }
 
   const handleConfirm = () => {
+    if (confirmingRef.current) return
+    confirmingRef.current = true
+    setConfirming(true)
     const wasAgreed = !!isAgreePact
     if (!wasAgreed) updateSetting({ 'common.isAgreePact': true })
-    void Navigation.dismissOverlay(componentId)
+    // Bug 10：走带重试+捕获的 dismissOverlay 封装——裸 Navigation.dismissOverlay
+    // 失败时 overlay 残留且拦截全屏触摸（假死），且 isAgreePact 已写 true。
+    void dismissOverlay(componentId)
     // 首次签署后直接排公告检查（免费开源提示已并入公告，不再单弹 Alert）；
     // deeplink 初始化随公告检查一并在此触发（原先挂在免费提示的按钮回调里）
     if (!wasAgreed) {
@@ -228,7 +237,7 @@ const Footer = ({ componentId }: { componentId: string }) => {
           </Button>
         )}
         <Button
-          disabled={confirmBtn.disabled}
+          disabled={confirmBtn.disabled || confirming}
           style={{ ...styles.btn, backgroundColor: theme['c-button-background'] }}
           onPress={handleConfirm}
         >

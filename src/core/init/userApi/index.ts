@@ -149,6 +149,10 @@ export default async(_setting: LX.AppSetting) => {
   }
   const handleStateChange = ({ status, errorMessage, info }: InitParams) => {
     // console.log(status, message, info)
+    // Bug 7：归属检查提到 setUserApiStatus 之前——快速连续切源 A→B 时，A 的
+    // 迟到 init 事件不得先把 status 写成 A 的结果。仅 info 存在且 id 不匹配
+    // 时跳过（无 info 事件保留原有语义：仍写状态，但不做后续注册）。
+    if (info && info.id !== settingState.setting['common.apiSource']) return
     setUserApiStatus(status, errorMessage)
     if (!info || info.id !== settingState.setting['common.apiSource']) return
     if (status) {

@@ -61,7 +61,10 @@ const heartbeatTools = {
         status: false,
         message: 'Connect error',
       })
-      throw new Error('connect error')
+      // Bug 30：异步回调里直接 throw 是未捕获异常（maxTryNum 极大、
+      // 实际不可达，属防御性清理），记日志后返回，不再抛错。
+      log.error('connect error: max retry reached')
+      return
     }
 
     const waitTime = Math.min(2000 + Math.floor(this.failedNum / 2) * this.stepMs, 30000)
@@ -117,7 +120,10 @@ const heartbeatTools = {
             status: false,
             message: 'Connect error',
           })
-          throw new Error('connect error')
+          // Bug 30：同 reConnnect——超时回调里 throw 是未捕获异常，
+          // 记日志后返回。
+          log.error('connect error: max retry reached')
+          return
         }
         sendSyncStatus({
           status: false,
@@ -138,10 +144,18 @@ const heartbeatTools = {
       if (data == 'ping') this.heartbeat()
     })
     socket.addEventListener('close', (event) => {
+      // Bug 28/30：旧 socket 的迟到 close 不能动新连接——其 close 监听
+      // 若照常跑 reConnnect，会清掉新连接的定时器并按当前代际再排一次
+      // 重连（代际检查拦不住，因为 gen 取的是调用时的 connectGen）。
+      if (socket !== client) return
       // console.log(event.code)
       switch (event.code) {
         case SYNC_CLOSE_CODE.normal:
         case SYNC_CLOSE_CODE.failed:
+          // Bug 30：先清定时器——socket 在 open 前以 failed 码关闭时，
+          // 残留的 2 分钟 connectTimeout 会误触发一次重连（与"failed
+          // 不重连"意图相悖）；normal 关闭后残留的 pingTimeout 也一并清掉。
+          this.clearTimeout()
           return
       }
       this.reConnnect()
@@ -187,10 +201,14 @@ export const connect = (urlInfo: LX.Sync.UrlInfo, keyInfo: LX.Sync.KeyInfo, opti
     funcsObj: {
       ...callObj,
       finished() {
+        // Bug 28：旧连接的迟到 finished 不能动新连接的状态——回调内统一
+        // 用本连接的闭包 socket，状态更新前检查 socket 是否仍是当前连接；
+        // 此前用模块级 client，disconnect() 置 null 后还会抛空指针。
+        if (socket !== client) return
         // 仅对真实（手动/重连）连接成功弹 toast；App 冷启动的自动连接不弹，
         // 避免"每次杀死后台再打开都显示 sync connected"的骚扰。
         if (!options?.silent) toast('Sync connected')
-        client!.isReady = true
+        socket.isReady = true
         sendSyncStatus({
           status: true,
           message: '',
@@ -218,7 +236,11 @@ export const connect = (urlInfo: LX.Sync.UrlInfo, keyInfo: LX.Sync.KeyInfo, opti
       })
     },
     onCallBeforeParams(rawArgs) {
-      return [client, ...rawArgs]
+      // Bug 28：消息解密是异步的，解密完成到分发之间若发生重连，读模块级
+      // client 会把旧连接的 RPC 发到新 socket 上（各 handler 都依赖首参
+      // socket 的身份：moduleReadys、onClose、registerEvent）。用本连接
+      // 的闭包 socket，与 3-9 的发送队列同口径。
+      return [socket, ...rawArgs]
     },
     onError(error, path, groupName) {
       const name = groupName ?? ''
@@ -246,14 +268,14 @@ export const connect = (urlInfo: LX.Sync.UrlInfo, keyInfo: LX.Sync.KeyInfo, opti
             syncData = JSON.parse(data)
           } catch (err) {
             log.error('parse msg error: ', err)
-            client?.close(SYNC_CLOSE_CODE.failed)
+            try { socket.close(SYNC_CLOSE_CODE.failed) } catch { /* 忽略 */ }
             return
           }
           message2read.message(syncData)
         })
         .catch((error) => {
           log.error('decrypt msg error: ', error)
-          client?.close(SYNC_CLOSE_CODE.failed)
+          try { socket.close(SYNC_CLOSE_CODE.failed) } catch { /* 忽略 */ }
         })
     }
   })
@@ -267,11 +289,14 @@ export const connect = (urlInfo: LX.Sync.UrlInfo, keyInfo: LX.Sync.KeyInfo, opti
 
   const initMessage = 'Wait syncing...'
   client.addEventListener('open', () => {
+    // Bug 28：旧 socket 在 close-during-connect 后迟到的 open 不能动
+    // 新连接的状态（RN WebSocket 该时序是否还触发 open 未定，静态防御）。
+    if (socket !== client) return
     log.info('connect')
     // const store = getStore()
     // global.lx.syncKeyInfo = keyInfo
-    client!.isReady = false
-    client!.moduleReadys = {
+    socket.isReady = false
+    socket.moduleReadys = {
       list: false,
       dislike: false,
     }
@@ -291,6 +316,10 @@ export const connect = (urlInfo: LX.Sync.UrlInfo, keyInfo: LX.Sync.KeyInfo, opti
     closeEvents = []
     disconnected = true
     message2read.destroy()
+    // Bug 28：本地清理（closeEvents、destroy）属于本连接闭包，照常跑；
+    // 但状态上报要 gate——旧 socket 的迟到 close 会把新连接的状态显示
+    // 覆写为断开（通常随后被新 socket 的 open/finished 覆盖，多为瞬时）。
+    if (socket !== client) return
     switch (code) {
       case SYNC_CLOSE_CODE.normal:
         // case SYNC_CLOSE_CODE.failed:
@@ -310,6 +339,8 @@ export const connect = (urlInfo: LX.Sync.UrlInfo, keyInfo: LX.Sync.KeyInfo, opti
     }
   })
   client.addEventListener('error', ({ message }) => {
+    // Bug 28：同 close——旧 socket 的迟到 error 不覆写新连接状态。
+    if (socket !== client) return
     sendSyncStatus({
       status: false,
       message,

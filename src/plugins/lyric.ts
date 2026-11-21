@@ -14,6 +14,13 @@ const lxLyricParser = new LxLyricPlayer()
 // 逐字映射就绪钩子：setLyric 解析完逐字后触发，让组件侧刷新逐字快照（独立于行级 onSetLyric）。
 const wordMapHooks: Array<() => void> = []
 
+// Bug 11：歌词重锚代际令牌。setLyric 的 getPosition() 是异步桥调用，回调返回时
+// 可能已切歌/暂停/另有一次重锚——无代际时旧回调会把刚启动的 ticker 杀掉（歌词
+// 冻结）或在暂停态重启 ticker（歌词无声推进）。与 setMusicUrlGen/loadGeneration
+// 同款范式：任何显式重锚（setLyric/play/pause/anchorLyric）都推进代际，
+// setLyric 的异步回调只在代际未变时生效。
+let lyricAnchorGen = 0
+
 const lrcTools = {
   isInited: false,
   lrc: null as Lyric | null,
@@ -57,14 +64,19 @@ const lrcTools = {
     hook(this.currentLineData.line, this.currentLineData.text)
   },
   removePlayHook(hook: PlayHook) {
-    this.playHooks.splice(this.playHooks.indexOf(hook), 1)
+    // Bug 14：未命中时 indexOf 返回 -1，splice(-1, 1) 会误删最后一个活跃钩子；
+    // 先判 idx >= 0（与 useLrcWordsMap 的清理函数同款范式）。
+    const idx = this.playHooks.indexOf(hook)
+    if (idx >= 0) this.playHooks.splice(idx, 1)
   },
   addSetLyricHook(hook: SetLyricHook) {
     this.setLyricHooks.push(hook)
     hook(this.currentLines)
   },
   removeSetLyricHook(hook: SetLyricHook) {
-    this.setLyricHooks.splice(this.setLyricHooks.indexOf(hook), 1)
+    // Bug 14：同 removePlayHook，未命中时禁止 splice(-1, 1) 误删末尾钩子。
+    const idx = this.setLyricHooks.indexOf(hook)
+    if (idx >= 0) this.setLyricHooks.splice(idx, 1)
   },
   setLyric() {
     const extendedLyrics = [] as string[]
@@ -141,6 +153,10 @@ export const setLyric = (lyric: string, translation?: string, romalrc?: string, 
   // 常残留上一首或旧进度，会把歌词锚到错误位置（高亮行整体错位，回归 bug）。
   // 无论暂停还是播放都重锚：暂停态下用户也可能刚切歌/seek，歌词仍需立即对齐。
   const wasPlaying = lrcTools.isPlay
+  // Bug 11：捕获本轮代际——core/lyric.setLyric() 在调完这里后会立即调 play()，
+  // 形成两条并发重锚链；play()/pause()/下一次 setLyric 都会推进代际，
+  // 本轮回调返回时若已换代即丢弃，不再用陈旧的 wasPlaying 杀/启 ticker。
+  const gen = ++lyricAnchorGen
   lrcTools.isPlay = false
   lrcTools.lyricText = lyric
   lrcTools.translationText = translation
@@ -151,11 +167,13 @@ export const setLyric = (lyric: string, translation?: string, romalrc?: string, 
   buildWordsMap(lxLyric)
   void getPosition()
     .then((position) => {
+      if (gen !== lyricAnchorGen) return
       // 切歌/恢复瞬间用【引擎实时位置】重锚（≈上游 setLyric → syncLyricPosition(true, true)）：
       // 播放中重启 ticker 从该位置继续推进，暂停中只落行不推进。
       try { anchorLyric((position || 0) * 1000, wasPlaying) } catch {}
     })
     .catch(() => {
+      if (gen !== lyricAnchorGen) return
       lrcTools.isPlay = wasPlaying
     })
 }
@@ -182,11 +200,17 @@ export const play = (time?: number) => {
   // 每帧前向推进 + 轮询行同步驱动——那些是对「无事件驱动」架构打的补丁，
   // 且重锚永远滞后轮询周期（seek 后歌词不同步的根源之一）。
   // 调用方统一传入【毫秒】（lrc-file-parser 的语义）。
+  // Bug 11：显式重锚推进代际，使在途的 setLyric 异步重锚回调过期丢弃
+  //（core setLyric → play 的第二条重锚链即靠此覆盖第一条）。
+  lyricAnchorGen++
   lrcTools.isPlay = true
   lrcTools.lrc!.play(time ?? 0)
 }
 export const pause = () => {
   // console.log('pause')
+  // Bug 11：暂停同样推进代际——捕获了 wasPlaying=true 的在途 setLyric 回调
+  // 若不丢弃，会在暂停态重启 ticker 致歌词无声推进。
+  lyricAnchorGen++
   lrcTools.isPlay = false
   lrcTools.lrc!.pause()
 }
@@ -245,6 +269,8 @@ export const getCurrentLyricLines = (): Array<{ time: number, text: string }> =>
  * seek 落点的重锚走 app_event.play（core/lyric.play），不经过这里。
  */
 export const anchorLyric = (timeMs: number, isPlaying: boolean) => {
+  // Bug 11：显式重锚推进代际——最新一次重锚胜出，在途的 setLyric 异步回调过期丢弃。
+  lyricAnchorGen++
   lrcTools.lrc!.play(timeMs)
   if (!isPlaying) lrcTools.lrc!.pause()
   lrcTools.isPlay = isPlaying

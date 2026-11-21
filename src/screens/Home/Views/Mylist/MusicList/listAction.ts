@@ -116,7 +116,10 @@ export const handleUpdateMusicInfo = (
 }
 
 export const handleShowMusicSourceDetail = async(minfo: SelectInfo['musicInfo']) => {
-  const url = musicSdk[minfo.source as LX.OnlineSource]?.getMusicDetailPageUrl(
+  // Bug 42：方法本身加判空——?. 只 guard 了 musicSdk[source]，qs 模块存在但缺该方法时
+  // 直接调用必抛未处理 rejection（本函数有真实调用方 MusicToggleModal）；缺失时
+  // url 为 undefined，下方 !url 直接返回。
+  const url = musicSdk[minfo.source as LX.OnlineSource]?.getMusicDetailPageUrl?.(
     toOldMusicInfo(minfo),
   )
   if (!url) return
