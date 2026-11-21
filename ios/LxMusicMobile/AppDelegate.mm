@@ -1180,7 +1180,8 @@ static void LXHandleTrackPlayerLifecycleNotification(NSNotification *notificatio
   @synchronized (LXLyricLock()) { lxInfoCount = LXNowPlayingInfoCache.count; }
   if (lxInfoCount == 0) return;
 
-  // "seeked"：AVPlayer seek completion（引擎真正到达落点，非请求目标）——同一重锚语义
+  // "seek"（发起，带请求目标）/"seeked"（完成，带完成时刻引擎位置即真实落点——
+  // 2026-11-21 起 seeked 不再回传请求目标，见 dependencies-patch.js）：同一重锚语义
   if ([event isEqualToString:@"seek"] || [event isEqualToString:@"seeked"]) {
     LXSetNowPlayingPlaybackState(LXNowPlayingState, @{
       @"elapsedTime": position ?: @0,
