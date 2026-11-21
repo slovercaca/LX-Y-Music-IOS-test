@@ -712,6 +712,12 @@ final class LiquidGlassView: MTKView {
     }
 
     override func draw(_ rect: CGRect) {
+        // 6-G77: 渲染前刷新 uniforms——旧代码只在 layoutSubviews 调
+        // updateUniforms()，touchPoint/tintColor 变化时无布局发生，draw 每帧
+        // 读的都是陈旧值（眩光冻结、切主题色染色不生效）。每帧成本只是十几个
+        // 浮点赋值；与 layoutSubviews 同在主线程写同一 buffer，无新同步问题。
+        updateUniforms()
+
         // Auto-capture background from superview if enabled（上游一致：连续渲染 +
         // 每帧捕获，实时折射；多玻璃实例互拍的黑影排除见 captureRootView）
         if autoCapture {

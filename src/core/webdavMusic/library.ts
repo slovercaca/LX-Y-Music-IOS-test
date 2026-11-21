@@ -330,7 +330,6 @@ const scanFolder = async(
       if (!media.picMap.has(base)) media.picMap.set(base, path)
     }
   }
-  if (!media.genericPic && parentGenericPic) media.genericPic = parentGenericPic
 
   for (const entry of entries) {
     if (entry.type !== 'file') continue
@@ -354,6 +353,12 @@ const scanFolder = async(
       }
     }
   }
+
+  // Bug 21：父目录通用封面回退必须在第一遍循环之后——此前继承在循环
+  // 之前，父 cover.jpg（优先级 0）占住 genericPic 后，子目录任何通用
+  // 封面都因严格小于比较（0 < 0 为假）换不掉，父封面压过子目录封面。
+  // 仍在第二遍递归之前，不影响向下传递给孙目录。
+  if (!media.genericPic && parentGenericPic) media.genericPic = parentGenericPic
 
   // 第二遍：递归子目录 + 收集音频
   for (const entry of entries) {

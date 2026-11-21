@@ -433,6 +433,18 @@ export const resetRandomNextMusicInfo = () => {
   }
 }
 
+// Bug 15：校验缓存的随机下一首是否仍有效。删歌、切模式后缓存不自动失效
+//（切模式仅在 track 最后 20 秒预加载跑过时才重置，删歌完全无防御），
+// 消费前须确认：仍为 random 模式 + 同列表 + 歌曲仍在当前列表中，
+// 否则重置缓存并走正常计算，绝不播放已删歌曲/非 random 模式的旧 pick。
+const isRandomNextMusicInfoValid = (currentListId: string, currentList: LX.Player.PlayMusic[]): boolean => {
+  const info = randomNextMusicInfo.info
+  if (!info) return false
+  if (settingState.setting['player.togglePlayMethod'] !== 'random') return false
+  if (info.listId !== currentListId) return false
+  return currentList.some(m => m.id === info.musicInfo.id)
+}
+
 export const getNextPlayMusicInfo = async(): Promise<LX.Player.PlayMusicInfo | null> => {
   if (playerState.tempPlayList.length) { // 如果稍后播放列表存在歌曲则直接播放改列表的歌曲
     const playMusicInfo = playerState.tempPlayList[0]
@@ -441,14 +453,18 @@ export const getNextPlayMusicInfo = async(): Promise<LX.Player.PlayMusicInfo | n
 
   if (playerState.playMusicInfo.musicInfo == null) return null
 
-  if (randomNextMusicInfo.info) return randomNextMusicInfo.info
-
   const playMusicInfo = playerState.playMusicInfo
   const playInfo = playerState.playInfo
   // console.log(playInfo.playerListId)
   const currentListId = playInfo.playerListId
   if (!currentListId) return null
   const currentList = getList(currentListId)
+
+  // Bug 15：过期缓存不得无条件返回——校验失败时重置并继续走正常计算。
+  if (randomNextMusicInfo.info) {
+    if (isRandomNextMusicInfoValid(currentListId, currentList)) return randomNextMusicInfo.info
+    resetRandomNextMusicInfo()
+  }
 
   const playedList = playerState.playedList
   if (playedList.length) { // 移除已播放列表内不存在原列表的歌曲
@@ -576,9 +592,13 @@ export const playNext = async(isAutoToggle = false): Promise<void> => {
       return
     }
   }
+  // Bug 15：消费缓存的随机下一首前校验有效性，过期则重置并走正常计算。
   if (randomNextMusicInfo.info) {
-    await handlePlayNext(randomNextMusicInfo.info)
-    return
+    if (isRandomNextMusicInfoValid(currentListId, currentList)) {
+      await handlePlayNext(randomNextMusicInfo.info)
+      return
+    }
+    resetRandomNextMusicInfo()
   }
   // const isCheckFile = findNum > 2 // 针对下载列表，如果超过两次都碰到无效歌曲，则过滤整个列表内的无效歌曲
   let { filteredList, playerIndex } = await filterList({ // 过滤已播放歌曲
