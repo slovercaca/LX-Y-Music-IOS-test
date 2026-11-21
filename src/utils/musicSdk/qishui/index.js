@@ -6,6 +6,11 @@ import leaderboard from './leaderboard'
 const qishui = {
   songList,
   leaderboard,
+  // Bug 42：补齐接口契约要求的 getMusicDetailPageUrl——汽水无稳定的歌曲详情页
+  // URL 方案，返回空串最稳妥（两处真实调用点「查看音源详情」与 shareMusic 均已处理空串）。
+  getMusicDetailPageUrl() {
+    return ''
+  },
 }
 
 export default qishui

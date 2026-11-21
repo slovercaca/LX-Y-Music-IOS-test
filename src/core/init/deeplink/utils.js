@@ -26,6 +26,9 @@ export const qualityFilter = (source, types) => {
 }
 
 export const dataVerify = (rules, data) => {
+  // Bug 9：缺失 data 时抛规范化错误（此前 data[rule.key] 抛原始 TypeError，
+  // 顶层弹窗展示给用户的是晦涩文案；runLinkAction 的 try/catch 照常接住）。
+  if (data == null) throw new Error('data missing')
   const newData = {}
   for (const rule of rules) {
     const val = data[rule.key]
@@ -33,7 +36,7 @@ export const dataVerify = (rules, data) => {
     if (val != null) {
       if (rule.types && !rule.types.includes(typeof val)) { throw new Error(rule.key + ' type no match') }
       if (rule.max && String(val).length > rule.max) { throw new Error(rule.key + ' max length no match') }
-      if (rule.min && String(val).length > rule.min) { throw new Error(rule.key + ' min length no match') }
+      if (rule.min && String(val).length < rule.min) { throw new Error(rule.key + ' min length no match') }
     }
     newData[rule.key] = val
   }

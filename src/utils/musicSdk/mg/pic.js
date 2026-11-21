@@ -2,7 +2,9 @@ import { httpFetch } from '../../request'
 import getSongId from './songId'
 
 export default {
-  async getPicUrl(songId, tryNum = 0) {
+  // Bug 40：去掉 async——函数体内无 await，同步返回 requestObj；此前标 async 时
+  // 重试分支拿到的 tryRequestObj 是 Promise，.cancelHttp 为 undefined，调 .bind 必崩。
+  getPicUrl(songId, tryNum = 0) {
     let requestObj = httpFetch(
       `http://music.migu.cn/v3/api/music/audioPlayer/getSongPic?songId=${songId}`,
       {
@@ -28,6 +30,8 @@ export default {
   },
   async getPic(songInfo) {
     const songId = await getSongId(songInfo)
-    return this.getPicUrl(songId)
+    // Bug 40：契约是 Promise<string>——此前直接返回 requestObj，调用方当作 URL
+    // 字符串用（真值对象），不触发换源兜底，下游图片加载失败；改为返回解包后的 promise。
+    return this.getPicUrl(songId).promise
   },
 }

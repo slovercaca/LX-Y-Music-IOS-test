@@ -19,7 +19,9 @@ const MAX_VALUE = 200
 
 export default () => {
   const theme = useTheme()
-  const playbackRate = Math.trunc(useSettingValue('player.playbackRate') * 100)
+  // Bug 59：用 Math.round——1.15 * 100 === 114.99999999999999，trunc 得 114，
+  // 滑到 1.15x 松手后显示跳回 1.14x，且 handleSlidingComplete 的相等比较恒不等
+  const playbackRate = Math.round(useSettingValue('player.playbackRate') * 100)
   const [sliderSize, setSliderSize] = useState(playbackRate)
   const [isSliding, setSliding] = useState(false)
   const t = useI18n()

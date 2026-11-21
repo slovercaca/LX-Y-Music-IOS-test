@@ -99,7 +99,9 @@ export const getMusicUrl = (songInfo, type, retryNum = 0, noCopyrightFallbackUse
         requestObj.cancelHttp = newRequestObj.cancelHttp
         return newRequestObj.promise
       }
-      if (data.fee === 1 || data.fee === 4) {
+      // Bug 47：body.data 为空数组时 data 为 undefined，此前直接读 .fee 抛 TypeError，
+      // 且错误文本不含 VIP/未能获取、落入无效重试；加 ?. 后自然落入「未能获取到播放链接」。
+      if (data?.fee === 1 || data?.fee === 4) {
         return Promise.reject(new Error('VIP 歌曲或无版权，无法通过 Cookie 获取'))
       }
       return Promise.reject(new Error('未能获取到播放链接'))

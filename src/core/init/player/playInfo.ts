@@ -6,10 +6,15 @@ import playerState from '@/store/player/state'
 
 export default async(setting: LX.AppSetting) => {
   const info = await getPlayInfo()
+  // Bug 4：恢复是 fire-and-forget 的后台任务，await 期间用户/deeplink 可能已
+  // 起播——一旦已有歌加载/在播，恢复直接放弃，避免迟到的 playList 覆盖用户
+  // 正在听的歌（与下方 startupAutoPlay 守卫同口径）。
+  if (playerState.playMusicInfo.musicInfo || playerState.isPlay) return
   global.lx.restorePlayInfo = null
   if (!info?.listId || info.index < 0) return
 
   const list = await getListMusics(info.listId)
+  if (playerState.playMusicInfo.musicInfo || playerState.isPlay) return
   if (!list[info.index]) return
   global.lx.restorePlayInfo = info
 

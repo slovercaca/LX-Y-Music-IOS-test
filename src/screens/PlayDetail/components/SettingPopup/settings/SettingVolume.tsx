@@ -12,7 +12,9 @@ import { setVolume } from '@/plugins/player'
 
 const Volume = () => {
   const theme = useTheme()
-  const volume = Math.trunc(useSettingValue('player.volume') * 100)
+  // Bug 59：用 Math.round——0.29 * 100 === 28.999999999999996，trunc 得 28，
+  // 音量滑到 29 松手后显示跳回 28，且 handleSlidingComplete 的相等比较恒不等
+  const volume = Math.round(useSettingValue('player.volume') * 100)
   const [sliderSize, setSliderSize] = useState(volume)
   const [isSliding, setSliding] = useState(false)
   const t = useI18n()

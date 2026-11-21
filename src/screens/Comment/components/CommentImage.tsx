@@ -15,30 +15,33 @@ export default ({ url, maxWidth }: { url: string, maxWidth: number }) => {
   const theme = useTheme()
 
   useEffect(() => {
+    // Bug 62 加固：卸载后 getSize 回调不再 setState
+    let cancelled = false
     getSize(url, (realWidth, realHeight) => {
+      if (cancelled) return
       let w = 0
       let h = 0
 
-      if (w && !h) {
+      // Bug 62：删掉 if (w && !h) / else if (!w && h) 两个死分支
+      // （w、h 刚赋 0，条件恒假，原先恒走 else）
+      if (maxWidth && realWidth > maxWidth) {
+        w = maxWidth
         h = realHeight * (w / realWidth)
-      } else if (!w && h) {
-        w = realWidth * (h / realHeight)
-      } else {
-        if (maxWidth && realWidth > maxWidth) {
-          w = maxWidth
-          h = realHeight * (w / realWidth)
 
-          if (MAX_IMAGE_HEIGHT && h > MAX_IMAGE_HEIGHT) {
-            w = realWidth * (MAX_IMAGE_HEIGHT / realHeight)
-            h = MAX_IMAGE_HEIGHT
-          }
-        } else if (MAX_IMAGE_HEIGHT && realHeight > MAX_IMAGE_HEIGHT) {
-          w = realWidth * (h / realHeight)
+        if (MAX_IMAGE_HEIGHT && h > MAX_IMAGE_HEIGHT) {
+          w = realWidth * (MAX_IMAGE_HEIGHT / realHeight)
           h = MAX_IMAGE_HEIGHT
         }
+      } else if (MAX_IMAGE_HEIGHT && realHeight > MAX_IMAGE_HEIGHT) {
+        // Bug 62：原先 w = realWidth * (h / realHeight)，此时 h 仍为 0，
+        // w 算出 0 后回退为原宽 realWidth，竖长图被压扁拉伸；与宽度分支对称，
+        // 用 MAX_IMAGE_HEIGHT / realHeight 等比缩放
+        w = realWidth * (MAX_IMAGE_HEIGHT / realHeight)
+        h = MAX_IMAGE_HEIGHT
       }
       setWH({ width: w || realWidth, height: h || realHeight })
     })
+    return () => { cancelled = true }
   }, [maxWidth, url])
 
   return wh.width ? (
