@@ -641,8 +641,28 @@ export default memo(() => {
     const [moved] = next.splice(from, 1)
     if (!moved) return
     next.splice(to, 0, moved)
-    void updateUserListPosition(to, [moved.id])
-  }, [userLists])
+    // Bug 50：底层 list_update_position 操作的是完整自建歌单数组（含隐藏歌单，
+    // 不含默认/我喜欢歌单），position 是移除待移项后的插入下标；可见下标 to
+    // 与之差了「目标位置之前隐藏歌单的数量」。用重排后 moved 的相邻可见歌单
+    // 在完整自建歌单数组中的位置换算完整下标（注意下标基数是自建歌单数组，
+    // 不是 allList——allList 前两项是默认/我喜欢歌单，不在底层数组内）。
+    const fullLists = allList.filter(l => l.id !== LIST_IDS.DEFAULT && l.id !== LIST_IDS.LOVE)
+    const movedFullIndex = fullLists.findIndex(l => l.id === moved.id)
+    // 移除 moved 后，位于其后的项下标前移一位
+    const indexAfterRemoval = (fullIndex: number) => (movedFullIndex >= 0 && fullIndex > movedFullIndex ? fullIndex - 1 : fullIndex)
+    let fullPosition: number
+    const after = next[to + 1]
+    if (after) {
+      const afterFullIndex = fullLists.findIndex(l => l.id === after.id)
+      fullPosition = afterFullIndex < 0 ? to : indexAfterRemoval(afterFullIndex)
+    } else {
+      // 拖到可见列表末尾：插到最后一个可见歌单之后
+      const before = next[to - 1]
+      const beforeFullIndex = before ? fullLists.findIndex(l => l.id === before.id) : -1
+      fullPosition = beforeFullIndex < 0 ? to : indexAfterRemoval(beforeFullIndex) + 1
+    }
+    void updateUserListPosition(fullPosition, [moved.id])
+  }, [userLists, allList])
 
   const handleDragRelease = useCallback(() => {
     const from = draggingIndexRef.current

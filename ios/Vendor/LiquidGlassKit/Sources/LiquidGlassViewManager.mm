@@ -151,7 +151,10 @@
   // 玻璃材质视图包进圆角裁剪容器：容器圆角+裁剪让玻璃形状与宿主完全一致。
   // 容器与背景层都不参与命中测试：触摸一律穿透到上层的 RN 内容视图
   // （Tab 项、播放条按钮、宿主手势）
-  UIView *container = [[UIView alloc] init];
+  UIView *container = [[UIView alloc] initWithFrame:self.bounds];
+  // 6-G76: 容器按宿主当前 bounds 初始化——旧代码用 [[UIView alloc] init]
+  // （CGRectZero），运行时切换 liquid 模式时宿主 bounds 不变，autoresizing
+  // 不触发，新容器/背衬永久 0×0 不可见。
   container.userInteractionEnabled = NO;
   container.backgroundColor = [UIColor clearColor];
   container.clipsToBounds = YES;
@@ -244,6 +247,11 @@
 
 - (void)layoutSubviews {
   [super layoutSubviews];
+  // 6-G76: 每轮布局同步容器与背衬的 frame（容器填满宿主、背衬填满容器）——
+  // 仅靠 autoresizing 时，运行时重建的背衬在宿主 bounds 不变的情况下
+  // 永远收不到尺寸同步，连后续 layout pass 都修不好它。
+  _glassView.frame = self.bounds;
+  _glassBacking.frame = _glassView.bounds;
   // RN 设置在宿主 RCTView 上的圆角转发给玻璃容器与材质视图（自研路径的
   // shader uniforms.cornerRadius 驱动折射形状；原生路径由圆角容器裁剪）。
   // 玻璃严格填满宿主（autoresizing 维护 frame），不向裁剪区外预伸——超界部分在

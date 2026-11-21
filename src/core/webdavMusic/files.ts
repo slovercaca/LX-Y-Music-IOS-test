@@ -453,9 +453,13 @@ export const isPoisonedCache = async(filePath: string, expectedSize?: number): P
     if (size === 0) return true
     if (expectedSize && expectedSize > 0 && size > 0 && size !== expectedSize) return true
   } catch { /* stat 失败时退回首字节判定 */ }
-  const head = await read(filePath, 1, 0, 'utf8').catch(() => null)
+  // Bug 20：首字节必须用 base64 读——此前 'utf8' 读 1 字节，JPEG（0xFF）、
+  // PNG（0x89）、无 ID3 头的 MP3（0xFF）首字节单独解码均非法、read 直接
+  // reject，.catch 得 null 后误判毒缓存、每次播放都删缓存重下。
+  // base64 读回的是 1 字节的编码，解码后比对 0x3C（'<'）。
+  const head = await read(filePath, 1, 0, 'base64').catch(() => null)
   if (head === null) return true
-  return head === '<'
+  return Buffer.from(head, 'base64')[0] === 0x3C
 }
 
 /**

@@ -408,6 +408,35 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
     }
   }
 
+  // Bug 22：统一取消状态——入口即暴露句柄，覆盖此前无句柄的窗口：
+  // stat + DELETE 期间（第一块之前）、降级 readFile 期间（整文件 base64
+  // 读取，大文件可达数秒）、verifyRemoteSize 期间（最后一块之后）。
+  // 各阶段的取消都先置 outerAborted，再调当前阶段真正的取消动作
+  // （activeCancel：原生块取消 / 降级 race reject）；各检查点抛
+  // UploadAbortedError，调用方据此置 paused/cancelled、不重传。
+  // 注意：严格的"块间间隙"因 putViaNative 同步注册句柄而不可达，不修。
+  let outerAborted = false
+  let activeCancel: (() => void) | null = null
+  const exposeAbortHandle = () => {
+    try {
+      onAbortHandle?.({
+        abort: () => {
+          outerAborted = true
+          try { activeCancel?.() } catch { /* 忽略 */ }
+        },
+      })
+    } catch { /* 忽略 */ }
+  }
+  exposeAbortHandle()
+  // 原生分块句柄包装：putViaNative 每块注册一次句柄，包一层让它同样
+  // 置 outerAborted，并把原生取消记为当前阶段取消动作。
+  const nativeAbortHandle: PutFileOptions['onAbortHandle'] = (handle) => {
+    activeCancel = () => {
+      try { handle.abort() } catch { /* 忽略 */ }
+    }
+    exposeAbortHandle()
+  }
+
   // Fire 重写 v2：弃用 XHR+Blob（桥接 nil 崩溃无法根治），也弃用 RNFS.uploadFiles
   //（multipart/form-data，不适合 WebDAV raw PUT）。
   // 改用 webdav 库的 putFileContents：走 JS 层 HTTP，可靠不崩溃。
@@ -432,6 +461,9 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
   // 2026-10-25（改回 DELETE）：先删旧文件再 PUT。原生与降级通道进入前
   // 各删一次（见 deleteRemoteFileOrAbort）。
   await deleteRemoteFileOrAbort(remotePath)
+  // Bug 22：stat + DELETE 期间的取消（入口句柄已暴露）在此结算，
+  // 不再启动传输。
+  if (outerAborted) throw new UploadAbortedError()
 
   // Test-v2：优先用原生模块（流式、真实进度、可中断、低内存）。
   // 不可用时降级到 webdav 库。
@@ -483,6 +515,8 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
         let chunkUnsupported = false
         // 逐块上传（串行，WebDAV 不支持并行写同一文件）
         for (let offset = startOffset; offset < actualSize; offset += chunkSize) {
+          // Bug 22：每块前检查统一取消标志（上一块收尾/间隙的取消在此结算）。
+          if (outerAborted) throw new UploadAbortedError()
           const endOffset = Math.min(offset + chunkSize, actualSize)
           const statusCode = await putViaNative(
             url,
@@ -492,7 +526,7 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
               // loaded 是全局偏移（putViaNative 已映射）
               report(loaded, total, info)
             },
-            onAbortHandle,
+            nativeAbortHandle,
             { startOffset: offset, endOffset, totalSize: actualSize },
           )
           if (statusCode === 409) {
@@ -514,6 +548,9 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
         }
         // 若因服务器不支持而跳出分块，则走整文件上传（不 return，继续向下）
         if (!chunkUnsupported) {
+          // Bug 22：verify 前检查——最后一块之后、PROPFIND 之前（可达
+          // 30 秒）的取消在此结算，不再等校验跑完。
+          if (outerAborted) throw new UploadAbortedError()
           await finishNativeUpload()
           return
         }
@@ -529,7 +566,9 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
       const range = startOffset > 0
         ? { startOffset, endOffset: actualSize, totalSize: actualSize }
         : undefined
-      const statusCode = await putViaNative(url, localPath, headers, report, onAbortHandle, range)
+      // Bug 22：单 PUT 前检查统一取消标志。
+      if (outerAborted) throw new UploadAbortedError()
+      const statusCode = await putViaNative(url, localPath, headers, report, nativeAbortHandle, range)
       if (statusCode >= 200 && statusCode < 300) {
         report(actualSize, actualSize)
       } else if (statusCode === 409) {
@@ -539,6 +578,8 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
       } else {
         throw new Error(`上传失败（HTTP ${statusCode}）`)
       }
+      // Bug 22：verify 前检查（同分块分支）。
+      if (outerAborted) throw new UploadAbortedError()
       await finishNativeUpload()
       return
     } catch (e: any) {
@@ -561,6 +602,9 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
   report(0, actualSize, { noRealProgress: true })
   const base64 = await readFile(localPath, 'base64').catch(() => '')
   if (!base64) throw new Error(`本地文件读取失败：${localPath}`)
+  // Bug 22：readFile 期间的取消在此结算——整文件 base64 读取期间
+  // 此前无任何有效句柄，暂停请求无处记录、读完后 PUT 照常启动。
+  if (outerAborted) throw new UploadAbortedError()
   // W6：不再把「读完文件」伪装成上传 50%——该通道没有真实进度，如实告知 UI；
   // 进度保持 0 直到传输真正完成（report 100% 在 put 成功后）
   try {
@@ -581,20 +625,28 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
   // 二次检查会直接抛错、abortPromise 永远进不了 race，未处理的
   // rejection 会刷一条警告；这里先接住，race 仍能正常收到它。
   abortPromise.catch(() => {})
+  // Bug 22：降级通道的取消动作同样记为当前阶段取消（activeCancel），
+  // 并置统一标志 outerAborted——入口/原生句柄若被迟调用（管理器只留
+  // 最新句柄，正常走不到这里），也能让 PUT race 立即结算。
+  const fallbackAbort = () => {
+    abortRequested = true
+    // webdav 库无中断 API，只能标记 + 让 race 立即结算，
+    // 底层 PUT 本身仍在后台跑完（下次重传会先 DELETE 再写）
+    abortReject?.(new UploadAbortedError())
+  }
+  activeCancel = fallbackAbort
   try {
     onAbortHandle?.({
       abort: () => {
-        abortRequested = true
-        // webdav 库无中断 API，只能标记 + 让 race 立即结算，
-        // 底层 PUT 本身仍在后台跑完（下次重传会先 DELETE 再写）
-        abortReject?.(new UploadAbortedError())
+        outerAborted = true
+        fallbackAbort()
       },
     })
   } catch {
     // 忽略
   }
 
-  if (abortRequested) throw new UploadAbortedError()
+  if (outerAborted || abortRequested) throw new UploadAbortedError()
 
   // 2026-10-25（改回 DELETE）：降级通道进入前再删一次旧文件
   // （原生通道可能已写了一半的目标文件）；直接整文件 PUT 到目标。
@@ -604,7 +656,7 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
 
   // 3-2：二次检查——删除期间取消时不再启动 PUT（上面的检查在删除之前，
   // 删完到 PUT 之间此前无检查）
-  if (abortRequested) throw new UploadAbortedError()
+  if (outerAborted || abortRequested) throw new UploadAbortedError()
 
   // 心跳保活：webdav 库无进度回调，上传期间每 10s 重复上报最后真实进度（0），
   // 只作存活信号，不伪造百分比（W6）。
@@ -644,7 +696,7 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
     }
   } catch (e: any) {
     clearInterval(heartbeat)
-    if (abortRequested) throw new UploadAbortedError()
+    if (outerAborted || abortRequested) throw new UploadAbortedError()
     // 409：父目录不存在。抛专用错误，调用方提示用户是否自动创建。
     const status = e?.status ?? e?.response?.status
     if (status === 409) {
@@ -656,7 +708,7 @@ const putFileWithProgressInternal = async(options: PutFileOptions): Promise<void
   }
   clearInterval(heartbeat)
 
-  if (abortRequested) {
+  if (outerAborted || abortRequested) {
     await deleteRemoteFileBestEffort(remotePath)
     throw new UploadAbortedError()
   }
