@@ -1,16 +1,15 @@
 import RNFetchBlob from '@/utils/rnFetchBlob'
 import { toMD5, toast, requestStoragePermission } from '@/utils/tools'
-import { getMusicUrl, getMusicUrlWithQuality, getLyricInfo } from '@/core/music'
+import { getMusicUrl, getMusicUrlWithQuality, getLyricInfo, getPicPath } from '@/core/music'
 import { getFileExtension, getFileExtensionFromUrl } from '@/screens/Home/Views/Mylist/MusicList/download/utils'
 import { mergeLyrics } from '@/screens/Home/Views/Mylist/MusicList/download/lrcTool'
-import { writeFile, unlink, downloadFile, moveFile, stopDownload, existsFile, stat } from '@/utils/fs'
-import { getMusicDir, getLrcDir, getPictureDir, ensureLibraryDirs, findLibraryPicture, cacheCoverToLibrary, isPicCacheEnabled, truncateToUtf8Bytes } from '@/utils/localLibrary'
+import { writeFile, unlink, downloadFile, moveFile, stopDownload, existsFile, stat, copyFile } from '@/utils/fs'
+import { getMusicDir, getLrcDir, getPictureDir, ensureLibraryDirs, findLibraryPicture, cacheCoverToLibrary, isPicCacheEnabled, truncateToUtf8Bytes, PIC_EXTS } from '@/utils/localLibrary'
 import { writeMetadata, writePic, writeLyric, isWriteSupported } from '@/utils/localMediaMetadata'
 import settingState from '@/store/setting/state'
 import downloadState from '@/store/download/state'
 import downloadActions from '@/store/download/action'
 import { filterFileName, sizeFormate } from '@/utils'
-import { getPicUrl } from '@/core/music/online'
 import RNFS from 'react-native-fs'
 import DownloadTask = LX.Download.DownloadTask
 
@@ -94,7 +93,14 @@ const runDownloadTask = async(task: DownloadTask) => {
     } else if (pausedTaskIds.has(task.id)) {
       // 用户主动暂停：保留任务与已下载进度，不报失败（D1）
       pausedTaskIds.delete(task.id)
-      downloadActions.updateTask(task.id, { status: 'paused' })
+      // Bug 34：旧实例收尾时只在任务仍为 paused 时才写回——resumeTask 已把状态
+      // 置为 waiting（恢复在途，写回会吞掉恢复）或新实例已接手（downloading/
+      // completed/error，写回会覆写新状态、造成「显示已暂停实际在下载」）时不写；
+      // pauseTask 入口已同步置过 paused，此处写回本就是重申。
+      const freshStatus = downloadState.tasks.find(t => t.id === task.id)?.status
+      if (freshStatus === 'paused' || freshStatus === undefined) {
+        downloadActions.updateTask(task.id, { status: 'paused' })
+      }
     } else {
       console.log('[Download] 下载失败:', task.fileName, error?.message || error)
       downloadActions.updateTask(task.id, { status: 'error', errorMsg: friendlyDownloadError(error) })
@@ -122,7 +128,12 @@ const runDownloadTask = async(task: DownloadTask) => {
 const processQueue = () => {
   const concurrency = getDownloadConcurrency()
   while (activeTaskIds.size < concurrency && taskQueue.length > 0) {
-    const task = taskQueue.shift()
+    // Bug 34：按任务 id 判重——同一任务已在途时不再重复启动。注意不能用
+    // shift-then-skip（shift 已出队，跳过即丢任务），改为 peek：找第一个未在途
+    // 的任务出队；在途的重复项留在队列里（本轮不启动），下一轮泵送时再看。
+    const idx = taskQueue.findIndex(t => !activeTaskIds.has(t.id))
+    if (idx === -1) return
+    const task = taskQueue.splice(idx, 1)[0]
     if (!task) return
     activeTaskIds.add(task.id)
     void runDownloadTask(task)
@@ -568,6 +579,42 @@ const startDownload = async(task: DownloadTask) => {
   }
 }
 
+/**
+ * Bug 19：下载写封面统一走 getPicPath（@/core/music）解析封面——按源分发：
+ * local 读内嵌/sidecar/缓存、qs 跨平台匹配、在线先读本地缓存；不再直调 online
+ * getPicUrl（musicSdk 无 local 模块、qs 无 getPic，本地封面被完全绕过，纯本地
+ * 文件即使音频内嵌有封面也确定性失败）。
+ * 返回可直接传给 writePic 的本地文件路径；无封面或下载失败时抛错（调用方按
+ * 各自语义收尾：handleMetadata toast + 记 fail，retryMetadata 只记 fail）。
+ * - http URL：下载到 picture/<fileName>.<ext>，落盘即缓存（与旧行为一致），
+ *   校验状态码/字节数，失败清半截文件并抛错。
+ * - 本地路径：getPicPath 返回的本地路径带 file:// 前缀，剥离后直接返回，
+ *   不再下载（writePic 要裸路径）。
+ */
+const resolveCoverPicPath = async(task: DownloadTask): Promise<string> => {
+  const pic = await getPicPath({ musicInfo: task.musicInfo })
+  if (!pic) throw new Error('未能获取到封面')
+  if (pic.startsWith('http')) {
+    const extension = getFileExtensionFromUrl(pic) || 'jpg'
+    // 封面落盘到 picture/ 作为本地缓存（与音频同名），写入内嵌封面后保留不删
+    const picPath = `${getPictureDir()}/${task.fileName}.${extension}`
+    console.log(`[Download] 下载封面: ${pic} -> ${picPath}`)
+    const { promise } = downloadFile(pic, picPath)
+    const picResult: any = await promise
+    // 中：此前不校验结果——404 的 HTML 以 .jpg 落盘 picture/，之后
+    // 只判存在就复用、永不重下，这首歌封面被永久毒缓存顶掉
+    if (!picResult || picResult.statusCode < 200 || picResult.statusCode >= 300 || !(picResult.bytesWritten > 0)) {
+      await unlink(picPath).catch(() => {})
+      throw new Error(`封面下载失败（HTTP ${picResult?.statusCode ?? '未知'}）`)
+    }
+    return picPath
+  }
+  // 本地封面已在本地：剥离 file:// 前缀，直接返回裸路径供 writePic 使用
+  const localPath = pic.replace(/^file:\/\//, '')
+  console.log(`[Download] 使用本地封面: ${localPath}`)
+  return localPath
+}
+
 // 下载完成后缓存封面到 picture/<文件名>.<ext>（2026-10-22）：
 // 与「下载设置-写入封面」（内嵌进音频）相互独立，保证本地有缓存时各处控件都能直接加载。
 const cacheDownloadedCover = async(task: DownloadTask) => {
@@ -576,9 +623,18 @@ const cacheDownloadedCover = async(task: DownloadTask) => {
     // 的网络请求都省掉（cacheCoverToLibrary 内部还有一道同样的门）
     if (!isPicCacheEnabled()) return
     if (await findLibraryPicture(task.fileName)) return
-    const picUrl = await getPicUrl({ musicInfo: task.musicInfo as LX.Music.MusicInfoOnline } as any).catch(() => '')
-    if (picUrl && picUrl.startsWith('http')) {
-      await cacheCoverToLibrary(task.fileName, picUrl)
+    // Bug 19：统一走 getPicPath（local/qs 有专门分发，不再直调 online getPicUrl）；
+    // 拿到本地路径即「封面已在本地」，复制到 picture/<fileName> 作同名缓存
+    //（getPicPath 的缓存基名与 fileName 通常一致但不绝对，如文件名碰撞加了后缀时）。
+    const pic = await getPicPath({ musicInfo: task.musicInfo }).catch(() => '')
+    if (pic.startsWith('http')) {
+      await cacheCoverToLibrary(task.fileName, pic)
+    } else if (pic) {
+      const localPath = pic.replace(/^file:\/\//, '')
+      const extRaw = localPath.substring(localPath.lastIndexOf('.') + 1).toLowerCase()
+      const ext = PIC_EXTS.includes(extRaw) ? extRaw : 'jpg'
+      const target = `${getPictureDir()}/${task.fileName}.${ext}`
+      if (localPath !== target) await copyFile(localPath, target).catch(() => {})
     }
   } catch (e: any) {
     console.warn('[Download] 封面缓存到 picture/ 失败（不影响歌曲）:', e?.message || e)
@@ -641,20 +697,11 @@ const handleMetadata = async(task: DownloadTask, filePath: string) => {
 
   if (settingState.setting['download.writePicture']) {
     try {
-      const picUrl = await getPicUrl({ musicInfo: task.musicInfo as LX.Music.MusicInfoOnline } as any)
-      const extension = getFileExtensionFromUrl(picUrl) || 'jpg'
-      // 封面落盘到 picture/ 作为本地缓存（与音频同名），写入内嵌封面后保留不删
-      const picPath = `${getPictureDir()}/${task.fileName}.${extension}`
-      console.log(`[Metadata] 下载封面: ${picUrl} -> ${picPath}`)
-      const { promise } = downloadFile(picUrl, picPath)
-      const picResult: any = await promise
-      // 中：此前不校验结果——404 的 HTML 以 .jpg 落盘 picture/，之后
-      // 只判存在就复用、永不重下，这首歌封面被永久毒缓存顶掉
-      if (!picResult || picResult.statusCode < 200 || picResult.statusCode >= 300 || !(picResult.bytesWritten > 0)) {
-        await unlink(picPath).catch(() => {})
-        throw new Error(`封面下载失败（HTTP ${picResult?.statusCode ?? '未知'}）`)
-      }
-      console.log('[Metadata] 封面下载完成，开始写入到音频文件')
+      // Bug 19：封面解析统一走 getPicPath（见 resolveCoverPicPath）——http 下载到
+      // picture/ 落盘即缓存，本地路径直接返回；无封面/下载失败抛错，走下方 catch
+      //（toast「封面写入失败」+ cover 记 fail，与旧语义一致）。
+      const picPath = await resolveCoverPicPath(task)
+      console.log('[Metadata] 封面就绪，开始写入到音频文件')
       await writePic(filePath, picPath)
       console.log('[Metadata] 封面写入完成')
       downloadActions.updateTask(task.id, { metadataStatus: { ...task.metadataStatus, cover: 'success' } })
@@ -737,18 +784,10 @@ export const retryMetadata = async(taskId: string) => {
 
   if (metadataStatus.cover === 'fail' && settingState.setting['download.writePicture']) {
     try {
-      const picUrl = await getPicUrl({ musicInfo: task.musicInfo as LX.Music.MusicInfoOnline } as any)
-      const extension = getFileExtensionFromUrl(picUrl) || 'jpg'
-      const picPath = `${getPictureDir()}/${task.fileName}.${extension}`
-
-      console.log(`[Retry Metadata] 下载封面: ${picUrl} -> ${picPath}`)
-      const { promise } = downloadFile(picUrl, picPath)
-      const picResult: any = await promise
-      if (!picResult || picResult.statusCode < 200 || picResult.statusCode >= 300 || !(picResult.bytesWritten > 0)) {
-        await unlink(picPath).catch(() => {})
-        throw new Error(`封面下载失败（HTTP ${picResult?.statusCode ?? '未知'}）`)
-      }
-      console.log('[Retry Metadata] 封面下载完成，开始写入')
+      // Bug 19：同 handleMetadata，封面解析统一走 getPicPath（见 resolveCoverPicPath）；
+      // 失败只记 fail 不 toast（汇总 toast 在函数末尾，与旧语义一致）。
+      const picPath = await resolveCoverPicPath(task)
+      console.log('[Retry Metadata] 封面就绪，开始写入')
       await writePic(filePath, picPath)
       metadataStatus.cover = 'success'
       console.log('[Retry Metadata] 封面写入成功')
@@ -845,7 +884,11 @@ export const resumeTask = async(taskId: string) => {
   if (!task) return
   if (task.status !== 'paused') return
 
-  if (taskQueue.some(t => t.id === task.id)) {
+  // Bug 34：旧实例尚未收尾时不恢复——暂停后旧实例可能仍在取链/元数据阶段
+  //（无 RNFS job 可停，只能靠后续检查点收尾），此时翻状态+入队会与旧实例双跑
+  // 同一文件；直接返回、任务保持 paused，旧实例收尾后用户再点恢复即可。
+  // 检查放在状态翻转之前，不会把任务卡在 waiting 无人认领。
+  if (taskQueue.some(t => t.id === task.id) || activeTaskIds.has(task.id)) {
     return
   }
 
@@ -920,6 +963,15 @@ export const resumeTask = async(taskId: string) => {
   // return、不清 resumeCompleteFiles——已入队的调用拥有该登记，清掉会让
   // 它丢掉快路径、把完整文件重下一遍。
   if (taskQueue.some(t => t.id === task.id)) return
+  // Bug 34：入队前再查在途（纵深防御，与入口检查配对）——磁盘校验期间旧实例
+  // 若仍未收尾，入队即双跑。命中时把状态翻回 paused（本调用已把它置为 waiting，
+  // 不翻回会卡在 waiting 无人认领），并只清本调用登记的快路径记录（fileComplete
+  // 为真时登记是本调用刚写的；在途实例早已消费掉自己的登记，清不掉别人的）。
+  if (activeTaskIds.has(task.id)) {
+    if (fileComplete) resumeCompleteFiles.delete(task.id)
+    downloadActions.updateTask(task.id, { status: 'paused' })
+    return
+  }
   taskQueue.push(freshTask)
   processQueue()
 }

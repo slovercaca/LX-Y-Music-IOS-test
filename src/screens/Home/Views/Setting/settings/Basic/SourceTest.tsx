@@ -562,7 +562,9 @@ export default memo(() => {
             continue
           }
 
-          const url = result?.url
+          // Bug 52：用 let——HEAD 失败清缓存重取新 URL 后需同步更新 url，
+          // 否则后续日志/扩展名判定/成功记录都用已过期的旧 url
+          let url = result?.url
 
           const hasInvalidLevel = url && /level=(undefined|null|$|&)/i.test(url)
           const isValidUrl = url && url.length > 10 && !hasInvalidLevel
@@ -646,11 +648,24 @@ export default memo(() => {
                     silent: true,
                   })
                   result = { url: newUrl, type: quality }
+                  // Bug 52：重取成功后同步更新 url，并从新 HEAD 重读
+                  // content-type / content-disposition 更新 contentTypeExt /
+                  // realFileName，保持「URL 与文件信息同源一致」
+                  url = newUrl
                   sourceTestLog.info(`[${source.name}]   [INFO] ${quality}: 重新获取URL成功`)
                   sourceTestLog.info(`[${source.name}]   [URL] ${newUrl}`)
                   // 重新进行HEAD请求
                   const newHeadResponse = await fetch(newUrl, { method: 'HEAD' })
                   const newContentLength = newHeadResponse.headers.get('content-length')
+                  const newContentType = newHeadResponse.headers.get('content-type')
+                  contentTypeExt = contentTypeMap[newContentType || ''] || ''
+                  const newContentDisposition = newHeadResponse.headers.get('content-disposition')
+                  if (newContentDisposition) {
+                    const newFilenameMatch = newContentDisposition.match(/filename[*]?=(?:UTF-8''|")?([^";\s]+)/i)
+                    if (newFilenameMatch) {
+                      realFileName = decodeURIComponent(newFilenameMatch[1].replace(/"/g, ''))
+                    }
+                  }
                   if (newContentLength && newContentLength !== '0') {
                     const actualSizeMB = parseInt(newContentLength) / (1024 * 1024)
                     actualSizeRounded = Math.round(actualSizeMB * 100) / 100
