@@ -257,7 +257,13 @@ export default {
       limit,
       timestamp: new Date().toISOString(),
     })
-    return this.musicSearch(str, page, limit).then(({ body, meta }) => {
+    // Bug 44：兜底须放在解构源头——musicSearch 返回 body.req.data，data 本身可能
+    // 缺失（data 为 undefined 时直接解构即抛）；body/meta 缺失时同样兜底为空对象，
+    // handleResult(undefined) 本就返回 []，整次搜索不再因缺字段而失败。
+    return this.musicSearch(str, page, limit).then((data) => {
+      const { body: rawBody, meta: rawMeta } = data ?? {}
+      const body = rawBody ?? {}
+      const meta = rawMeta ?? {}
       txLog.info('=== search 返回 ===', {
         query: str,
         page,
@@ -271,11 +277,11 @@ export default {
         originalCount: body.item_song?.length || 0,
         processedCount: list.length,
         firstItem: list[0] ? { name: list[0].name, singer: list[0].singer } : null,
-        total: meta.estimate_sum,
-        allPage: Math.ceil(meta.estimate_sum / limit),
+        total: meta.estimate_sum || 0,
+        allPage: Math.ceil((meta.estimate_sum || 0) / limit),
       })
 
-      this.total = meta.estimate_sum
+      this.total = meta.estimate_sum || 0
       this.page = page
       this.allPage = Math.ceil(this.total / limit)
 
@@ -298,7 +304,12 @@ export default {
       retryNum,
       timestamp: new Date().toISOString(),
     })
-    return this.musicSearch(str, page, limit, 1).then(({ body, meta }) => {
+    // Bug 44 同型：meta 本身缺失时 meta.estimate_sum || 0 仍抛，data 缺失时解构即抛，
+    // 兜底放解构源头（与 search 同口径）。
+    return this.musicSearch(str, page, limit, 1).then((data) => {
+      const { body: rawBody, meta: rawMeta } = data ?? {}
+      const body = rawBody ?? {}
+      const meta = rawMeta ?? {}
       txLog.info('=== searchSinger 返回 ===', {
         query: str,
         page,
@@ -357,7 +368,10 @@ export default {
       timestamp: new Date().toISOString(),
     })
     try {
-      const { body, meta } = await this.musicSearch(str, page, limit, 2)
+      // Bug 44 同型：body.item_album 未判空，data/meta 缺失时同样抛，兜底放解构源头。
+      const { body: rawBody, meta: rawMeta } = (await this.musicSearch(str, page, limit, 2)) ?? {}
+      const body = rawBody ?? {}
+      const meta = rawMeta ?? {}
       txLog.info('=== searchAlbum 返回 ===', {
         query: str,
         page,

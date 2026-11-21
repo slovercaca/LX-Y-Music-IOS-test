@@ -420,7 +420,9 @@ export const handlePlayLater = (
 }
 
 export const handleShowMusicSourceDetail = async(minfo: LX.Music.MusicInfoOnline) => {
-  const url = musicSdk[minfo.source as LX.OnlineSource]?.getMusicDetailPageUrl(
+  // Bug 42：方法本身加判空——?. 只 guard 了 musicSdk[source]，qs 模块存在但缺该方法时
+  // 直接调用必抛 TypeError；缺失时 url 为 undefined，下方 !url 直接返回。
+  const url = musicSdk[minfo.source as LX.OnlineSource]?.getMusicDetailPageUrl?.(
     toOldMusicInfo(minfo),
   )
   if (!url) return

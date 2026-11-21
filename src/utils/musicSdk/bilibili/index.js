@@ -445,9 +445,10 @@ const bilibili = {
 
   getPic(songInfo) {
     log.info('[Bilibili] getPic 被调用 - songInfo.name: ' + (songInfo?.name || '未知'))
-    const requestObj = {}
-    requestObj.promise = Promise.resolve(songInfo?.img || '')
-    return requestObj
+    // Bug 43：契约是 Promise<string>——此前返回无 .then 的 { promise } 普通对象，
+    // 调用方 utils.ts 直接调 .then 必抛 then is not a function；直接返回解包后的 Promise。
+    // 注意 getLyric 同为 { promise } 形状，但其契约本就接受请求对象，不动它。
+    return Promise.resolve(songInfo?.img || '')
   },
 
   getLyric(songInfo) {

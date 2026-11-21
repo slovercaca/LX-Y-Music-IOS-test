@@ -126,6 +126,15 @@ public final class LiquidLensView: UIView, AnyLiquidLensView {
         commonInit()
     }
 
+    deinit {
+        // 6-G75: 兜底——weak 代理已打破环，deinit 必然可达；此处再停一次，
+        // 防止任何路径漏调 stopPositionTracking 时 displayLink 随 RunLoop 空转。
+        // 注意单独加 deinit 不够（环不断则 deinit 永不执行），真正打破环的是
+        // 下面的 weak 代理 + willMove(toWindow: nil)。
+        displayLink?.invalidate()
+        displayLink = nil
+    }
+
     private func commonInit() {
         clipsToBounds = false
 
@@ -175,6 +184,19 @@ public final class LiquidLensView: UIView, AnyLiquidLensView {
                 ? min(cornerRadiusOverride, halfShortSide)
                 : halfShortSide
             liquidGlassView.layer.cornerCurve = .circular
+        }
+    }
+
+    public override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        if newWindow == nil {
+            // 6-G75: 离开窗口即停追踪——RN 在滑动动画进行中卸载宿主时，
+            // 动画以 finished=NO 完成、宿主不调 setLifted:NO，displayLink
+            // 永不停止（视图泄漏 + 60/120Hz 空转）。
+            stopPositionTracking()
+        } else if isLifted && displayLink == nil {
+            // 重挂回窗口且仍处于抬起态：恢复追踪（与 liftUp 时一致）
+            startPositionTracking()
         }
     }
 
@@ -315,9 +337,30 @@ public final class LiquidLensView: UIView, AnyLiquidLensView {
 
     // MARK: - Position Tracking & Acceleration
 
+    /// CADisplayLink 强持有 target；直接以 self 为 target 会形成
+    /// self → displayLink → self 强引用环（RunLoop 也持有 displayLink），
+    /// 卸载时若 liftDown 未跑到，视图永久泄漏、回调 60/120Hz 空转。
+    /// 代理只弱持有视图：视图释放后 tick 即 no-op（6-G75）。
+    /// 嵌套类可访问外层类的 private 成员（SE-0025），故 tick 能调
+    /// updatePositionTracking；displayLink 强持有代理，无需另存。
+    private final class DisplayLinkProxy: NSObject {
+        weak var target: LiquidLensView?
+
+        init(target: LiquidLensView) {
+            self.target = target
+            super.init()
+        }
+
+        @objc func tick() {
+            target?.updatePositionTracking()
+        }
+    }
+
     private func startPositionTracking() {
         positionHistory.removeAll()
-        displayLink = CADisplayLink(target: self, selector: #selector(updatePositionTracking))
+        // 6-G75: 经 weak 代理挂 displayLink，不再以 self 为 target（打破环）
+        let proxy = DisplayLinkProxy(target: self)
+        displayLink = CADisplayLink(target: proxy, selector: #selector(DisplayLinkProxy.tick))
         displayLink?.add(to: .main, forMode: .common)
     }
 

@@ -6,7 +6,7 @@ import List from './List'
 import Button from '@/components/common/Button'
 import wyApi from '@/utils/musicSdk/wy/user'
 import txApi from '@/utils/musicSdk/tx/user'
-import { addSongToPlaylist as addKgSongToPlaylist, removeSongsFromPlaylist as removeKgSongsFromPlaylist } from '@/utils/musicSdk/kg/utils/api'
+import { addSongToPlaylist as addKgSongToPlaylist, removeSongsFromPlaylist as removeKgSongsFromPlaylist, getPlaylistSongs as getKgPlaylistSongs } from '@/utils/musicSdk/kg/utils/api'
 import { useI18n } from '@/lang'
 import { addListMusics, moveListMusics } from '@/core/list'
 import settingState from '@/store/setting/state'
@@ -295,6 +295,18 @@ export default forwardRef<MusicAddModalType, MusicAddModalProps>(({ onAdded }, r
 
       if (isMove) {
         const sourcePlaylistId = fromListId.replace('kg__', '')
+        // Bug 56：源歌单 id 可能是 global_collection_id 字符串或 id_<specialid>，
+        // Number() 直接转得 NaN；复用 OnlineList 的 split('_') 取 parts[3] 模式，
+        // 解析失败在添加前阻断并提示（否则先加后删不成，移动变复制）
+        const sourceListIdNum = (() => {
+          const parts = sourcePlaylistId.split('_')
+          return parts.length >= 4 ? Number(parts[3]) : Number(sourcePlaylistId)
+        })()
+        if (!sourceListIdNum || isNaN(sourceListIdNum)) {
+          log.error('[MusicAddModal] 酷狗歌单移动失败: 无法获取源歌单数字ID', { fromListId, sourcePlaylistId })
+          toast('源歌单ID格式错误，无法移动')
+          return
+        }
         addKgSongToPlaylist(kgCookie, toListId, {
           name: songName,
           hash: songHash,
@@ -304,7 +316,35 @@ export default forwardRef<MusicAddModalType, MusicAddModalProps>(({ onAdded }, r
           if (result.success) {
             clearListDetailCache('kg', toListId)
             global.app_event.playlist_updated({ source: 'kg', listId: toListId })
-            return removeKgSongsFromPlaylist(kgCookie, Number(sourcePlaylistId), [songHash])
+            // Bug 56：删除接口要数字 fileids（传 hash 字符串会被 Number() 成
+            // NaN，JSON 序列化后变 null，删除必败）。拉源歌单建映射查 fileId
+            // 再删；通常 1 页，找到即停（大歌单最多翻 20 页，与 OnlineList 一致）
+            const lookupKeys = [
+              (musicInfo.meta as any)?.songmid,
+              musicInfo.meta?.songId,
+              (musicInfo.meta as any)?.hash,
+              songHash,
+            ].map(k => String(k ?? '').toLowerCase()).filter(k => k)
+            let fileId = 0
+            for (let page = 1; page <= 20; page++) {
+              const songsResult = await getKgPlaylistSongs(kgCookie, sourcePlaylistId, page, 500)
+              if (!songsResult.success || !songsResult.data?.list?.length) break
+              for (const song of songsResult.data.list) {
+                const key = String(song.songmid || '').toLowerCase()
+                const hashKey = String(song.hash || '').toLowerCase()
+                if ((key && lookupKeys.includes(key)) || (hashKey && lookupKeys.includes(hashKey))) {
+                  fileId = song.fileId || 0
+                  break
+                }
+              }
+              if (fileId > 0 || songsResult.data.list.length < 500) break
+            }
+            if (!fileId) {
+              // 添加已成功，只差源歌单删除：明示原因，不报笼统的「移动失败」
+              toast('已添加到目标歌单，但在源歌单中找不到该歌曲，未从源歌单删除', 'long')
+              return { success: false, message: '', skipped: true }
+            }
+            return removeKgSongsFromPlaylist(kgCookie, sourceListIdNum, [fileId])
           } else {
             throw new Error(result.message || t('list_edit_action_tip_move_failed'))
           }
@@ -315,6 +355,9 @@ export default forwardRef<MusicAddModalType, MusicAddModalProps>(({ onAdded }, r
             clearListDetailCache('kg', sourcePlaylistId)
             global.app_event.playlist_updated({ source: 'kg', listId: sourcePlaylistId })
             log.info('[MusicAddModal] 酷狗歌单移动成功', { toListId, songName, sourcePlaylistId })
+          } else if ((result as any)?.skipped) {
+            // 已在上一步 toast 说明过，不重复提示；目标侧已添加成功，照常回调
+            onAdded?.()
           } else {
             toast(result?.message || t('list_edit_action_tip_move_failed'))
           }

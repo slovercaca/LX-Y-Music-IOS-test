@@ -97,12 +97,43 @@ globalThis.lx_setup = (key, id, name, description, version, author, homepage, ra
         result += String.fromCharCode(byte)
         i++
       } else if (byte >= 192 && byte < 224) {
-        result += String.fromCharCode(((byte & 31) << 6) | (bytes[i + 1] & 63))
-        i += 2
+        // 6-G70: 末尾截断的多字节序列不再读越界的 bytes[i+1]/bytes[i+2]
+        // （旧代码读到 undefined，undefined & 63 得 0，产出错误字符）
+        if (i + 1 >= bytes.length) {
+          result += '\uFFFD'
+          i++
+        } else {
+          result += String.fromCharCode(((byte & 31) << 6) | (bytes[i + 1] & 63))
+          i += 2
+        }
       } else {
-        result += String.fromCharCode(((byte & 15) << 12) | ((bytes[i + 1] & 63) << 6) | (bytes[i + 2] & 63))
-        i += 3
+        if (i + 2 >= bytes.length) {
+          result += '\uFFFD'
+          i++
+        } else {
+          result += String.fromCharCode(((byte & 15) << 12) | ((bytes[i + 1] & 63) << 6) | (bytes[i + 2] & 63))
+          i += 3
+        }
       }
+    }
+    return result
+  }
+  // 将字节数组直接编码为 Base64（按位映射到 Base64 字符表，不经过 UTF-8
+  // 字符串中转。旧路径 bytesToString + 原生 str2b64 会把 ≥0x80 的字节先按
+  // UTF-8 错解、再重新编码，二进制数据（密钥/密文）必然损坏——crypto 的
+  // dataToB64 走的就是这条路）
+  const BASE64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+  function bytesToBase64(bytes) {
+    let result = ''
+    for (let i = 0; i < bytes.length; i += 3) {
+      const b0 = bytes[i]
+      const b1 = i + 1 < bytes.length ? bytes[i + 1] : 0
+      const b2 = i + 2 < bytes.length ? bytes[i + 2] : 0
+      const triplet = (b0 << 16) | (b1 << 8) | b2
+      result += BASE64_CHARS[(triplet >> 18) & 63]
+      result += BASE64_CHARS[(triplet >> 12) & 63]
+      result += i + 1 < bytes.length ? BASE64_CHARS[(triplet >> 6) & 63] : '='
+      result += i + 2 < bytes.length ? BASE64_CHARS[triplet & 63] : '='
     }
     return result
   }
@@ -412,7 +443,9 @@ globalThis.lx_setup = (key, id, name, description, version, author, homepage, ra
             case 'hex':
               return new Uint8Array(buf).reduce((str, byte) => str + byte.toString(16).padStart(2, '0'), '')
             case 'base64':
-              return nativeFuncs.utils_str2b64(bytesToString(Array.from(buf)))
+              // 6-G70: 直接按位映射，不走 bytesToString + 原生 str2b64 的
+              // UTF-8 往返（≥0x80 字节会被错解后重编码，二进制数据损坏）
+              return bytesToBase64(Array.from(buf))
             case 'utf8':
             case 'utf-8':
             default:

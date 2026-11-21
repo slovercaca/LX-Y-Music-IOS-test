@@ -191,9 +191,12 @@ export default {
     )
     return requestObj.promise.then(({ statusCode, body }) => {
       // 高：重试参数错位——getListDetail 签名 (id, page, retryNum)，tryNum 被塞进 page、retryNum 归零，接口持续非 200 时无限重试、Promise 永不 settle
-      if (statusCode != 200 || !body.child) return this.getListDetail(id, 1, ++tryNum)
+      // Bug 39：重试改调自身——此前调 getListDetail 时传的是已剥离 digest-5__ 前缀
+      // 的 id，路由默认落入 digest-8 分支；child 为空数组时同样重试，不再返回 null
+      //（null 会让下游发 pid=null 请求）。tryNum 逐轮递增、入口 > 2 封顶，不会无限重试。
+      if (statusCode != 200 || !body.child?.length) return this.getListDetailDigest5Info(id, ++tryNum)
       // console.log(body)
-      return body.child.length ? body.child[0].sourceid : null
+      return body.child[0].sourceid
     })
   },
   getListDetailDigest5Music(id, page, tryNum = 0) {
@@ -205,7 +208,9 @@ export default {
     )
     return requestObj.promise.then(({ body }) => {
       // console.log(body)
-      if (body.result !== 'ok') return this.getListDetail(id, page, ++tryNum)
+      // Bug 39：重试改调自身，保持 digest-5 路由——此前调 getListDetail 时 id 是
+      // sourceid（非歌单 id）且无 digest- 前缀，路由落入 digest-8 分支，错上加错。
+      if (body.result !== 'ok') return this.getListDetailDigest5Music(id, page, ++tryNum)
       return {
         list: this.filterListDetail(body.musiclist),
         page,
@@ -332,21 +337,28 @@ export default {
     }
   },
   async getListDetailMusicListByBDList(id, source, page, tryNum = 0) {
-    const { body: listData } = await httpFetch(
-      `https://bd-api.kuwo.cn/api/service/playlist/${id}/musicList?reqId=${this.getReqId()}&source=${source}&pn=${page}&rn=${
-        this.limit_song
-      }`,
-      {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.198 Safari/537.36',
-          plat: 'h5',
+    // Bug 38：重试直接返回递归结果——此前 catch 挂在解构链上，递归返回的是已解析的
+    // 最终结果对象（无 .body），外层再按 { body } 解构得 undefined、取 .code 崩溃，
+    // 重试成功反而崩溃；改为 try/catch 包裹 await，失败路径不再经过外层解构。
+    let response
+    try {
+      response = await httpFetch(
+        `https://bd-api.kuwo.cn/api/service/playlist/${id}/musicList?reqId=${this.getReqId()}&source=${source}&pn=${page}&rn=${
+          this.limit_song
+        }`,
+        {
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.198 Safari/537.36',
+            plat: 'h5',
+          },
         },
-      },
-    ).promise.catch(() => {
+      ).promise
+    } catch {
       if (tryNum > 2) return Promise.reject(new Error('try max num'))
       return this.getListDetailMusicListByBDList(id, source, page, ++tryNum)
-    })
+    }
+    const { body: listData } = response
 
     if (listData.code !== 200) return Promise.reject(new Error('failed'))
 
