@@ -134,7 +134,9 @@ const parseTools = {
     let arr = interval.split(/:|\./)
     while (arr.length < 3) arr.unshift('0')
     const [m, s, ms] = arr
-    return parseInt(m) * 3600000 + parseInt(s) * 1000 + parseInt(ms)
+    // Bug 46：m 是分钟，应乘 60000——此前误乘 3600000（1 小时），跨分钟边界的
+    // 翻译/罗马音配对差值被算成约 59 分钟、过不了 100ms 判定，行被丢弃。
+    return parseInt(m) * 60000 + parseInt(s) * 1000 + parseInt(ms)
   },
   fixTimeTag(lrc, targetlrc) {
     let lrcLines = lrc.split('\n')

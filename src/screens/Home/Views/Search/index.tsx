@@ -86,6 +86,17 @@ export default () => {
     }
   }, [selectedList])
 
+  // Bug 51：headerKey 变化重挂载 HeaderBar 后，输入框 text state 被重置为空，
+  // 「取消」按钮（只在 hasText 时渲染）也随之消失。本 effect 在重挂载提交后
+  // 运行，此时 headerBarRef 已指向新挂载的实例，恢复搜索文本；HeaderBar.setText
+  // 已同步 hasText，取消按钮随之恢复。挂载时也会跑一次，与挂载 effect 的
+  // setText 重复但无害（同一文本，幂等）。
+  useEffect(() => {
+    if (searchState.searchText) {
+      headerBarRef.current?.setText(searchState.searchText)
+    }
+  }, [headerKey])
+
   const handleSearch: HeaderBarProps['onSearch'] = useCallback((text) => {
     setSelectedList(null)
     setSearchState(text)

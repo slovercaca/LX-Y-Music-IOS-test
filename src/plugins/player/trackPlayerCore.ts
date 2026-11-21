@@ -221,31 +221,50 @@ export const initTrackInfo = async(musicInfo: LX.Player.PlayMusic, mInfo: LX.Pla
   delayUpdateMusicInfo(mInfo)
 }
 
-export const loadTrackPlayerResource = async(musicInfo: LX.Player.PlayMusic, url: string, time: number, shouldAutoStart: boolean) => {
+export const loadTrackPlayerResource = async(musicInfo: LX.Player.PlayMusic, url: string, time: number, shouldAutoStart: boolean, isStale?: () => boolean) => {
+  // Bug 16：与同文件 restoreTrack 同款范式——reloadConfig（bumpLoadGeneration）
+  // 可能落在任意两次 await 之间，在途装载若不查代际，会对重建后的新队列做
+  // add/skip/seek/play/remove（旧轨道 play 唤醒、尾部 remove 按过期快照误删
+  // 新轨道）。每个 await 后检查，过期直接返回 null，不再碰队列与全局状态。
+  const stale = () => isStale?.() === true
   const currentTrackIndex = await TrackPlayer.getCurrentTrack()
+  if (stale()) return null
   const tracks = buildTracks(musicInfo, url)
   const track = tracks[0]
   await TrackPlayer.add(tracks).then(() => list.push(...tracks))
+  if (stale()) return null
   const queue = await TrackPlayer.getQueue() as LX.Player.Track[]
+  if (stale()) return null
   await TrackPlayer.skip(queue.findIndex(t => t.id == track.id))
+  if (stale()) return null
   global.lx.playerTrackId = track.id
 
   if (currentTrackIndex == null) {
     if (!isTempTrack(track.id as string)) {
-      if (time) await seekToTime(time)
+      if (time) {
+        await seekToTime(time)
+        if (stale()) return null
+      }
       if (!shouldAutoStart) {
         await TrackPlayer.pause()
+        if (stale()) return null
       } else {
         await TrackPlayer.play()
+        if (stale()) return null
         await applyCurrentVolume()
+        if (stale()) return null
       }
     }
   } else {
     await TrackPlayer.pause()
+    if (stale()) return null
     if (!isTempTrack(track.id as string)) {
       await seekToTime(time)
+      if (stale()) return null
       await TrackPlayer.play()
+      if (stale()) return null
       await applyCurrentVolume()
+      if (stale()) return null
     }
   }
 

@@ -109,14 +109,16 @@ export default memo(
     const isPlaying = playingId === item.id
     const isSelected = selectedList.includes(item)
     const coverUrl = useCoverUrl(item)
-    const isWyLiked = useIsWyLiked(item.meta.songId)
-    const txSongId = (item.meta as any).id
+    // Bug 55 防御：meta 缺失时不崩溃（useIsWyLiked/useIsKgLiked 内部只做
+    // String() 转换，'undefined' 查不到即 false；?? '' 保持参数类型干净）
+    const isWyLiked = useIsWyLiked(item.meta?.songId ?? '')
+    const txSongId = (item.meta as any)?.id
     const isNumericId = txSongId && /^\d+$/.test(String(txSongId))
     const txSongMid = isNumericId
       ? String(txSongId)
-      : (item.meta as any).songmid || (item.meta as any).strMediaMid || (typeof item.id === 'string' && item.id.startsWith('tx_') ? item.id.slice(3) : item.id)
+      : (item.meta as any)?.songmid || (item.meta as any)?.strMediaMid || (typeof item.id === 'string' && item.id.startsWith('tx_') ? item.id.slice(3) : item.id)
     const isTxLiked = useIsTxLiked(txSongMid)
-    const isKgLiked = useIsKgLiked((item.meta as any).hash || item.meta.songId)
+    const isKgLiked = useIsKgLiked(((item.meta as any)?.hash || item.meta?.songId) ?? '')
 
     const moreButtonRef = useRef<TouchableOpacity>(null)
     const handleShowMenu = () => {
@@ -147,7 +149,7 @@ export default memo(
 
     const tagInfo = useQualityTag(item)
     const historySource = (item as LX.Music.MusicInfoOnline & { playHistorySource?: LX.Player.PlayHistorySource }).playHistorySource
-    const singer = `${item.singer}${isShowAlbumName && item.meta.albumName ? `·${item.meta.albumName}` : ''}`
+    const singer = `${item.singer}${isShowAlbumName && item.meta?.albumName ? `·${item.meta?.albumName}` : ''}`
     // 内容玻璃开关（2026-10-04）：开 = 每行都是玻璃（相邻行无缝拼成整片玻璃列表）；
     // 高亮（播放中/选中）在玻璃开时盖在玻璃上层，关时走原来的背景色。
     const glassContentOn = useSettingValue('theme.glassContent')
@@ -203,8 +205,8 @@ export default memo(
             <View style={styles.listItemSingle}>
               {showSource ? <Badge type="tertiary">{item.source.toUpperCase()}</Badge> : null}
               {tagInfo.type ? <Badge type={tagInfo.type}>{tagInfo.text}</Badge> : null}
-              {item.meta.fee === 1 ? <Badge type="vip">VIP</Badge> : null}
-              {item.source === 'wy' && item.meta.originCoverType === 2 ? <Badge type="normal">cover</Badge> : null}
+              {item.meta?.fee === 1 ? <Badge type="vip">VIP</Badge> : null}
+              {item.source === 'wy' && item.meta?.originCoverType === 2 ? <Badge type="normal">cover</Badge> : null}
               {historySource ? <Badge type="normal">{historySource}</Badge> : null}
               <Text
                 style={styles.listItemSingleText}

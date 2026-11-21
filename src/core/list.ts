@@ -75,9 +75,12 @@ export const playOnlineListEnsureAll = async(
 /**
  * Overwrite all list data
  * @param data
+ * @param isRemote 是否属于远程操作（WebDAV 下载/合并传入 true，跳过
+ * 操作队列入队与标脏，避免把刚下载的云端数据又回传一次；落盘、保存
+ * 与 UI 刷新与本地覆盖完全相同）。本地恢复/导入保持默认 false。
  */
-export const overwriteListFull = async(data: LX.List.ListActionDataOverwrite) => {
-  await global.list_event.list_data_overwrite(data)
+export const overwriteListFull = async(data: LX.List.ListActionDataOverwrite, isRemote: boolean = false) => {
+  await global.list_event.list_data_overwrite(data, isRemote)
 }
 
 /**

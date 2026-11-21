@@ -30,16 +30,17 @@ const tagRegMap = {
   by: 'by',
 } as const
 const wordTimeExp = /<(-?\d+),(-?\d+)>([^<]*)/g
-const msTimeRxp = /\[\d{1,3}(:\d{1,3}){0,2}\.\d{3}]/
 
 const tRxp1 = /^0+(\d+)/
 const tRxp2 = /:0+(\d+)/g
-const tRxp3 = /\.0+(\d+)/
 
+// Bug 12：原先的 tRxp3（/\.0+(\d+)/）会把小数点后的前导零误删——
+// [00:12.05] 被归一成 '0:12.5'，msTime '5' 再 padEnd 得 500ms（正确值 50ms），
+// 且 '.05' 与 '.5' 会归一成同一个 linesMap 键致整行消失。删掉 tRxp3 后，
+// 小数部分原样保留，时间解析与键归一化同时正确。
 const formatTimeLabel = (label: string) => {
   return label.replace(tRxp1, '$1')
     .replace(tRxp2, ':$1')
-    .replace(tRxp3, '.$1')
 }
 
 const parseLineWords = (text: string) => {
@@ -207,10 +208,11 @@ export default class LxLyricPlayer {
 
   private initLines() {
     this.lines = []
-    // 与 lrc-file-parser 保持一致：整首歌词含 3 位毫秒标签时按字面解析毫秒，
-    // 否则按「厘秒」补零到 3 位（[mm:ss.5] / [mm:ss.50] 均视为 500ms）。
-    // 否则 lxlyric 行时间与 lrc 行时间不一致，逐字行无法按时间对齐。
-    const isMsTime = msTimeRxp.test(this.lyric)
+    // Bug 12：毫秒小数部分统一按「十进制小数」解析——截断/右补 0 至 3 位
+    //（.5 → 500ms、.05 → 50ms、.005 → 5ms、.123 → 123ms），不再按整首歌词
+    // 是否含 3 位毫秒标签分两支（原 isMsTime 分支在毫秒歌词里会把 .05 字面
+    // 解析成 5ms）。与 lrc-file-parser 的行时间对齐仍由 buildWordsMap 的
+    // 300ms 容差兜底。
     const lines = this.lyric.split(/\r\n|\n|\r/)
     const linesMap: Record<string, LxLyricLine> = {}
     for (const rawLine of lines) {
@@ -237,10 +239,10 @@ export default class LxLyricPlayer {
           for (let i = 3 - timeArr.length; i--;) timeArr.unshift('0')
         }
         if (timeArr[2].includes('.')) timeArr.splice(2, 1, ...timeArr[2].split('.'))
-        const msTime = timeArr[3] || '0'
+        const msTime = (timeArr[3] || '0').slice(0, 3).padEnd(3, '0')
 
         linesMap[time] = {
-          time: parseInt(timeArr[0]) * 60 * 60 * 1000 + parseInt(timeArr[1]) * 60 * 1000 + parseInt(timeArr[2]) * 1000 + parseInt(isMsTime ? msTime : msTime.padEnd(3, '0')),
+          time: parseInt(timeArr[0]) * 60 * 60 * 1000 + parseInt(timeArr[1]) * 60 * 1000 + parseInt(timeArr[2]) * 1000 + parseInt(msTime),
           text: displayText,
           rawText: text,
           extendedLyrics: [],

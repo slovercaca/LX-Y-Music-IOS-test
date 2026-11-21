@@ -235,7 +235,12 @@ export const normalizeEqualizerGain = (gain: number) => {
   if (!Number.isFinite(gain)) return 0
   return Math.min(15, Math.max(-15, Math.round(gain * 10) / 10))
 }
-export const normalizeConvolutionGain = (gain: number) => Math.min(50, Math.max(0, Math.round(gain)))
+export const normalizeConvolutionGain = (gain: number) => {
+  // Bug 17：与相邻 normalizeEqualizerGain 对齐——NaN/undefined 会经 Math.round
+  // 泄漏给原生（±Infinity 本已被钳位处理，不在此列）。
+  if (!Number.isFinite(gain)) return 0
+  return Math.min(50, Math.max(0, Math.round(gain)))
+}
 
 export const hasEnabledEqualizerGains = (gains: readonly number[]) => {
   return gains.some(gain => normalizeEqualizerGain(gain) != 0)

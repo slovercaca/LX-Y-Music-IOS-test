@@ -174,7 +174,9 @@ const handleRequestData = async(
   // stringify——严格相等会跳过，RN fetch 对 plain object 调 toString 发出
   // "[object Object]"，汽水歌单 POST 必败
   const contentType = headers['Content-Type']
-  if (typeof contentType === 'string' && contentType.startsWith('application/json') && options.body) {
+  // Bug 49：已序列化的 JSON 字符串体不再二次 stringify——此前字符串 body 会被包一层
+  // 引号并转义内部引号；当前库内暂无触发调用方，属潜伏风险修复（对象 body 行为不变）。
+  if (typeof contentType === 'string' && contentType.startsWith('application/json') && options.body && typeof options.body !== 'string') {
     options.body = JSON.stringify(options.body)
   }
   if (headers[bHh]) {

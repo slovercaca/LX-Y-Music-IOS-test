@@ -173,7 +173,13 @@ export default memo(({ header, isStylized, stylizedSelection }: RecSongsProps) =
           const results = await Promise.all(promises)
 
           const currentCache = await getDailyRecCache()
-          if (!currentCache || currentCache.dailyRecId !== currentDailyRecId) return
+          if (!currentCache || currentCache.dailyRecId !== currentDailyRecId) {
+            // Bug 53：缓存变更早退也要复位 isFetching（与本函数其余 5 处
+            // 早退/结束点一致），否则模块级单例锁卡住，同次挂载周期内
+            // 所有后续预取都在入口被拦截
+            similarSongsFetcher.isFetching = false
+            return
+          }
 
           for (let i = 0; i < batch.length; i++) {
             const dailySong = batch[i]
