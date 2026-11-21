@@ -583,7 +583,19 @@ static UIImage *LXBlurredBackgroundImage(UIImage *inputImage, CGFloat radius) {
     free(tempBuffer);
     return inputImage;
   }
-  memcpy(buffer1.data, CFDataGetBytePtr(dataSource), bytes);
+  // 6-G68: 拷贝长度取 MIN（推导字节数，provider 实际长度）——异常 provider
+  // （截断数据/自定义 provider）可能短于 rowBytes×height，旧代码直接越界读；
+  // 数据长度为 0 时 CFDataGetBytePtr 返回 NULL。不足部分先零填（buffer1 是
+  // malloc 未初始化内存，少拷的部分否则会让 vImage 读到未初始化数据）。
+  const UInt8 *sourceBytes = CFDataGetBytePtr(dataSource);
+  size_t availableBytes = (size_t)CFDataGetLength(dataSource);
+  size_t copyBytes = MIN(bytes, availableBytes);
+  if (sourceBytes != NULL && copyBytes > 0) {
+    memcpy(buffer1.data, sourceBytes, copyBytes);
+  }
+  if (copyBytes < bytes) {
+    memset((uint8_t *)buffer1.data + copyBytes, 0, bytes - copyBytes);
+  }
   CFRelease(dataSource);
 
   vImageBoxConvolve_ARGB8888(&buffer1, &buffer2, tempBuffer, 0, 0, boxSize, boxSize, NULL, kvImageEdgeExtend);
@@ -1098,13 +1110,15 @@ static void LXSetNowPlayingPlaybackState(MPNowPlayingPlaybackState state, NSDict
   // 且后续补写元数据不一定重新显示控制中心媒体卡片。先缓存状态，等
   // LXSetNowPlayingInfo 写入有效标题后再统一发布。
   // 6-1: existingTitle 持锁读（锁外读与歌词时钟队列的写竞态）
+  // 6-G67: 此处不再提前返回——先写缓存、再由下方守卫决定是否发布；
+  // 旧的提前返回让「元数据到达前缓存进度/速率、等标题到了统一发布」
+  // 的设计意图完全 unreachable（切歌时进度与速率缓存直接丢失）。
   NSString *existingTitle = nil;
   @synchronized (LXLyricLock()) {
     existingTitle = [LXNowPlayingInfoCache[MPMediaItemPropertyTitle] isKindOfClass:[NSString class]]
       ? LXNowPlayingInfoCache[MPMediaItemPropertyTitle]
       : nil;
   }
-  if (existingTitle.length == 0) return;
 
   @synchronized (LXLyricLock()) {
     NSMutableDictionary *info = LXNowPlayingMutableInfo();
@@ -2089,6 +2103,19 @@ static NSArray<NSNumber *> *LXSoundEffectDefaultEqualizerGains(void) {
   return gains;
 }
 
+// 6-G66: 音效配置全局量的专用锁（稳定单例，与 LXLyricLock 同模式）。
+// 写侧 SoundEffectModule（桥线程）与读侧 applySoundEffectConfigLocked
+// （renderQueue）跨线程读写同一批文件级 static：NSArray*/NSString* 的
+// plain static 赋值是 objc_storeStrong（非原子），读侧 retain 前写侧可能
+// 已把旧对象释放成悬空指针。读写一律经本锁；通知派发在锁外（避免观察者
+// 回调重入死锁）。
+static NSObject *LXSoundEffectConfigLock(void) {
+  static NSObject *lock = nil;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{ lock = [NSObject new]; });
+  return lock;
+}
+
 static BOOL LXSoundEffectEqualizerEnabled = NO;
 static NSArray<NSNumber *> *LXSoundEffectEqualizerGains = nil;
 static NSString *LXSoundEffectConvolutionFileName = @"";
@@ -2746,6 +2773,10 @@ private:
     for (NSUInteger index = 0; index < frequencies.size(); index++) {
       float gain = index < gains.size() ? gains[index] : 0.0f;
       if (fabsf(gain) < 0.01f) continue;
+      // 6-G73: 超 Nyquist 频段直接 bypass——采样率 < 32000 Hz 时 16kHz 频段的
+      // omega > π，sin(omega) < 0 → alpha < 0，IIR 极点落到单位圆外，状态指数
+      // 发散至 ±Inf/NaN（满幅噪声）。该频段本来就不该发声。
+      if (frequencies[index] >= (float)sampleRate * 0.49f) continue;
 
       float amplitude = powf(10.0f, gain / 40.0f);
       float omega = 2.0f * (float)M_PI * frequencies[index] / (float)sampleRate;
@@ -2847,30 +2878,34 @@ static AVAudioUnitReverbPreset LXSoundEffectReverbPresetForFileName(NSString *fi
 }
 
 static NSDictionary *LXCurrentSoundEffectConfig(void) {
-  NSArray<NSNumber *> *gains = LXSoundEffectEqualizerGains;
-  if (gains == nil || gains.count != LXSoundEffectEqualizerFrequencies().count) gains = LXSoundEffectDefaultEqualizerGains();
-  return @{
-    @"enabled": @(LXSoundEffectEqualizerEnabled),
-    @"gains": gains,
-    @"equalizer": @{
+  // 6-G66: 快照整段持锁——读到的 10 个全局量必然属于同一次写，避免新旧混搭；
+  // 锁内只做纯字典构造，无回调、无嵌套锁。
+  @synchronized (LXSoundEffectConfigLock()) {
+    NSArray<NSNumber *> *gains = LXSoundEffectEqualizerGains;
+    if (gains == nil || gains.count != LXSoundEffectEqualizerFrequencies().count) gains = LXSoundEffectDefaultEqualizerGains();
+    return @{
       @"enabled": @(LXSoundEffectEqualizerEnabled),
       @"gains": gains,
-    },
-    @"convolution": @{
-      @"fileName": LXSoundEffectConvolutionFileName ?: @"",
-      @"assetUri": LXSoundEffectConvolutionAssetUri ?: @"",
-      @"mainGain": @(LXSoundEffectConvolutionMainGain),
-      @"sendGain": @(LXSoundEffectConvolutionSendGain),
-    },
-    @"panner": @{
-      @"enabled": @(LXSoundEffectPannerEnabled),
-      @"soundR": @(LXSoundEffectPannerSoundR),
-      @"speed": @(LXSoundEffectPannerSpeed),
-    },
-    @"pitchShifter": @{
-      @"playbackRate": @(LXSoundEffectPitchShifterPlaybackRate),
-    },
-  };
+      @"equalizer": @{
+        @"enabled": @(LXSoundEffectEqualizerEnabled),
+        @"gains": gains,
+      },
+      @"convolution": @{
+        @"fileName": LXSoundEffectConvolutionFileName ?: @"",
+        @"assetUri": LXSoundEffectConvolutionAssetUri ?: @"",
+        @"mainGain": @(LXSoundEffectConvolutionMainGain),
+        @"sendGain": @(LXSoundEffectConvolutionSendGain),
+      },
+      @"panner": @{
+        @"enabled": @(LXSoundEffectPannerEnabled),
+        @"soundR": @(LXSoundEffectPannerSoundR),
+        @"speed": @(LXSoundEffectPannerSpeed),
+      },
+      @"pitchShifter": @{
+        @"playbackRate": @(LXSoundEffectPitchShifterPlaybackRate),
+      },
+    };
+  }
 }
 
 static void LXUpdateSoundEffectConfig(NSDictionary *config) {
@@ -2887,16 +2922,21 @@ static void LXUpdateSoundEffectConfig(NSDictionary *config) {
     [nextGains addObject:@([value respondsToSelector:@selector(floatValue)] ? [value floatValue] : 0.0f)];
   }
 
-  LXSoundEffectEqualizerEnabled = enabled;
-  LXSoundEffectEqualizerGains = nextGains.copy;
-  LXSoundEffectConvolutionFileName = [convolutionConfig[@"fileName"] isKindOfClass:[NSString class]] ? [convolutionConfig[@"fileName"] copy] : @"";
-  LXSoundEffectConvolutionAssetUri = [convolutionConfig[@"assetUri"] isKindOfClass:[NSString class]] ? [convolutionConfig[@"assetUri"] copy] : @"";
-  LXSoundEffectConvolutionMainGain = LXSoundEffectClampFloatValue(convolutionConfig[@"mainGain"], 10.0f, 0.0f, 50.0f);
-  LXSoundEffectConvolutionSendGain = LXSoundEffectClampFloatValue(convolutionConfig[@"sendGain"], 0.0f, 0.0f, 50.0f);
-  LXSoundEffectPannerEnabled = [pannerConfig[@"enabled"] boolValue];
-  LXSoundEffectPannerSoundR = LXSoundEffectClampFloatValue(pannerConfig[@"soundR"], 5.0f, 1.0f, 30.0f);
-  LXSoundEffectPannerSpeed = LXSoundEffectClampFloatValue(pannerConfig[@"speed"], 25.0f, 1.0f, 50.0f);
-  LXSoundEffectPitchShifterPlaybackRate = LXSoundEffectClampFloatValue(pitchShifterConfig[@"playbackRate"], 1.0f, 0.5f, 1.5f);
+  // 6-G66: 10 个全局量赋值整段持锁；快照与通知派发都在锁外——快照函数
+  // 自身持锁（不依赖 @synchronized 重入），通知观察者可能同步回调甚至
+  // dispatch_sync 到 renderQueue，持锁派发会死锁。
+  @synchronized (LXSoundEffectConfigLock()) {
+    LXSoundEffectEqualizerEnabled = enabled;
+    LXSoundEffectEqualizerGains = nextGains.copy;
+    LXSoundEffectConvolutionFileName = [convolutionConfig[@"fileName"] isKindOfClass:[NSString class]] ? [convolutionConfig[@"fileName"] copy] : @"";
+    LXSoundEffectConvolutionAssetUri = [convolutionConfig[@"assetUri"] isKindOfClass:[NSString class]] ? [convolutionConfig[@"assetUri"] copy] : @"";
+    LXSoundEffectConvolutionMainGain = LXSoundEffectClampFloatValue(convolutionConfig[@"mainGain"], 10.0f, 0.0f, 50.0f);
+    LXSoundEffectConvolutionSendGain = LXSoundEffectClampFloatValue(convolutionConfig[@"sendGain"], 0.0f, 0.0f, 50.0f);
+    LXSoundEffectPannerEnabled = [pannerConfig[@"enabled"] boolValue];
+    LXSoundEffectPannerSoundR = LXSoundEffectClampFloatValue(pannerConfig[@"soundR"], 5.0f, 1.0f, 30.0f);
+    LXSoundEffectPannerSpeed = LXSoundEffectClampFloatValue(pannerConfig[@"speed"], 25.0f, 1.0f, 50.0f);
+    LXSoundEffectPitchShifterPlaybackRate = LXSoundEffectClampFloatValue(pitchShifterConfig[@"playbackRate"], 1.0f, 0.5f, 1.5f);
+  }
   [[NSNotificationCenter defaultCenter] postNotificationName:LXSoundEffectConfigDidChangeNotification
                                                       object:nil
                                                     userInfo:LXCurrentSoundEffectConfig()];
@@ -2930,6 +2970,12 @@ RCT_REMAP_METHOD(updateEqualizerConfig, updateEqualizerConfig:(NSDictionary *)co
 @property (nonatomic, strong) NSURLSessionDataTask *task;
 @property (nonatomic, strong) NSMutableData *streamData;
 @property (nonatomic, strong) NSCondition *streamCondition;
+// 6-G64: seek 状态专用锁——pendingSeek*/seekRequested/seekTargetFrame/
+// seekInProgress 由桥线程（seekToStream: 登记）与 decoderQueue
+// （applyPendingSeekIfNeeded 应用、handleFrame 消费）跨队列读写。
+// 不复用 streamCondition：后者兼作 readOffset 的条件变量且 apply 内已
+// 有一次加锁，复用会嵌套死锁（NSCondition 不可重入）。
+@property (nonatomic, strong) NSLock *seekStateLock;
 @property (nonatomic, strong) dispatch_queue_t decoderQueue;
 @property (nonatomic, strong) dispatch_queue_t renderQueue;
 @property (nonatomic, strong) AVAudioEngine *engine;
@@ -3028,6 +3074,7 @@ RCT_EXPORT_MODULE();
     _pitchPlaybackRate.store(1.0f, std::memory_order_release);
     _lastRealtimeEqualizerEnabled = NO;
     _streamCondition = [[NSCondition alloc] init];
+    _seekStateLock = [[NSLock alloc] init];
     _decoderQueue = dispatch_queue_create("cn.toside.music.mobile.streamingflac.decoder", DISPATCH_QUEUE_SERIAL);
     _renderQueue = dispatch_queue_create("cn.toside.music.mobile.streamingflac.render", DISPATCH_QUEUE_SERIAL);
     _currentState = @"idle";
@@ -3253,6 +3300,9 @@ RCT_EXPORT_MODULE();
   self.totalSamples = 0;
   self.expectedContentLength = -1;
   self.lastKnownPosition = 0;
+  // 6-G64: seek 状态复位持锁（与 seekToStream:/applyPendingSeekIfNeeded 同锁；
+  // 中间三行计数器同段复位、无调用、无嵌套锁，顺带包入无害）
+  [self.seekStateLock lock];
   self.pendingSeekPosition = 0;
   self.queuedFrames = 0;
   self.completedFrames = 0;
@@ -3260,6 +3310,7 @@ RCT_EXPORT_MODULE();
   self.decodedFramesCursor = 0;
   self.seekRequested = NO;
   self.seekInProgress = NO;
+  [self.seekStateLock unlock];
   [self updatePlaybackGenerationLocked];
   self.playbackAnchorFrame = 0;
   _pitchPlaybackRate.store(1.0f, std::memory_order_release);
@@ -3831,7 +3882,7 @@ RCT_EXPORT_MODULE();
 }
 
 - (void)waitForBufferCapacityIfNeeded {
-  while (!self.stopRequested && !self.seekRequested) {
+  while (!self.stopRequested && ![self hasPendingSeek]) {
     BOOL shouldWait = NO;
     if (self.sourceNode != nil && self.sampleRate > 0) {
       double queuedSeconds = (double)[self currentQueuedFrameCountLocked] / self.sampleRate;
@@ -3844,23 +3895,49 @@ RCT_EXPORT_MODULE();
 }
 
 #if LX_HAS_LIBFLAC
+// 6-G64: 持锁读 seekRequested（桥线程 seekToStream: 登记，decoderQueue 消费）。
+- (BOOL)hasPendingSeek {
+  [self.seekStateLock lock];
+  BOOL pending = self.seekRequested;
+  [self.seekStateLock unlock];
+  return pending;
+}
+
 - (void)applyPendingSeekIfNeeded {
-  if (!self.seekRequested || self.sampleRate <= 0) return;
+  // 6-G64: seek 登记（桥线程）与应用（decoderQueue）跨队列：快照、代际校验、
+  // seekRequested 清除与 seekTargetFrame/seekInProgress 置位在同一把锁内原子
+  // 完成——桥线程的新 seek 不会在快照与清除之间被误清；handleFrame 只在
+  // seekTargetFrame 已更新后才看到 seekInProgress=YES，不再拿旧目标跳帧。
+  // 锁内只有纯算术（无 dispatch、无嵌套锁、无 IO），不阻塞登记侧。
+  // sampleRate <= 0 时不清除 seekRequested（STREAMINFO 未到，下一轮重试，
+  // 与原行为一致）；代际失配时清除并丢弃该 seek。
+  [self.seekStateLock lock];
+  BOOL seekRequested = self.seekRequested;
+  double pendingPosition = self.pendingSeekPosition;
+  int64_t pendingGeneration = self.pendingSeekGeneration;
+  double duration = self.duration;
+  double sampleRate = self.sampleRate;
+  if (!seekRequested || sampleRate <= 0) {
+    [self.seekStateLock unlock];
+    return;
+  }
   // 切歌竞态守卫：登记 pendingSeek 后流代际已前进（发生过切歌/复位）= 该 seek 属于
   // 上一首歌，绝不应用到新流（新歌从 0 开始播）
-  if (self.pendingSeekGeneration != self.playbackGeneration) {
+  if (pendingGeneration != self.playbackGeneration) {
     self.seekRequested = NO;
+    [self.seekStateLock unlock];
     return;
   }
 
-  double clampedPosition = self.duration > 0
-    ? LXClampDouble(self.pendingSeekPosition, 0, self.duration)
-    : MAX(self.pendingSeekPosition, 0);
-  int64_t targetFrame = (int64_t)llround(clampedPosition * self.sampleRate);
+  double clampedPosition = duration > 0
+    ? LXClampDouble(pendingPosition, 0, duration)
+    : MAX(pendingPosition, 0);
+  int64_t targetFrame = MAX((int64_t)0, (int64_t)llround(clampedPosition * sampleRate));
 
   self.seekRequested = NO;
-  self.seekTargetFrame = MAX((int64_t)0, targetFrame);
-  self.seekInProgress = self.seekTargetFrame > 0;
+  self.seekTargetFrame = targetFrame;
+  self.seekInProgress = targetFrame > 0;
+  [self.seekStateLock unlock];
   self.decodedFramesCursor = 0;
 
   [self.streamCondition lock];
@@ -3878,8 +3955,10 @@ RCT_EXPORT_MODULE();
     [self updatePlaybackGenerationLocked];
     [self resetRealtimeRenderStateLocked];
     [self rebuildRealtimeProcessorsLocked];
-    self.completedFrames = self.seekTargetFrame;
-    self.playbackAnchorFrame = self.seekTargetFrame;
+    // 6-G64: 用锁内算好的 targetFrame 局部量，不再重读 self.seekTargetFrame
+    // （该读在锁外；值与刚置位的一致）。
+    self.completedFrames = targetFrame;
+    self.playbackAnchorFrame = targetFrame;
     self.lastKnownPosition = clampedPosition;
     self.playbackStarted = NO;
   });
@@ -3900,9 +3979,15 @@ RCT_EXPORT_MODULE();
   }
   double scale = self.bitsPerSample > 1 ? ldexp(1.0, (int)self.bitsPerSample - 1) : 1.0;
   if (scale <= 0) scale = 1.0;
-  for (NSUInteger channel = 0; channel < self.channels; channel++) {
+  // 6-G65: 帧头声道数可与 STREAMINFO 不一致（变声道/损坏流；libFLAC 只为
+  // 帧头声道数分配 output[]，其余项为 NULL）。拷贝上界取两者最小，NULL 声道
+  // 跳过（pcmChannels 预填 0，缺失声道即补零），避免空指针解引用。
+  const NSUInteger copyChannels = MIN(self.channels, (NSUInteger)frame->header.channels);
+  for (NSUInteger channel = 0; channel < copyChannels; channel++) {
+    const FLAC__int32 *channelBuffer = decodedBuffer[channel];
+    if (channelBuffer == NULL) continue;
     for (NSUInteger sample = 0; sample < playableFrames; sample++) {
-      FLAC__int32 value = decodedBuffer[channel][sample + startOffset];
+      FLAC__int32 value = channelBuffer[sample + startOffset];
       double normalized = LXClampDouble((double)value / scale, -1.0, 1.0);
       pcmChannels[channel][sample] = (float)normalized;
     }
@@ -4220,10 +4305,14 @@ RCT_REMAP_METHOD(seekTo, seekToStream:(nonnull NSNumber *)position resolver:(RCT
     return;
   }
 
+  // 6-G64: 登记三元组持 seekStateLock（与 decoderQueue 的应用同锁）；
+  // seekInProgress 不再此处置位——只由 decoderQueue 的 applyPendingSeekIfNeeded
+  // 在更新 seekTargetFrame 后统一置位，否则 handleFrame 会拿旧目标跳帧。
+  [self.seekStateLock lock];
   self.pendingSeekPosition = requestedPosition;
   self.pendingSeekGeneration = self.playbackGeneration;
   self.seekRequested = YES;
-  self.seekInProgress = self.sampleRate > 0 && requestedPosition > 0;
+  [self.seekStateLock unlock];
   self.currentState = self.manualPause ? @"paused" : @"buffering";
   // seek 生效窗口冻结控制中心/灵动岛/锁屏歌词时钟（对齐上游 waiting→lrc.pause）。
   // nativeFlac 的 emitState 只发 JS 桥、原生时钟收不到生命周期事件（AVPlayer 路径
@@ -4379,14 +4468,22 @@ RCT_REMAP_METHOD(getState, getStreamStateWithResolver:(RCTPromiseResolveBlock)re
   NSUInteger startOffset = 0;
   self.decodedFramesCursor = frameEnd;
 
+  // 6-G64: 跳帧判定与 seekInProgress 清除持 seekStateLock（与
+  // applyPendingSeekIfNeeded 的置位同锁），读到的 seekTargetFrame 与
+  // seekInProgress 必然是同一轮应用的结果。
+  [self.seekStateLock lock];
   if (self.seekInProgress) {
-    if (frameEnd <= self.seekTargetFrame) return FLAC__STREAM_DECODER_WRITE_STATUS_CONTINUE;
+    if (frameEnd <= self.seekTargetFrame) {
+      [self.seekStateLock unlock];
+      return FLAC__STREAM_DECODER_WRITE_STATUS_CONTINUE;
+    }
     if (self.seekTargetFrame > frameStart) startOffset = (NSUInteger)(self.seekTargetFrame - frameStart);
     self.seekInProgress = NO;
   }
+  [self.seekStateLock unlock];
 
   [self waitForBufferCapacityIfNeeded];
-  if (self.stopRequested || self.seekRequested) return FLAC__STREAM_DECODER_WRITE_STATUS_CONTINUE;
+  if (self.stopRequested || [self hasPendingSeek]) return FLAC__STREAM_DECODER_WRITE_STATUS_CONTINUE;
 
   [self schedulePCMBufferWithFrame:frame buffer:decodedBuffer startOffset:startOffset];
   return self.streamError == nil ? FLAC__STREAM_DECODER_WRITE_STATUS_CONTINUE : FLAC__STREAM_DECODER_WRITE_STATUS_ABORT;
@@ -4947,8 +5044,13 @@ RCT_EXPORT_MODULE();
 
   context[@"__lx_native_call__set_timeout"] = ^id(NSNumber *identifier, NSNumber *timeout) {
     dispatch_queue_t queue = weakSelf.scriptQueue;
+    // 6-G69: 注册时捕获当前 scriptKey；dispatch_after 不可取消，脚本重载后
+    // 旧定时器到期时 key 已变（destroy 后为 nil），校验失败即丢弃，不再误触
+    // 发新脚本同编号定时器的回调（preload 每上下文 timeoutId 都从 0 递增）。
+    NSString *scheduledKey = [weakSelf.scriptKey copy];
     if (queue == nil) return nil;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(MAX(timeout.doubleValue, 0) * NSEC_PER_MSEC)), queue, ^{
+      if (scheduledKey == nil || ![scheduledKey isEqualToString:weakSelf.scriptKey]) return;
       [weakSelf callJSAction:@"__set_timeout__" data:identifier ?: @0];
     });
     return nil;
