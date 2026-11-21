@@ -78,6 +78,12 @@ export const buildActiveThemeColors = (theme: LX.Theme): LX.ActiveTheme => {
     if (bgImage && !isUrl(bgImage) && !bgImage.startsWith(privateStorageDirectoryPath)) {
       extInfo['bg-image'] = `${privateStorageDirectoryPath}/theme_images/${bgImage}`
     }
+    // Bug 61：自定义主题此前从未给 bgImg 赋值，对象字面量里 'bg-image': bgImg
+    // （undefined）在 ...extInfo 之后，把已拼好的路径字符串覆盖掉；且裸字符串
+    // 不是合法 ImageSourcePropType。URL 与本地路径一律包 { uri }
+    if (extInfo['bg-image']) {
+      bgImg = { uri: extInfo['bg-image'] }
+    }
   } else {
     if (extInfo['bg-image']) {
       bgImg = BG_IMAGES[extInfo['bg-image']]

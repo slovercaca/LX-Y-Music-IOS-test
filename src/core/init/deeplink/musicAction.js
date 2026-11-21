@@ -41,6 +41,9 @@ import { addTempPlayList } from '@/core/player/tempPlayList'
 // }
 
 const filterInfoByPlayMusic = (musicInfo) => {
+  // Bug 9：JSON 解析失败时 handleLinkAction 会 delete params.data，musicInfo
+  // 为 undefined 时 switch 直接抛原始 TypeError——先判空抛规范化错误。
+  if (musicInfo == null) throw new Error('musicInfo missing')
   switch (musicInfo.source) {
     case 'kw':
       musicInfo = dataVerify(

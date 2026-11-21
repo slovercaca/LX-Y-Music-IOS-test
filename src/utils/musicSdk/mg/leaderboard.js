@@ -235,6 +235,10 @@ export default {
     if (typeof id == 'string') id = id.replace('mg__', '')
     for (const item of boardList) {
       if (item.bangid == id) {
+        // Bug 41：现行 boardList 各项已无 webId（只存在于被注释掉的旧榜单），
+        // 直接拼接会产出 .../top/undefined 坏链；缺失时返回 null（与无命中同口径）。
+        // 注意 webId 是英文 slug（如 jianjiao_newsong），不能拿数字 bangid 代拼。
+        if (!item.webId) return null
         return `https://music.migu.cn/v3/music/top/${item.webId}`
       }
     }

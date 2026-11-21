@@ -72,6 +72,11 @@ const rotateToWorkingProfile = async(fromName: string): Promise<WebDAVServerProf
   const candidates = await getFailoverCandidates()
   for (const candidate of candidates) {
     try {
+      // Bug 27：每次尝试候选前先把 path 重置为快照值——带 path 的候选
+      // 试连失败后 path 已被改写，随后无 path 的老配置 apply 时按
+      // 「无 path 保留当前 path」会残留上一个候选的目录，同步写错地方。
+      // 走 store 直写不标脏，与末尾全部失败时的回滚同口径。
+      settingActions.updateSetting({ 'sync.webdav.path': snapshot['sync.webdav.path'] })
       // 全量修复：轮换中候选被删时 apply 返回 null，此前代码仍继续
       // testConnection，测的是上一台服务器，测通就谎报“已切换到已删
       // 的候选”。apply 为 null 直接试下一个，不谎报、不回写错误状态。

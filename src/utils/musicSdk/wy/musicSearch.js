@@ -253,12 +253,14 @@ export default {
 
   handleAlbumResult(rawList) {
     if (!rawList) return []
-    return rawList.map(item => ({
+    // Bug 45：合辑/无歌手专辑的 artist 为 null 时整页搜索在 .map 内崩溃；
+    // 顺带滤掉 null 条目（item 本身为 null 时 item.id 同样抛）。
+    return rawList.filter(item => item != null).map(item => ({
       id: item.id,
       name: item.name,
       picUrl: item.picUrl,
-      artistName: item.artist.name,
-      artistId: item.artist.id,
+      artistName: item.artist?.name ?? '',
+      artistId: item.artist?.id ?? '',
       size: item.size,
       publishTime: item.publishTime,
       source: 'wy',

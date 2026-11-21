@@ -21,16 +21,20 @@ export const buildUserListInfoFull = ({
 }
 
 export const getLocalListData = async(): Promise<LX.Sync.List.ListData> => {
+  // Bug 31：请求前快照 userLists——它是模块级可变数组，getListMusics
+  // 异步等待期间增删/重排歌单会让 .then 里重读的 userLists 与
+  // Promise.all 结果下标错位，错配的歌单数据会发给对端设备。
+  const lists = [...userLists]
   return Promise.all([
     getListMusics(LIST_IDS.DEFAULT),
     getListMusics(LIST_IDS.LOVE),
 
-    ...userLists.map(async(l) => getListMusics(l.id)),
+    ...lists.map(async(l) => getListMusics(l.id)),
   ]).then(([defaultList, loveList, ...userList]) => {
     return {
       defaultList,
       loveList,
-      userList: userLists.map((l, i) => buildUserListInfoFull({ ...l, list: userList[i] })),
+      userList: lists.map((l, i) => buildUserListInfoFull({ ...l, list: userList[i] })),
     }
   })
 }

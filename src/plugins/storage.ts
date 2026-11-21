@@ -9,7 +9,10 @@ const keySplit = ','
 const limit = 500000
 
 const buildData = (key: string, value: any, datas: Array<[string, string]>) => {
-  let valueStr = JSON.stringify(value)
+  // Bug 48：JSON.stringify(undefined/function/symbol) 返回 undefined（非字符串），
+  // 下方 .length 必抛 TypeError 并经 saveData/saveDataMultiple 继续向上传播；
+  // 兜底 'null'，读回时 getData 返回 null，与键缺失一致。
+  const valueStr = JSON.stringify(value) ?? 'null'
   if (valueStr.length <= limit) {
     datas.push([key, valueStr])
     return
